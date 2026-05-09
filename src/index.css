@@ -1,0 +1,123 @@
+:root {
+  --bg-deep: #0a0b0f;
+  --bg-surface: #14161f;
+  --bg-card: #1c1f2b;
+  --bg-card-hover: #252938;
+  
+  --primary: #00f2ff;
+  --primary-glow: rgba(0, 242, 255, 0.3);
+  --secondary: #7000ff;
+  
+  --success: #00ff88;
+  --success-glow: rgba(0, 255, 136, 0.2);
+  --danger: #ff3e3e;
+  --danger-glow: rgba(255, 62, 62, 0.2);
+  --warning: #ffb800;
+  
+  --text-primary: #ffffff;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  
+  --border: rgba(255, 255, 255, 0.08);
+  --border-bright: rgba(255, 255, 255, 0.15);
+  
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  
+  --shadow-sm: 0 2px 4px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.5);
+  --shadow-lg: 0 12px 24px rgba(0,0,0,0.6);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-deep);
+  color: var(--text-primary);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* Glassmorphism Classes */
+.glass-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+}
+
+.glass-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: all 0.2s ease;
+}
+
+.glass-card:hover {
+  border-color: var(--border-bright);
+  background: var(--bg-card-hover);
+  transform: translateY(-2px);
+}
+
+/* Layout Utilities */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 350px;
+  grid-template-rows: auto 1fr;
+  gap: 16px;
+  padding: 16px;
+  height: 100vh;
+}
+
+.main-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Typography */
+h1, h2, h3 {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-deep);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Animations */
+@keyframes pulse {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.05); opacity: 0.8; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-pulse-subtle {
+  animation: pulse 2s infinite ease-in-out;
+}

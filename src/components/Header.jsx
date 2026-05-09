@@ -9,7 +9,6 @@ const Header = ({ activeSymbol, setActiveSymbol }) => {
     return () => clearInterval(timer);
   }, []);
 
-  const [isMuted, setIsMuted] = React.useState(false);
 
   return (
     <header className="glass-panel" style={{ padding: '12px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>

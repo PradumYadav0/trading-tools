@@ -51,7 +51,7 @@ const Sidebar = () => {
         <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px' }}>CONNECTION STATUS</p>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div style={{ width: '8px', height: '8px', background: 'var(--success)', borderRadius: '50%' }}></div>
-          <span style={{ fontSize: '12px', fontWeight: 600 }}>KOTAK NEO LIVE</span>
+          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--warning)' }}>KOTAK NEO (PENDING)</span>
         </div>
       </div>
       {/* Win-Rate Tracker Widget */}

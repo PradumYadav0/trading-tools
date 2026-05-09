@@ -6,6 +6,16 @@ const Settings = () => {
   const [risk, setRisk] = useState(localStorage.getItem('trading_risk') || '2');
   const [goal, setGoal] = useState(localStorage.getItem('trading_goal') || '2000');
   const [saved, setSaved] = useState(false);
+  
+  // Kotak Neo States
+  const [kotakCreds, setKotakCreds] = useState({
+    consumerKey: '',
+    consumerSecret: '',
+    neoId: ''
+  });
+  const [totp, setTotp] = useState('');
+  const [loginStep, setLoginStep] = useState(1); // 1: Login, 2: TOTP
+  const [loading, setLoading] = useState(false);
 
   const handleSave = () => {
     localStorage.setItem('trading_capital', capital);
@@ -13,6 +23,48 @@ const Settings = () => {
     localStorage.setItem('trading_goal', goal);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleKotakLogin = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('http://localhost:5000/api/kotak/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(kotakCreds)
+      });
+      const result = await response.json();
+      if (result.success) {
+        setLoginStep(2);
+        alert('Login Step 1 Successful! Please enter TOTP.');
+      } else {
+        alert('Login Failed: ' + result.error);
+      }
+    } catch (error) {
+      alert('Error connecting to backend.');
+    }
+    setLoading(false);
+  };
+
+  const handleValidateTOTP = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('http://localhost:5000/api/kotak/validate-totp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ totp })
+      });
+      const result = await response.json();
+      if (result.success) {
+        alert('Account Linked Successfully!');
+        setLoginStep(1);
+      } else {
+        alert('TOTP Validation Failed.');
+      }
+    } catch (error) {
+      alert('Error connecting to backend.');
+    }
+    setLoading(false);
   };
 
   return (
@@ -69,6 +121,82 @@ const Settings = () => {
              <Save size={18} />
              {saved ? 'SETTINGS SAVED!' : 'SAVE CONFIGURATION'}
            </button>
+        </div>
+
+        <div className="glass-panel" style={{ padding: '30px' }}>
+           <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <Shield size={20} color="var(--primary)" />
+              BROKER INTEGRATION (KOTAK NEO)
+           </h3>
+           <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+              {loginStep === 1 ? (
+                <>
+                  <div>
+                    <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>CONSUMER KEY</label>
+                    <input 
+                      type="password" 
+                      placeholder="Enter Consumer Key" 
+                      value={kotakCreds.consumerKey}
+                      onChange={(e) => setKotakCreds({...kotakCreds, consumerKey: e.target.value})}
+                      style={{ width: '100%', padding: '10px', marginTop: '5px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: '6px', color: 'white' }} 
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>CONSUMER SECRET</label>
+                    <input 
+                      type="password" 
+                      placeholder="Enter Consumer Secret" 
+                      value={kotakCreds.consumerSecret}
+                      onChange={(e) => setKotakCreds({...kotakCreds, consumerSecret: e.target.value})}
+                      style={{ width: '100%', padding: '10px', marginTop: '5px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: '6px', color: 'white' }} 
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>NEO ID / MOBILE</label>
+                    <input 
+                      type="text" 
+                      placeholder="Enter Neo ID" 
+                      value={kotakCreds.neoId}
+                      onChange={(e) => setKotakCreds({...kotakCreds, neoId: e.target.value})}
+                      style={{ width: '100%', padding: '10px', marginTop: '5px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: '6px', color: 'white' }} 
+                    />
+                  </div>
+                  <button 
+                    onClick={handleKotakLogin}
+                    disabled={loading}
+                    style={{ padding: '10px', background: 'rgba(0, 255, 136, 0.1)', border: '1px solid var(--primary)', borderRadius: '6px', color: 'var(--primary)', fontWeight: 700, cursor: 'pointer' }}>
+                    {loading ? 'PROCESSING...' : 'LINK KOTAK NEO ACCOUNT'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>ENTER TOTP (from Authenticator App)</label>
+                    <input 
+                      type="text" 
+                      placeholder="6-digit TOTP" 
+                      value={totp}
+                      onChange={(e) => setTotp(e.target.value)}
+                      style={{ width: '100%', padding: '10px', marginTop: '5px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: '6px', color: 'white', textAlign: 'center', fontSize: '20px', letterSpacing: '8px' }} 
+                    />
+                  </div>
+                  <button 
+                    onClick={handleValidateTOTP}
+                    disabled={loading}
+                    style={{ padding: '10px', background: 'var(--primary)', border: 'none', borderRadius: '6px', color: 'black', fontWeight: 900, cursor: 'pointer' }}>
+                    {loading ? 'VALIDATING...' : 'VALIDATE & COMPLETE'}
+                  </button>
+                  <button 
+                    onClick={() => setLoginStep(1)}
+                    style={{ padding: '10px', background: 'transparent', border: '1px solid var(--border)', borderRadius: '6px', color: 'white', cursor: 'pointer' }}>
+                    BACK TO LOGIN
+                  </button>
+                </>
+              )}
+              <p style={{ fontSize: '10px', color: 'var(--warning)', fontStyle: 'italic' }}>
+                 *API credentials are encrypted and stored locally.
+              </p>
+           </div>
         </div>
 
         <div className="glass-panel" style={{ padding: '30px', background: 'rgba(255,255,255,0.02)' }}>

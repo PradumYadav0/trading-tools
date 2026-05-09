@@ -22,12 +22,6 @@ function App() {
         setMarketData(response.data);
         setLoading(false);
 
-        // Voice Alert Logic
-        if (response.data.signals.type !== 'NONE') {
-          const message = `New ${activeSymbol} signal. Buy ${response.data.signals.strike}.`;
-          const speech = new SpeechSynthesisUtterance(message);
-          window.speechSynthesis.speak(speech);
-        }
       } catch (error) {
         console.error('Error fetching data:', error);
       }

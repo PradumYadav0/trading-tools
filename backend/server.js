@@ -2,6 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const axios = require('axios');
+const kotakNeo = require('./services/kotakNeoService');
+
 
 dotenv.config();
 const app = express();
@@ -58,6 +60,38 @@ app.post('/api/ai-insights', async (req, res) => {
   }
 
   res.json({ insight });
+});
+
+// Kotak Neo Login Endpoint
+app.post('/api/kotak/login', async (req, res) => {
+    try {
+        const result = await kotakNeo.login();
+        res.json({ success: true, data: result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Kotak Neo TOTP Validation
+app.post('/api/kotak/validate-totp', async (req, res) => {
+    const { totp } = req.body;
+    try {
+        const token = await kotakNeo.validateTOTP(totp);
+        res.json({ success: true, token });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Real Market Data (Optional if connected)
+app.get('/api/kotak/quotes', async (req, res) => {
+    const { symbols } = req.query;
+    try {
+        const quotes = await kotakNeo.getQuotes(symbols.split(','));
+        res.json({ success: true, data: quotes });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 app.listen(PORT, () => {

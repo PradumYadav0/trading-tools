@@ -33,6 +33,24 @@ const FullOptionChain = ({ activeSymbol }) => {
   const formatLakhs = (val) => (val / 100000).toFixed(1) + 'L';
   const formatK = (val) => (val / 1000).toFixed(1) + 'K';
 
+  // Find ATM strike and max OI/Volume
+  let closestStrike = strikes[0]?.strike;
+  let minDiff = Infinity;
+  let maxCeOi = 0; let maxPeOi = 0;
+  let maxCeVol = 0; let maxPeVol = 0;
+
+  strikes.forEach(s => {
+    const diff = Math.abs(s.strike - spotPrice);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closestStrike = s.strike;
+    }
+    if (s.CE.oi > maxCeOi) maxCeOi = s.CE.oi;
+    if (s.PE.oi > maxPeOi) maxPeOi = s.PE.oi;
+    if (s.CE.volume > maxCeVol) maxCeVol = s.CE.volume;
+    if (s.PE.volume > maxPeVol) maxPeVol = s.PE.volume;
+  });
+
   return (
     <div className="glass-panel" style={{ padding: '0', overflowX: 'auto', border: '1px solid var(--primary-glow)' }}>
       <div style={{ minWidth: '1000px' }}>
@@ -65,9 +83,14 @@ const FullOptionChain = ({ activeSymbol }) => {
         {/* Rows */}
         <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
           {strikes.map((s, idx) => {
-            const isATM = s.strike === spotPrice;
+            const isATM = s.strike === closestStrike;
             const isITM_CE = s.strike < spotPrice;
             const isITM_PE = s.strike > spotPrice;
+
+            const isMaxCeOi = s.CE.oi === maxCeOi && maxCeOi > 0;
+            const isMaxPeOi = s.PE.oi === maxPeOi && maxPeOi > 0;
+            const isMaxCeVol = s.CE.volume === maxCeVol && maxCeVol > 0;
+            const isMaxPeVol = s.PE.volume === maxPeVol && maxPeVol > 0;
 
             return (
               <div key={idx} style={{ 
@@ -75,38 +98,48 @@ const FullOptionChain = ({ activeSymbol }) => {
                 gridTemplateColumns: 'repeat(17, 1fr)', 
                 padding: '12px 6px', 
                 borderBottom: '1px solid rgba(255,255,255,0.02)',
-                background: isATM ? 'rgba(0, 255, 255, 0.15)' : 'transparent',
-                borderTop: isATM ? '1px solid var(--primary)' : 'none',
-                borderBottom2: isATM ? '1px solid var(--primary)' : 'none',
+                background: isATM ? 'rgba(0, 255, 136, 0.2)' : 'transparent',
+                borderTop: isATM ? '2px solid var(--primary)' : 'none',
+                borderBottom2: isATM ? '2px solid var(--primary)' : 'none',
                 transition: 'background 0.2s ease',
                 position: 'relative',
                 alignItems: 'center'
               }} className="hover-highlight">
                 
                 {/* Call Side (Left) */}
-                <div style={{ textAlign: 'center', fontSize: '9px', color: 'var(--text-muted)', background: isITM_CE ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.CE.vega}</div>
-                <div style={{ textAlign: 'center', fontSize: '9px', color: 'var(--text-muted)', background: isITM_CE ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.CE.gamma}</div>
-                <div style={{ textAlign: 'center', fontSize: '9px', color: 'var(--danger)', background: isITM_CE ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.CE.theta}</div>
-                <div style={{ textAlign: 'center', fontSize: '10px', color: 'var(--primary)', fontWeight: 600, background: isITM_CE ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.CE.delta}</div>
-                <div style={{ textAlign: 'center', fontSize: '10px', color: 'var(--warning)', background: isITM_CE ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.CE.iv}</div>
-                <div style={{ textAlign: 'center', fontSize: '10px', color: 'var(--text-muted)', background: isITM_CE ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{formatK(s.CE.volume)}</div>
-                <div style={{ textAlign: 'center', fontSize: '11px', fontWeight: 600, color: 'white', background: isITM_CE ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{formatLakhs(s.CE.oi)}</div>
-                <div style={{ textAlign: 'center', fontSize: '13px', color: 'var(--danger)', fontWeight: 800, background: isITM_CE ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.CE.ltp}</div>
+                <div style={{ textAlign: 'center', fontSize: '9px', color: 'var(--text-muted)', background: isITM_CE && !isATM ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.CE.vega}</div>
+                <div style={{ textAlign: 'center', fontSize: '9px', color: 'var(--text-muted)', background: isITM_CE && !isATM ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.CE.gamma}</div>
+                <div style={{ textAlign: 'center', fontSize: '9px', color: 'var(--danger)', background: isITM_CE && !isATM ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.CE.theta}</div>
+                <div style={{ textAlign: 'center', fontSize: '10px', color: 'var(--primary)', fontWeight: 600, background: isITM_CE && !isATM ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.CE.delta}</div>
+                <div style={{ textAlign: 'center', fontSize: '10px', color: 'var(--warning)', background: isITM_CE && !isATM ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.CE.iv}</div>
+                
+                {/* CE Vol */}
+                <div style={{ textAlign: 'center', fontSize: '10px', color: isMaxCeVol ? '#000' : 'var(--text-muted)', background: isMaxCeVol ? '#00ff88' : (isITM_CE && !isATM ? 'rgba(255,255,0,0.03)' : 'transparent'), fontWeight: isMaxCeVol ? 900 : 400, borderRadius: isMaxCeVol ? '4px' : '0' }}>{formatK(s.CE.volume)}</div>
+                
+                {/* CE OI */}
+                <div style={{ textAlign: 'center', fontSize: '11px', fontWeight: isMaxCeOi ? 900 : 600, color: isMaxCeOi ? '#fff' : 'white', background: isMaxCeOi ? '#ff3b30' : (isITM_CE && !isATM ? 'rgba(255,255,0,0.03)' : 'transparent'), border: isMaxCeOi ? '1px solid #ff3b30' : 'none', borderRadius: isMaxCeOi ? '4px' : '0' }}>{formatLakhs(s.CE.oi)}</div>
+                
+                <div style={{ textAlign: 'center', fontSize: '13px', color: 'var(--danger)', fontWeight: 800, background: isITM_CE && !isATM ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.CE.ltp}</div>
                 
                 {/* Strike (Center) */}
-                <div style={{ textAlign: 'center', fontSize: '14px', fontWeight: 900, color: 'var(--primary)', background: 'rgba(0, 255, 136, 0.08)', borderRadius: '4px', padding: '4px 0' }}>
+                <div style={{ textAlign: 'center', fontSize: '14px', fontWeight: 900, color: isATM ? '#000' : 'var(--primary)', background: isATM ? 'var(--primary)' : 'rgba(0, 255, 136, 0.08)', borderRadius: '4px', padding: '4px 0', boxShadow: isATM ? '0 0 15px var(--primary)' : 'none' }}>
                   {s.strike}
                 </div>
                 
                 {/* Put Side (Right) */}
-                <div style={{ textAlign: 'center', fontSize: '13px', color: 'var(--success)', fontWeight: 800, background: isITM_PE ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.PE.ltp}</div>
-                <div style={{ textAlign: 'center', fontSize: '11px', fontWeight: 600, color: 'white', background: isITM_PE ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{formatLakhs(s.PE.oi)}</div>
-                <div style={{ textAlign: 'center', fontSize: '10px', color: 'var(--text-muted)', background: isITM_PE ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{formatK(s.PE.volume)}</div>
-                <div style={{ textAlign: 'center', fontSize: '10px', color: 'var(--warning)', background: isITM_PE ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.PE.iv}</div>
-                <div style={{ textAlign: 'center', fontSize: '10px', color: 'var(--primary)', fontWeight: 600, background: isITM_PE ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.PE.delta}</div>
-                <div style={{ textAlign: 'center', fontSize: '9px', color: 'var(--danger)', background: isITM_PE ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.PE.theta}</div>
-                <div style={{ textAlign: 'center', fontSize: '9px', color: 'var(--text-muted)', background: isITM_PE ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.PE.gamma}</div>
-                <div style={{ textAlign: 'center', fontSize: '9px', color: 'var(--text-muted)', background: isITM_PE ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.PE.vega}</div>
+                <div style={{ textAlign: 'center', fontSize: '13px', color: 'var(--success)', fontWeight: 800, background: isITM_PE && !isATM ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.PE.ltp}</div>
+                
+                {/* PE OI */}
+                <div style={{ textAlign: 'center', fontSize: '11px', fontWeight: isMaxPeOi ? 900 : 600, color: isMaxPeOi ? '#fff' : 'white', background: isMaxPeOi ? '#ff3b30' : (isITM_PE && !isATM ? 'rgba(255,255,0,0.03)' : 'transparent'), border: isMaxPeOi ? '1px solid #ff3b30' : 'none', borderRadius: isMaxPeOi ? '4px' : '0' }}>{formatLakhs(s.PE.oi)}</div>
+                
+                {/* PE Vol */}
+                <div style={{ textAlign: 'center', fontSize: '10px', color: isMaxPeVol ? '#000' : 'var(--text-muted)', background: isMaxPeVol ? '#00ff88' : (isITM_PE && !isATM ? 'rgba(255,255,0,0.03)' : 'transparent'), fontWeight: isMaxPeVol ? 900 : 400, borderRadius: isMaxPeVol ? '4px' : '0' }}>{formatK(s.PE.volume)}</div>
+                
+                <div style={{ textAlign: 'center', fontSize: '10px', color: 'var(--warning)', background: isITM_PE && !isATM ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.PE.iv}</div>
+                <div style={{ textAlign: 'center', fontSize: '10px', color: 'var(--primary)', fontWeight: 600, background: isITM_PE && !isATM ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.PE.delta}</div>
+                <div style={{ textAlign: 'center', fontSize: '9px', color: 'var(--danger)', background: isITM_PE && !isATM ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.PE.theta}</div>
+                <div style={{ textAlign: 'center', fontSize: '9px', color: 'var(--text-muted)', background: isITM_PE && !isATM ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.PE.gamma}</div>
+                <div style={{ textAlign: 'center', fontSize: '9px', color: 'var(--text-muted)', background: isITM_PE && !isATM ? 'rgba(255,255,0,0.03)' : 'transparent' }}>{s.PE.vega}</div>
               </div>
             );
           })}

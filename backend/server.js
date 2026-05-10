@@ -82,7 +82,7 @@ app.get('/api/option-chain', async (req, res) => {
   // If market is closed or Kotak not mapped yet, show frozen framework 
   // (We don't use Math.random() so it stays frozen, and we don't use NSE so there's no delay data)
   if (options.length === 0) {
-      for (let i = -12; i <= 12; i++) {
+      for (let i = -25; i <= 25; i++) {
         const strike = basePrice + (i * step);
         options.push({
           strike: strike,

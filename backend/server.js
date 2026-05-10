@@ -47,6 +47,60 @@ app.get('/api/market-data', (req, res) => {
   res.json(data);
 });
 
+// Option Chain Endpoint with Greeks
+app.get('/api/option-chain', async (req, res) => {
+  const { symbol, expiry } = req.query;
+  const isBN = symbol === 'BANKNIFTY';
+  const basePrice = isBN ? 48200 : 22400;
+  const step = isBN ? 100 : 50;
+  
+  const options = [];
+  
+  // Create 11 Strike Prices (5 ITM, 1 ATM, 5 OTM)
+  for (let i = -5; i <= 5; i++) {
+    const strike = basePrice + (i * step);
+    
+    // Simulate Data for Call (CE)
+    const ceLtp = Math.max(0.05, (basePrice - strike + 200) + (Math.random() * 20));
+    const ceIV = (12 + Math.random() * 5).toFixed(2);
+    
+    // Simulate Data for Put (PE)
+    const peLtp = Math.max(0.05, (strike - basePrice + 200) + (Math.random() * 20));
+    const peIV = (14 + Math.random() * 5).toFixed(2);
+
+    options.push({
+      strike: strike,
+      CE: {
+        ltp: ceLtp.toFixed(2),
+        oi: Math.floor(Math.random() * 5000000),
+        volume: Math.floor(Math.random() * 1000000),
+        iv: ceIV,
+        delta: (0.5 - (i * 0.1)).toFixed(2),
+        theta: (-5 - Math.random() * 2).toFixed(2),
+        gamma: (0.002 + Math.random() * 0.001).toFixed(4),
+        vega: (10 + Math.random() * 2).toFixed(2)
+      },
+      PE: {
+        ltp: peLtp.toFixed(2),
+        oi: Math.floor(Math.random() * 4500000),
+        volume: Math.floor(Math.random() * 900000),
+        iv: peIV,
+        delta: (-0.5 - (i * 0.1)).toFixed(2),
+        theta: (-4.5 - Math.random() * 2).toFixed(2),
+        gamma: (0.002 + Math.random() * 0.001).toFixed(4),
+        vega: (10 + Math.random() * 2).toFixed(2)
+      }
+    });
+  }
+
+  res.json({
+    success: true,
+    symbol: symbol || 'NIFTY',
+    spotPrice: basePrice,
+    data: options
+  });
+});
+
 // AI Insights Endpoint (Future Gemini Integration)
 app.post('/api/ai-insights', async (req, res) => {
   const { symbol, data } = req.body;

@@ -25,6 +25,12 @@ jobs:
               git clone https://github.com/PradumYadav0/trading-tools.git $HOME/trading-tools
             fi
             cd $HOME/trading-tools
+            
+            # Forcefully remove the untracked DB file and clean up before pulling
+            rm -f backend/market_data.db
+            git reset --hard
+            git clean -fd
+            
             git pull origin main
             
             # Install frontend dependencies and build

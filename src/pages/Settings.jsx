@@ -14,7 +14,7 @@ const Settings = () => {
     neoId: ''
   });
   const [totp, setTotp] = useState('');
-  const [loginStep, setLoginStep] = useState(1); // 1: Login, 2: TOTP
+  const [loginStep, setLoginStep] = useState(parseInt(sessionStorage.getItem('kotak_login_step')) || 1); 
   const [loading, setLoading] = useState(false);
 
   const handleSave = () => {
@@ -57,6 +57,7 @@ const Settings = () => {
       const result = await response.json();
       if (result.success) {
         alert('Account Linked Successfully!');
+        sessionStorage.setItem('kotak_login_step', '3');
         setLoginStep(3); // 3 means Connected State
       } else {
         alert('TOTP Validation Failed.');

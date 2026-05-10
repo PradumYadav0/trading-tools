@@ -11,7 +11,7 @@ const ChartAnalysis = ({ activeSymbol, data }) => {
        if (activeSymbol === 'BANKNIFTY') {
          setAiInsight(`BankNifty is forming a strong base around the ${isBullish ? 'support' : 'resistance'} levels. The 5-minute chart shows a potential ${isBullish ? 'Double Bottom breakout' : 'Head and Shoulders breakdown'}. Smart money is ${isBullish ? 'accumulating' : 'distributing'} here.`);
        } else {
-         setAiInsight(`Nifty 50 chart structure is ${isBullish ? 'bullish' : 'bearish'}. We can see a clear trendline ${isBullish ? 'support holding strong' : 'resistance rejecting prices'}. Wait for the 15-minute candle to close before taking an entry.`);
+         setAiInsight(`Nifty 50 chart structure is ${isBullish ? 'bullish' : 'bearish'}. We can see a clear trendline ${isBullish ? 'support holding strong' : 'resistance rejecting prices'}. Wait for the 5-minute candle to close before taking a scalping entry.`);
        }
     }, 1500);
   }, [activeSymbol, data]);

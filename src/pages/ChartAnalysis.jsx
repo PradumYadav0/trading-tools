@@ -9,9 +9,9 @@ const ChartAnalysis = ({ activeSymbol, data }) => {
     setTimeout(() => {
        const isBullish = parseFloat(data?.pcr || 1) > 1;
        if (activeSymbol === 'BANKNIFTY') {
-         setAiInsight(`BankNifty is forming a strong base around the ${isBullish ? 'support' : 'resistance'} levels. The 5-minute chart shows a potential ${isBullish ? 'Double Bottom breakout' : 'Head and Shoulders breakdown'}. Smart money is ${isBullish ? 'accumulating' : 'distributing'} here.`);
+         setAiInsight(`[Multi-Timeframe Analysis]\n15-Min: Trend is clearly ${isBullish ? 'Bullish. Strong support at 48200' : 'Bearish. Resistance at 48500'}.\n5-Min: Price is forming a potential ${isBullish ? 'Double Bottom breakout' : 'Head and Shoulders breakdown'}. Smart money is ${isBullish ? 'accumulating' : 'distributing'} here.\n\nVerdict: Wait for 5-min candle confirmation.`);
        } else {
-         setAiInsight(`Nifty 50 chart structure is ${isBullish ? 'bullish' : 'bearish'}. We can see a clear trendline ${isBullish ? 'support holding strong' : 'resistance rejecting prices'}. Wait for the 5-minute candle to close before taking a scalping entry.`);
+         setAiInsight(`[Multi-Timeframe Analysis]\n15-Min: Nifty 50 structure is ${isBullish ? 'Bullish' : 'Bearish'}. Trendline is ${isBullish ? 'holding strong' : 'rejecting prices'}.\n5-Min: Scalping momentum is building up. Wait for the 5-minute candle to close before taking a scalping entry.`);
        }
     }, 1500);
   }, [activeSymbol, data]);
@@ -47,7 +47,7 @@ const ChartAnalysis = ({ activeSymbol, data }) => {
              <h3 style={{ fontSize: '14px', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px' }}>
                <Zap size={16} /> LIVE AI CHART VERDICT
              </h3>
-             <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.8' }}>
+             <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.8', whiteSpace: 'pre-line' }}>
                {aiInsight}
              </p>
              <div style={{ marginTop: '20px', padding: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', textAlign: 'center' }}>

@@ -16,9 +16,9 @@ const PORT = process.env.PORT || 5000;
 const getMockData = (symbol) => {
   const isBN = symbol === 'BANKNIFTY';
   const basePrice = isBN ? 48200 : 22400;
-  const randomMove = (Math.random() * 100 - 50);
+  const randomMove = 25.50; // Frozen value
   const currentPrice = basePrice + randomMove;
-  const pcr = (0.8 + Math.random() * 0.6).toFixed(2);
+  const pcr = 1.15;
   
   return {
     symbol,
@@ -61,34 +61,34 @@ app.get('/api/option-chain', async (req, res) => {
     const strike = basePrice + (i * step);
     
     // Simulate Data for Call (CE)
-    const ceLtp = Math.max(0.05, (basePrice - strike + 200) + (Math.random() * 20));
-    const ceIV = (12 + Math.random() * 5).toFixed(2);
+    const ceLtp = Math.max(0.05, (basePrice - strike + 200) + 10.5);
+    const ceIV = (14.2).toFixed(2);
     
     // Simulate Data for Put (PE)
-    const peLtp = Math.max(0.05, (strike - basePrice + 200) + (Math.random() * 20));
-    const peIV = (14 + Math.random() * 5).toFixed(2);
+    const peLtp = Math.max(0.05, (strike - basePrice + 200) + 12.3);
+    const peIV = (15.1).toFixed(2);
 
     options.push({
       strike: strike,
       CE: {
         ltp: ceLtp.toFixed(2),
-        oi: Math.floor(Math.random() * 5000000),
-        volume: Math.floor(Math.random() * 1000000),
+        oi: 1500000 + (i * 100000),
+        volume: 800000 + (i * 50000),
         iv: ceIV,
         delta: (0.5 - (i * 0.1)).toFixed(2),
-        theta: (-5 - Math.random() * 2).toFixed(2),
-        gamma: (0.002 + Math.random() * 0.001).toFixed(4),
-        vega: (10 + Math.random() * 2).toFixed(2)
+        theta: (-5.5).toFixed(2),
+        gamma: (0.0025).toFixed(4),
+        vega: (11.2).toFixed(2)
       },
       PE: {
         ltp: peLtp.toFixed(2),
-        oi: Math.floor(Math.random() * 4500000),
-        volume: Math.floor(Math.random() * 900000),
+        oi: 1400000 - (i * 80000),
+        volume: 750000 - (i * 40000),
         iv: peIV,
         delta: (-0.5 - (i * 0.1)).toFixed(2),
-        theta: (-4.5 - Math.random() * 2).toFixed(2),
-        gamma: (0.002 + Math.random() * 0.001).toFixed(4),
-        vega: (10 + Math.random() * 2).toFixed(2)
+        theta: (-4.8).toFixed(2),
+        gamma: (0.0028).toFixed(4),
+        vega: (10.9).toFixed(2)
       }
     });
   }

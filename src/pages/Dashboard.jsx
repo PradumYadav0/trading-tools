@@ -69,52 +69,66 @@ const Dashboard = ({ activeSymbol, marketData }) => {
       <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '20px' }}>
         
         {/* Smart Money / Operator Scanner */}
-        <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid #FF3B30', background: 'linear-gradient(90deg, rgba(255, 59, 48, 0.05) 0%, transparent 100%)' }}>
+        <div className="glass-panel" style={{ padding: '20px', borderLeft: marketData?.isMarketOpen ? '4px solid #FF3B30' : '4px solid var(--border)', background: marketData?.isMarketOpen ? 'linear-gradient(90deg, rgba(255, 59, 48, 0.05) 0%, transparent 100%)' : 'rgba(255,255,255,0.02)' }}>
            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-             <h3 style={{ fontSize: '15px', color: '#FF3B30', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+             <h3 style={{ fontSize: '15px', color: marketData?.isMarketOpen ? '#FF3B30' : 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
                <Activity size={18} /> SMART MONEY SCANNER (OPERATOR TRACKER)
              </h3>
-             <span style={{ fontSize: '10px', background: 'rgba(255, 59, 48, 0.2)', color: '#FF3B30', padding: '4px 8px', borderRadius: '4px', fontWeight: 800, animation: 'pulse 2s infinite' }}>LIVE</span>
+             {marketData?.isMarketOpen && <span style={{ fontSize: '10px', background: 'rgba(255, 59, 48, 0.2)', color: '#FF3B30', padding: '4px 8px', borderRadius: '4px', fontWeight: 800, animation: 'pulse 2s infinite' }}>LIVE</span>}
            </div>
            
-           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div className="glass-card" style={{ padding: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid rgba(255, 59, 48, 0.2)' }}>
-                 <div>
-                   <p style={{ fontSize: '12px', fontWeight: 700, color: 'white' }}>Huge {activeSymbol === 'BANKNIFTY' ? 'Call' : 'Put'} Selling Detected</p>
-                   <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>FIIs adding massive short positions at {activeSymbol === 'BANKNIFTY' ? '48500 CE' : '22300 PE'}</p>
-                 </div>
-                 <div style={{ textAlign: 'right' }}>
-                   <p style={{ fontSize: '14px', color: '#FF3B30', fontWeight: 900 }}>{activeSymbol === 'BANKNIFTY' ? '+15.2L' : '+8.5L'} OI</p>
-                   <p style={{ fontSize: '9px', color: 'var(--text-muted)' }}>in last 5 mins</p>
-                 </div>
-              </div>
-              <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '5px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                 <Zap size={12} color="var(--warning)" /> <strong>ACTION:</strong> {activeSymbol === 'BANKNIFTY' ? 'Operator is creating a strong resistance. Do not Buy Call.' : 'Support is breaking. Get ready for Put buying.'}
-              </p>
-           </div>
+           {marketData?.isMarketOpen ? (
+             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div className="glass-card" style={{ padding: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid rgba(255, 59, 48, 0.2)' }}>
+                   <div>
+                     <p style={{ fontSize: '12px', fontWeight: 700, color: 'white' }}>Huge {activeSymbol === 'BANKNIFTY' ? 'Call' : 'Put'} Selling Detected</p>
+                     <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>FIIs adding massive short positions at {activeSymbol === 'BANKNIFTY' ? '48500 CE' : '22300 PE'}</p>
+                   </div>
+                   <div style={{ textAlign: 'right' }}>
+                     <p style={{ fontSize: '14px', color: '#FF3B30', fontWeight: 900 }}>{activeSymbol === 'BANKNIFTY' ? '+15.2L' : '+8.5L'} OI</p>
+                     <p style={{ fontSize: '9px', color: 'var(--text-muted)' }}>in last 5 mins</p>
+                   </div>
+                </div>
+                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '5px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                   <Zap size={12} color="var(--warning)" /> <strong>ACTION:</strong> {activeSymbol === 'BANKNIFTY' ? 'Operator is creating a strong resistance. Do not Buy Call.' : 'Support is breaking. Get ready for Put buying.'}
+                </p>
+             </div>
+           ) : (
+             <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-muted)' }}>
+                <p style={{ fontSize: '14px', fontWeight: 600 }}>MARKET IS CLOSED</p>
+                <p style={{ fontSize: '11px', marginTop: '5px' }}>Live Institutional Operator Tracking will resume at 09:15 AM.</p>
+             </div>
+           )}
         </div>
 
         {/* Global News AI Sentiment */}
-        <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--primary)', background: 'linear-gradient(90deg, rgba(0, 255, 136, 0.05) 0%, transparent 100%)' }}>
-           <h3 style={{ fontSize: '15px', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px', margin: 0 }}>
+        <div className="glass-panel" style={{ padding: '20px', borderLeft: marketData?.isMarketOpen ? '4px solid var(--primary)' : '4px solid var(--border)', background: marketData?.isMarketOpen ? 'linear-gradient(90deg, rgba(0, 255, 136, 0.05) 0%, transparent 100%)' : 'rgba(255,255,255,0.02)' }}>
+           <h3 style={{ fontSize: '15px', color: marketData?.isMarketOpen ? 'var(--primary)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px', margin: 0 }}>
              <Zap size={18} /> NEWS SENTIMENT AI
            </h3>
-           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
-                 <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{activeSymbol === 'BANKNIFTY' ? 'HDFC Bank Q4 Results' : 'Dow Jones (US Market)'}</span>
-                 <span style={{ fontSize: '12px', color: 'var(--success)', fontWeight: 800 }}>{activeSymbol === 'BANKNIFTY' ? 'POSITIVE' : '+1.2% (BULLISH)'}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
-                 <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{activeSymbol === 'BANKNIFTY' ? 'RBI Rate Decision' : 'IT Sector Tech Earnings'}</span>
-                 <span style={{ fontSize: '12px', color: 'var(--warning)', fontWeight: 800 }}>NEUTRAL</span>
-              </div>
-              <div style={{ marginTop: '5px' }}>
-                 <p style={{ fontSize: '12px', fontWeight: 700 }}>AI Conclusion:</p>
-                 <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', fontStyle: 'italic' }}>
-                   "Global sentiment is positive. {activeSymbol} will likely see Gap-Up opening. Buy dips."
-                 </p>
-              </div>
-           </div>
+           {marketData?.isMarketOpen ? (
+             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+                   <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{activeSymbol === 'BANKNIFTY' ? 'HDFC Bank Q4 Results' : 'Dow Jones (US Market)'}</span>
+                   <span style={{ fontSize: '12px', color: 'var(--success)', fontWeight: 800 }}>{activeSymbol === 'BANKNIFTY' ? 'POSITIVE' : '+1.2% (BULLISH)'}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+                   <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{activeSymbol === 'BANKNIFTY' ? 'RBI Rate Decision' : 'IT Sector Tech Earnings'}</span>
+                   <span style={{ fontSize: '12px', color: 'var(--warning)', fontWeight: 800 }}>NEUTRAL</span>
+                </div>
+                <div style={{ marginTop: '5px' }}>
+                   <p style={{ fontSize: '12px', fontWeight: 700 }}>AI Conclusion:</p>
+                   <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', fontStyle: 'italic' }}>
+                     "Global sentiment is positive. {activeSymbol} will likely see Gap-Up opening. Buy dips."
+                   </p>
+                </div>
+             </div>
+           ) : (
+             <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-muted)' }}>
+                <p style={{ fontSize: '14px', fontWeight: 600 }}>NO ACTIVE ALERTS</p>
+                <p style={{ fontSize: '11px', marginTop: '5px' }}>AI sentiment analysis is paused until pre-open session.</p>
+             </div>
+           )}
         </div>
 
       </div>

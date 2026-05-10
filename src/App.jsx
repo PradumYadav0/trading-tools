@@ -13,6 +13,7 @@ import ChartAnalysis from './pages/ChartAnalysis';
 function App() {
   const [activeSymbol, setActiveSymbol] = useState('BANKNIFTY');
   const [marketData, setMarketData] = useState(null);
+  const [newsData, setNewsData] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -20,8 +21,14 @@ function App() {
       try {
         const response = await axios.get(`/api/market-data?symbol=${activeSymbol}`);
         setMarketData(response.data);
-        setLoading(false);
+        
+        // Fetch Live News
+        const newsResponse = await axios.get('/api/news');
+        if (newsResponse.data.success) {
+           setNewsData(newsResponse.data.data);
+        }
 
+        setLoading(false);
       } catch (error) {
         console.error('Error fetching data:', error);
       }
@@ -75,7 +82,10 @@ function App() {
           zIndex: 1000
         }}>
           <marquee scrollamount="5" style={{ color: 'var(--primary)', fontWeight: 600, fontSize: '13px' }}>
-            🔥 BREAKING: FIIs net buyers of ₹1,420 Cr today... ⚡ RBI expected to keep rates unchanged in next meeting... 📊 Nifty OI shows strong support at 22,300... 🚀 Bank Nifty HDFC weightage update expected soon...
+            {newsData.length > 0 
+                  ? newsData.map((news, i) => <span key={i} style={{ marginRight: '50px' }}>🚀 {news.title}</span>)
+                  : "Fetching live market news..."
+            }
           </marquee>
         </div>
       </div>

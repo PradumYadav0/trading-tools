@@ -4,7 +4,7 @@ const dotenv = require('dotenv');
 const axios = require('axios');
 const kotakNeo = require('./services/kotakNeoService');
 const dbService = require('./services/DatabaseService');
-
+const newsService = require('./services/NewsService');
 
 dotenv.config();
 const app = express();
@@ -12,6 +12,12 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
+
+// Live News Endpoint
+app.get('/api/news', async (req, res) => {
+  const news = await newsService.getLiveNews();
+  res.json({ success: true, data: news });
+});
 
 // Dynamic Market Data Generator
 const getMockData = (symbol) => {
@@ -27,6 +33,7 @@ const getMockData = (symbol) => {
     change: (randomMove / basePrice * 100).toFixed(2),
     pcr: pcr,
     rsi: (40 + Math.random() * 30).toFixed(1),
+    isMarketOpen: false,
     strikes: Array.from({ length: 21 }, (_, i) => {
       const step = isBN ? 100 : 50;
       const start = basePrice - (step * 10);

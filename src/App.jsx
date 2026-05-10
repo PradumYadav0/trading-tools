@@ -8,7 +8,7 @@ import Analysis from './pages/Analysis';
 import RiskManagement from './pages/RiskManagement';
 import SignalRoom from './pages/SignalRoom';
 import Settings from './pages/Settings';
-import AIInsights from './pages/AIInsights';
+import ChartAnalysis from './pages/ChartAnalysis';
 
 function App() {
   const [activeSymbol, setActiveSymbol] = useState('BANKNIFTY');
@@ -57,7 +57,7 @@ function App() {
               <Route path="/analysis" element={<Analysis activeSymbol={activeSymbol} data={marketData} />} />
               <Route path="/risk" element={<RiskManagement />} />
               <Route path="/settings" element={<Settings />} />
-              <Route path="/insights" element={<AIInsights activeSymbol={activeSymbol} data={marketData} />} />
+              <Route path="/chart" element={<ChartAnalysis activeSymbol={activeSymbol} data={marketData} />} />
             </Routes>
           </div>
         </div>

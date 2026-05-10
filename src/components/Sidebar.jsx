@@ -8,9 +8,9 @@ const Sidebar = () => {
   const menuItems = [
     { name: 'Dashboard', icon: <LayoutDashboard size={20} />, path: '/' },
     { name: 'Live Signal', icon: <Zap size={20} />, path: '/signal' },
-    { name: 'Deep Analysis', icon: <BarChart2 size={20} />, path: '/analysis' },
+    { name: 'Chart AI', icon: <BarChart2 size={20} />, path: '/chart' },
+    { name: 'Option AI', icon: <Lightbulb size={20} />, path: '/analysis' },
     { name: 'Risk Control', icon: <ShieldCheck size={20} />, path: '/risk' },
-    { name: 'AI Insights', icon: <Lightbulb size={20} />, path: '/insights' },
     { name: 'Settings', icon: <Settings size={20} />, path: '/settings' },
   ];
 

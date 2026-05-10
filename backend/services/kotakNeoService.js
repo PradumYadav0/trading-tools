@@ -3,70 +3,80 @@ const btoa = (str) => Buffer.from(str).toString('base64');
 
 class KotakNeoService {
     constructor() {
-        this.baseUrl = 'https://napi.kotaksecurities.com';
-        this.consumerKey = process.env.CONSUMER_KEY;
-        this.consumerSecret = process.env.CONSUMER_SECRET;
+        this.baseUrl = 'https://napi.kotaksecurities.com'; // Wait, docs say mis.kotaksecurities.com for login, let's keep original or fallback
+        this.loginUrl = 'https://mis.kotaksecurities.com';
+        this.accessToken = process.env.CONSUMER_KEY; // The Consumer Key IS the Access Token now
         this.neoId = process.env.NEO_ID;
         this.neoPassword = process.env.NEO_PASSWORD;
-        this.bearerToken = null;
         this.sessionToken = null;
-    }
-
-    async getBearerToken() {
-        try {
-            const auth = btoa(`${this.consumerKey}:${this.consumerSecret}`);
-            const response = await axios.post(`${this.baseUrl}/oauth2/token`, 
-                'grant_type=client_credentials', 
-                {
-                    headers: {
-                        'Authorization': `Basic ${auth}`,
-                        'Content-Type': 'application/x-www-form-urlencoded'
-                    }
-                }
-            );
-            this.bearerToken = response.data.access_token;
-            return this.bearerToken;
-        } catch (error) {
-            console.error('Error getting bearer token:', error.response?.data || error.message);
-            throw error;
-        }
+        this.sid = null;
     }
 
     async login() {
-        if (!this.bearerToken) await this.getBearerToken();
-
         try {
-            const response = await axios.post(`${this.baseUrl}/login/v2/validate`, {
+            // According to docs, send access token as plain string, no "Bearer"
+            const response = await axios.post(`${this.loginUrl}/login/1.0/login/v2/validate`, {
                 mobileNumber: this.neoId,
                 password: this.neoPassword
             }, {
                 headers: {
-                    'Authorization': `Bearer ${this.bearerToken}`,
+                    'Authorization': this.accessToken,
                     'Content-Type': 'application/json'
                 }
             });
-            return response.data; // Usually contains the session ID (sid)
+            return response.data;
         } catch (error) {
             console.error('Login error:', error.response?.data || error.message);
-            throw error;
+            // Fallback to old URL if mis.kotaksecurities.com fails
+            try {
+               const fallbackResponse = await axios.post(`${this.baseUrl}/login/v2/validate`, {
+                   mobileNumber: this.neoId,
+                   password: this.neoPassword
+               }, {
+                   headers: {
+                       'Authorization': this.accessToken,
+                       'Content-Type': 'application/json'
+                   }
+               });
+               return fallbackResponse.data;
+            } catch (fallbackErr) {
+               throw fallbackErr;
+            }
         }
     }
 
     async validateTOTP(totp) {
         try {
-            const response = await axios.post(`${this.baseUrl}/login/v2/validate/otp`, {
+            const response = await axios.post(`${this.loginUrl}/login/1.0/login/v2/validate/otp`, {
                 otp: totp
             }, {
                 headers: {
-                    'Authorization': `Bearer ${this.bearerToken}`,
+                    'Authorization': this.accessToken,
                     'Content-Type': 'application/json'
                 }
             });
-            this.sessionToken = response.data.token;
+            
+            // In the new API, this might return the token in a different format
+            this.sessionToken = response.data.token || response.headers['auth'];
+            this.sid = response.data.sid || response.headers['sid'];
             return this.sessionToken;
         } catch (error) {
             console.error('TOTP Validation error:', error.response?.data || error.message);
-            throw error;
+            // Fallback to old URL
+            try {
+               const fallbackResponse = await axios.post(`${this.baseUrl}/login/v2/validate/otp`, {
+                   otp: totp
+               }, {
+                   headers: {
+                       'Authorization': this.accessToken,
+                       'Content-Type': 'application/json'
+                   }
+               });
+               this.sessionToken = fallbackResponse.data.token;
+               return this.sessionToken;
+            } catch (fallbackErr) {
+               throw fallbackErr;
+            }
         }
     }
 

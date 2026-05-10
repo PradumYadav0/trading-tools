@@ -20,7 +20,11 @@ jobs:
           password: ${{ secrets.PASSWORD }}
           port: 22
           script: |
-            cd ~/trading-tools
+            set -e
+            if [ ! -d "$HOME/trading-tools" ]; then
+              git clone https://github.com/PradumYadav0/trading-tools.git $HOME/trading-tools
+            fi
+            cd $HOME/trading-tools
             git pull origin main
             
             # Install frontend dependencies and build

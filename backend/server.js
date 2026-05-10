@@ -48,8 +48,6 @@ app.get('/api/market-data', (req, res) => {
   res.json(data);
 });
 
-const nseFetcher = require('./services/NseFetcher');
-
 // Option Chain Endpoint with Greeks
 app.get('/api/option-chain', async (req, res) => {
   const { symbol, expiry } = req.query;

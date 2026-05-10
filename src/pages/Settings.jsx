@@ -57,7 +57,7 @@ const Settings = () => {
       const result = await response.json();
       if (result.success) {
         alert('Account Linked Successfully!');
-        setLoginStep(1);
+        setLoginStep(3); // 3 means Connected State
       } else {
         alert('TOTP Validation Failed.');
       }
@@ -192,6 +192,16 @@ const Settings = () => {
                     BACK TO LOGIN
                   </button>
                 </>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '15px', padding: '20px 0' }}>
+                  <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: 'rgba(0, 255, 136, 0.1)', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '2px solid var(--success)' }}>
+                    <Shield size={30} color="var(--success)" />
+                  </div>
+                  <h3 style={{ color: 'var(--success)', margin: 0 }}>API CONNECTED & LIVE</h3>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center' }}>
+                    Kotak Neo Session is active. You are receiving real-time option chain and market data.
+                  </p>
+                </div>
               )}
               <p style={{ fontSize: '10px', color: 'var(--warning)', fontStyle: 'italic' }}>
                  *API credentials are encrypted and stored locally.

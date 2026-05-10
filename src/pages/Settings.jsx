@@ -168,7 +168,7 @@ const Settings = () => {
                     {loading ? 'PROCESSING...' : 'LINK KOTAK NEO ACCOUNT'}
                   </button>
                 </>
-              ) : (
+              ) : loginStep === 2 ? (
                 <>
                   <div>
                     <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>ENTER TOTP (from Authenticator App)</label>

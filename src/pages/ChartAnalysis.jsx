@@ -16,8 +16,8 @@ const ChartAnalysis = ({ activeSymbol, data }) => {
     }, 1500);
   }, [activeSymbol, data]);
 
-  // Map our symbols to TradingView symbols
-  const tvSymbol = activeSymbol === 'BANKNIFTY' ? 'NSE:BANKNIFTY' : 'NSE:NIFTY';
+  // Map our symbols to TradingView symbols (Using BSE because NSE index data is often restricted on TV widgets)
+  const tvSymbol = activeSymbol === 'BANKNIFTY' ? 'BSE:BANKNIFTY' : 'BSE:NIFTY';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', paddingBottom: '40px' }}>

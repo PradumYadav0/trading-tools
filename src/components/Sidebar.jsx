@@ -46,23 +46,6 @@ const Sidebar = () => {
           </Link>
         ))}
       </nav>
-
-      <div className="glass-card" style={{ padding: '12px', marginTop: 'auto', background: 'rgba(0, 255, 136, 0.03)' }}>
-        <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px' }}>CONNECTION STATUS</p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{ width: '8px', height: '8px', background: 'var(--success)', borderRadius: '50%' }}></div>
-          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--warning)' }}>KOTAK NEO (PENDING)</span>
-        </div>
-      </div>
-      {/* Win-Rate Tracker Widget */}
-      <div style={{ padding: '20px', borderTop: '1px solid var(--border)', background: 'rgba(0, 255, 136, 0.02)' }}>
-        <p style={{ fontSize: '10px', color: 'var(--text-muted)', letterSpacing: '1px' }}>AI ACCURACY</p>
-        <h2 style={{ color: 'var(--success)', margin: '4px 0' }}>84.5%</h2>
-        <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', marginTop: '8px' }}>
-          <div style={{ width: '84.5%', height: '100%', background: 'var(--success)', borderRadius: '10px', boxShadow: '0 0 10px var(--success)' }}></div>
-        </div>
-        <p style={{ fontSize: '9px', color: 'var(--text-muted)', marginTop: '8px' }}>Last 100 Signals Verified</p>
-      </div>
     </div>
   );
 };

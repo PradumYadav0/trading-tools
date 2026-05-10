@@ -48,50 +48,84 @@ app.get('/api/market-data', (req, res) => {
   res.json(data);
 });
 
+const nseFetcher = require('./services/NseFetcher');
+
 // Option Chain Endpoint with Greeks
 app.get('/api/option-chain', async (req, res) => {
   const { symbol, expiry } = req.query;
   const isBN = symbol === 'BANKNIFTY';
-  const basePrice = isBN ? 48200 : 22400;
-  const step = isBN ? 100 : 50;
+  let basePrice = isBN ? 48200 : 22400;
   
-  const options = [];
+  let options = [];
   
-  // Create 11 Strike Prices (5 ITM, 1 ATM, 5 OTM)
-  for (let i = -5; i <= 5; i++) {
-    const strike = basePrice + (i * step);
-    
-    // Simulate Data for Call (CE)
-    const ceLtp = Math.max(0.05, (basePrice - strike + 200) + 10.5);
-    const ceIV = (14.2).toFixed(2);
-    
-    // Simulate Data for Put (PE)
-    const peLtp = Math.max(0.05, (strike - basePrice + 200) + 12.3);
-    const peIV = (15.1).toFixed(2);
+  try {
+     // Fetch REAL Data from NSE API
+     const nseData = await nseFetcher.getOptionChain(symbol || 'NIFTY');
+     
+     if (nseData && nseData.records && nseData.records.data) {
+         basePrice = nseData.records.underlyingValue;
+         const currentExpiry = nseData.records.expiryDates[0];
+         
+         // Filter data for current expiry and closest strikes
+         const chain = nseData.records.data
+            .filter(item => item.expiryDate === currentExpiry)
+            .sort((a, b) => a.strikePrice - b.strikePrice);
+            
+         // Find ATM strike index
+         let atmIndex = 0;
+         let minDiff = Infinity;
+         chain.forEach((item, index) => {
+             const diff = Math.abs(item.strikePrice - basePrice);
+             if (diff < minDiff) {
+                 minDiff = diff;
+                 atmIndex = index;
+             }
+         });
+         
+         // Take 5 ITM, 1 ATM, 5 OTM
+         const startIndex = Math.max(0, atmIndex - 5);
+         const endIndex = Math.min(chain.length, atmIndex + 6);
+         const selectedChain = chain.slice(startIndex, endIndex);
+         
+         options = selectedChain.map(item => ({
+             strike: item.strikePrice,
+             CE: item.CE ? {
+                 ltp: item.CE.lastPrice.toFixed(2),
+                 oi: item.CE.openInterest * 50, // Convert to approx shares
+                 volume: item.CE.totalTradedVolume * 50,
+                 iv: item.CE.impliedVolatility.toFixed(2),
+                 delta: "0.50", // Placeholder until Kotak IV/Greeks map
+                 theta: "-5.00",
+                 gamma: "0.002",
+                 vega: "10.00"
+             } : null,
+             PE: item.PE ? {
+                 ltp: item.PE.lastPrice.toFixed(2),
+                 oi: item.PE.openInterest * 50,
+                 volume: item.PE.totalTradedVolume * 50,
+                 iv: item.PE.impliedVolatility.toFixed(2),
+                 delta: "-0.50",
+                 theta: "-5.00",
+                 gamma: "0.002",
+                 vega: "10.00"
+             } : null
+         }));
+     }
+  } catch (error) {
+     console.error('Failed to parse NSE data', error);
+  }
 
-    options.push({
-      strike: strike,
-      CE: {
-        ltp: ceLtp.toFixed(2),
-        oi: 1500000 + (i * 100000),
-        volume: 800000 + (i * 50000),
-        iv: ceIV,
-        delta: (0.5 - (i * 0.1)).toFixed(2),
-        theta: (-5.5).toFixed(2),
-        gamma: (0.0025).toFixed(4),
-        vega: (11.2).toFixed(2)
-      },
-      PE: {
-        ltp: peLtp.toFixed(2),
-        oi: 1400000 - (i * 80000),
-        volume: 750000 - (i * 40000),
-        iv: peIV,
-        delta: (-0.5 - (i * 0.1)).toFixed(2),
-        theta: (-4.8).toFixed(2),
-        gamma: (0.0028).toFixed(4),
-        vega: (10.9).toFixed(2)
+  // Fallback if NSE blocks us
+  if (options.length === 0) {
+      const step = isBN ? 100 : 50;
+      for (let i = -5; i <= 5; i++) {
+        const strike = basePrice + (i * step);
+        options.push({
+          strike: strike,
+          CE: { ltp: "150.00", oi: 1500000, volume: 800000, iv: "14.20", delta: "0.50", theta: "-5.50", gamma: "0.0025", vega: "11.20" },
+          PE: { ltp: "160.00", oi: 1400000, volume: 750000, iv: "15.10", delta: "-0.50", theta: "-4.80", gamma: "0.0028", vega: "10.90" }
+        });
       }
-    });
   }
 
   // Save the current snapshot to the Database for historical backtesting

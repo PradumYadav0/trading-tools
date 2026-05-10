@@ -3,6 +3,7 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const axios = require('axios');
 const kotakNeo = require('./services/kotakNeoService');
+const dbService = require('./services/DatabaseService');
 
 
 dotenv.config();
@@ -93,12 +94,26 @@ app.get('/api/option-chain', async (req, res) => {
     });
   }
 
+  // Save the current snapshot to the Database for historical backtesting
+  await dbService.saveOptionChain(symbol || 'NIFTY', basePrice, options);
+
   res.json({
     success: true,
     symbol: symbol || 'NIFTY',
     spotPrice: basePrice,
     data: options
   });
+});
+
+// Historical Option Chain Endpoint (from Database)
+app.get('/api/historical-option-chain', async (req, res) => {
+  const { symbol, limit } = req.query;
+  try {
+    const data = await dbService.getHistoricalOptionChain(symbol || 'NIFTY', parseInt(limit) || 10);
+    res.json({ success: true, data });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Failed to fetch historical data' });
+  }
 });
 
 const { GoogleGenAI } = require('@google/genai');

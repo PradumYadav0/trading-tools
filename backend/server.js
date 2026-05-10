@@ -101,19 +101,36 @@ app.get('/api/option-chain', async (req, res) => {
   });
 });
 
-// AI Insights Endpoint (Future Gemini Integration)
+const { GoogleGenAI } = require('@google/genai');
+
+// AI Insights Endpoint (Using Gemini API)
 app.post('/api/ai-insights', async (req, res) => {
   const { symbol, data } = req.body;
+  const apiKey = process.env.GEMINI_API_KEY;
   
-  // Logic-based AI response for now
-  let insight = "";
-  if (symbol === 'BANKNIFTY') {
-    insight = "Bank Nifty is showing a 'Morning Star' pattern on 5m chart. OI suggests strong support at 48000. Trend is likely to continue towards 48500.";
-  } else {
-    insight = "Nifty is consolidating near 22450. Wait for a clear break above 22500 for a fresh long position.";
+  if (!apiKey) {
+    return res.json({ insight: "Gemini API key is missing. Please add GEMINI_API_KEY in the Settings or .env file." });
   }
 
-  res.json({ insight });
+  try {
+    const ai = new GoogleGenAI({ apiKey: apiKey });
+    
+    const prompt = `You are an expert quantitative stock market analyst. Analyze this live options data for ${symbol}. 
+    Current Price: ${data.price}. PCR: ${data.pcr}. 
+    Data: ${JSON.stringify(data.signals)}
+    
+    Give a sharp, 3-sentence professional verdict on the trend and where the smart money is moving. Mention Support, Resistance, and whether to Buy/Sell/Wait.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5',
+      contents: prompt,
+    });
+
+    res.json({ insight: response.text });
+  } catch (error) {
+    console.error("Gemini API Error:", error);
+    res.json({ insight: "AI Analysis failed to process current market data." });
+  }
 });
 
 // Kotak Neo Login Endpoint

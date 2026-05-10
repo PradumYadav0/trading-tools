@@ -11,10 +11,15 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@google/genai": "^2.0.1",
     "axios": "^1.16.0",
     "cors": "^2.8.6",
+    "csv-parser": "^3.2.1",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "greeks": "^1.0.0",
+    "implied-volatility": "^1.0.0",
+    "moment": "^2.30.1",
     "ws": "^8.20.0"
   }
 }

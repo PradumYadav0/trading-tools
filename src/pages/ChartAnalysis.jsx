@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Activity, Crosshair, Zap, BarChart2 } from 'lucide-react';
 
 const ChartAnalysis = ({ activeSymbol, data }) => {
@@ -32,12 +32,7 @@ const ChartAnalysis = ({ activeSymbol, data }) => {
       <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: '20px', height: '600px' }}>
         {/* Trading View Embed */}
         <div className="glass-panel" style={{ padding: '0', overflow: 'hidden', position: 'relative' }}>
-           <iframe 
-             key={tvSymbol}
-             title="Advanced Chart"
-             src={`https://s.tradingview.com/widgetembed/?frameElementId=tradingview_123&symbol=${tvSymbol}&interval=5&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=131722&studies=%5B%5D&theme=dark&style=1&timezone=Asia%2FKolkata&studies_overrides=%7B%7D&overrides=%7B%7D&enabled_features=%5B%5D&disabled_features=%5B%5D&locale=in&utm_source=&utm_medium=widget&utm_campaign=chart&utm_term=${tvSymbol}`}
-             style={{ width: '100%', height: '100%', border: 'none' }}
-           ></iframe>
+           <TradingViewWidget symbol={tvSymbol} />
         </div>
 
         {/* Right Side Tools */}
@@ -90,5 +85,50 @@ const ChartAnalysis = ({ activeSymbol, data }) => {
     </div>
   );
 };
+
+// Official TradingView Advanced Widget Integration
+let tvScriptLoadingPromise;
+
+function TradingViewWidget({ symbol }) {
+  const onLoadScriptRef = useRef();
+
+  useEffect(() => {
+    onLoadScriptRef.current = createWidget;
+
+    if (!tvScriptLoadingPromise) {
+      tvScriptLoadingPromise = new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.id = 'tradingview-widget-loading-script';
+        script.src = 'https://s3.tradingview.com/tv.js';
+        script.type = 'text/javascript';
+        script.onload = resolve;
+        document.head.appendChild(script);
+      });
+    }
+
+    tvScriptLoadingPromise.then(() => onLoadScriptRef.current && onLoadScriptRef.current());
+
+    return () => onLoadScriptRef.current = null;
+
+    function createWidget() {
+      if (document.getElementById('tradingview_chart_id') && 'TradingView' in window) {
+        new window.TradingView.widget({
+          autosize: true,
+          symbol: symbol,
+          interval: "5",
+          timezone: "Asia/Kolkata",
+          theme: "dark",
+          style: "1",
+          locale: "in",
+          enable_publishing: false,
+          hide_side_toolbar: false,
+          container_id: "tradingview_chart_id"
+        });
+      }
+    }
+  }, [symbol]);
+
+  return <div id='tradingview_chart_id' style={{ height: "100%", width: "100%" }} />;
+}
 
 export default ChartAnalysis;

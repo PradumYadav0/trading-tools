@@ -1,9 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 
 const FullOptionChain = ({ activeSymbol }) => {
   const [optionChainData, setOptionChainData] = useState(null);
   const [loading, setLoading] = useState(true);
+  
+  const atmRef = useRef(null);
+  const [hasScrolled, setHasScrolled] = useState(false);
+
+  // Reset scroll lock when symbol changes
+  useEffect(() => {
+    setHasScrolled(false);
+  }, [activeSymbol]);
 
   useEffect(() => {
     const fetchChain = async () => {
@@ -23,6 +31,19 @@ const FullOptionChain = ({ activeSymbol }) => {
     const interval = setInterval(fetchChain, 2000); // 2 second refresh
     return () => clearInterval(interval);
   }, [activeSymbol]);
+
+  // Auto-scroll to ATM
+  useEffect(() => {
+    if (!hasScrolled && atmRef.current) {
+      // Small timeout to ensure DOM is fully rendered
+      setTimeout(() => {
+        if (atmRef.current) {
+          atmRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          setHasScrolled(true);
+        }
+      }, 100);
+    }
+  });
 
   if (loading || !optionChainData) {
     return <div style={{ padding: '20px', textAlign: 'center', color: 'var(--primary)' }}>LOADING ADVANCED CHAIN...</div>;
@@ -93,7 +114,7 @@ const FullOptionChain = ({ activeSymbol }) => {
             const isMaxPeVol = s.PE.volume === maxPeVol && maxPeVol > 0;
 
             return (
-              <div key={idx} style={{ 
+              <div ref={isATM ? atmRef : null} key={idx} style={{ 
                 display: 'grid', 
                 gridTemplateColumns: 'repeat(17, 1fr)', 
                 padding: '12px 6px', 

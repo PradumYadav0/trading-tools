@@ -9,7 +9,7 @@ const AIInsights = ({ activeSymbol, data }) => {
   const fetchAIReport = async () => {
     setLoading(true);
     try {
-      const response = await axios.post('http://localhost:5000/api/ai-insights', {
+      const response = await axios.post('/api/ai-insights', {
         symbol: activeSymbol,
         data: data
       });

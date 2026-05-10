@@ -18,7 +18,7 @@ function App() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const response = await axios.get(`http://localhost:5000/api/market-data?symbol=${activeSymbol}`);
+        const response = await axios.get(`/api/market-data?symbol=${activeSymbol}`);
         setMarketData(response.data);
         setLoading(false);
 

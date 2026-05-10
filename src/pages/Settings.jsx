@@ -28,7 +28,7 @@ const Settings = () => {
   const handleKotakLogin = async () => {
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:5000/api/kotak/login', {
+      const response = await fetch('/api/kotak/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(kotakCreds)
@@ -49,7 +49,7 @@ const Settings = () => {
   const handleValidateTOTP = async () => {
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:5000/api/kotak/validate-totp', {
+      const response = await fetch('/api/kotak/validate-totp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ totp })

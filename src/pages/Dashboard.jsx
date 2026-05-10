@@ -80,16 +80,16 @@ const Dashboard = ({ activeSymbol, marketData }) => {
            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <div className="glass-card" style={{ padding: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid rgba(255, 59, 48, 0.2)' }}>
                  <div>
-                   <p style={{ fontSize: '12px', fontWeight: 700, color: 'white' }}>Huge Call Selling Detected</p>
-                   <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>FIIs adding massive short positions at {activeSymbol === 'BANKNIFTY' ? '48500' : '22500'}</p>
+                   <p style={{ fontSize: '12px', fontWeight: 700, color: 'white' }}>Huge {activeSymbol === 'BANKNIFTY' ? 'Call' : 'Put'} Selling Detected</p>
+                   <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>FIIs adding massive short positions at {activeSymbol === 'BANKNIFTY' ? '48500 CE' : '22300 PE'}</p>
                  </div>
                  <div style={{ textAlign: 'right' }}>
-                   <p style={{ fontSize: '14px', color: '#FF3B30', fontWeight: 900 }}>+15.2L OI</p>
+                   <p style={{ fontSize: '14px', color: '#FF3B30', fontWeight: 900 }}>{activeSymbol === 'BANKNIFTY' ? '+15.2L' : '+8.5L'} OI</p>
                    <p style={{ fontSize: '9px', color: 'var(--text-muted)' }}>in last 5 mins</p>
                  </div>
               </div>
               <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '5px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                 <Zap size={12} color="var(--warning)" /> <strong>ACTION:</strong> Operator is creating a strong resistance. Do not Buy Call.
+                 <Zap size={12} color="var(--warning)" /> <strong>ACTION:</strong> {activeSymbol === 'BANKNIFTY' ? 'Operator is creating a strong resistance. Do not Buy Call.' : 'Support is breaking. Get ready for Put buying.'}
               </p>
            </div>
         </div>
@@ -101,11 +101,11 @@ const Dashboard = ({ activeSymbol, marketData }) => {
            </h3>
            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
-                 <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Dow Jones (US Market)</span>
-                 <span style={{ fontSize: '12px', color: 'var(--success)', fontWeight: 800 }}>+1.2% (BULLISH)</span>
+                 <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{activeSymbol === 'BANKNIFTY' ? 'HDFC Bank Q4 Results' : 'Dow Jones (US Market)'}</span>
+                 <span style={{ fontSize: '12px', color: 'var(--success)', fontWeight: 800 }}>{activeSymbol === 'BANKNIFTY' ? 'POSITIVE' : '+1.2% (BULLISH)'}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
-                 <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>RBI Rate Decision</span>
+                 <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{activeSymbol === 'BANKNIFTY' ? 'RBI Rate Decision' : 'IT Sector Tech Earnings'}</span>
                  <span style={{ fontSize: '12px', color: 'var(--warning)', fontWeight: 800 }}>NEUTRAL</span>
               </div>
               <div style={{ marginTop: '5px' }}>

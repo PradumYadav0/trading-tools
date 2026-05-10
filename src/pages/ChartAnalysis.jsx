@@ -33,6 +33,7 @@ const ChartAnalysis = ({ activeSymbol, data }) => {
         {/* Trading View Embed */}
         <div className="glass-panel" style={{ padding: '0', overflow: 'hidden', position: 'relative' }}>
            <iframe 
+             key={tvSymbol}
              title="Advanced Chart"
              src={`https://s.tradingview.com/widgetembed/?frameElementId=tradingview_123&symbol=${tvSymbol}&interval=5&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=131722&studies=%5B%5D&theme=dark&style=1&timezone=Asia%2FKolkata&studies_overrides=%7B%7D&overrides=%7B%7D&enabled_features=%5B%5D&disabled_features=%5B%5D&locale=in&utm_source=&utm_medium=widget&utm_campaign=chart&utm_term=${tvSymbol}`}
              style={{ width: '100%', height: '100%', border: 'none' }}

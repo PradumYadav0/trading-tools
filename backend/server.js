@@ -54,76 +54,35 @@ const nseFetcher = require('./services/NseFetcher');
 app.get('/api/option-chain', async (req, res) => {
   const { symbol, expiry } = req.query;
   const isBN = symbol === 'BANKNIFTY';
-  let basePrice = isBN ? 48200 : 22400;
+  const basePrice = isBN ? 48200 : 22400; // Will be replaced by live Spot price
+  const step = isBN ? 100 : 50;
   
   let options = [];
   
   try {
-     // Fetch REAL Data from NSE API
-     const nseData = await nseFetcher.getOptionChain(symbol || 'NIFTY');
-     
-     if (nseData && nseData.records && nseData.records.data) {
-         basePrice = nseData.records.underlyingValue;
-         const currentExpiry = nseData.records.expiryDates[0];
-         
-         // Filter data for current expiry and closest strikes
-         const chain = nseData.records.data
-            .filter(item => item.expiryDate === currentExpiry)
-            .sort((a, b) => a.strikePrice - b.strikePrice);
-            
-         // Find ATM strike index
-         let atmIndex = 0;
-         let minDiff = Infinity;
-         chain.forEach((item, index) => {
-             const diff = Math.abs(item.strikePrice - basePrice);
-             if (diff < minDiff) {
-                 minDiff = diff;
-                 atmIndex = index;
-             }
-         });
-         
-         // Take 5 ITM, 1 ATM, 5 OTM
-         const startIndex = Math.max(0, atmIndex - 5);
-         const endIndex = Math.min(chain.length, atmIndex + 6);
-         const selectedChain = chain.slice(startIndex, endIndex);
-         
-         options = selectedChain.map(item => ({
-             strike: item.strikePrice,
-             CE: item.CE ? {
-                 ltp: item.CE.lastPrice.toFixed(2),
-                 oi: item.CE.openInterest * 50, // Convert to approx shares
-                 volume: item.CE.totalTradedVolume * 50,
-                 iv: item.CE.impliedVolatility.toFixed(2),
-                 delta: "0.50", // Placeholder until Kotak IV/Greeks map
-                 theta: "-5.00",
-                 gamma: "0.002",
-                 vega: "10.00"
-             } : null,
-             PE: item.PE ? {
-                 ltp: item.PE.lastPrice.toFixed(2),
-                 oi: item.PE.openInterest * 50,
-                 volume: item.PE.totalTradedVolume * 50,
-                 iv: item.PE.impliedVolatility.toFixed(2),
-                 delta: "-0.50",
-                 theta: "-5.00",
-                 gamma: "0.002",
-                 vega: "10.00"
-             } : null
-         }));
+     // STRICTLY USE KOTAK NEO API
+     // This will only work if Kotak Neo is successfully connected and Tokens are loaded
+     if (kotakNeo.sessionToken && kotakNeo.masterScripLoaded) {
+         const tokens = kotakNeo.getOptionTokens(symbol || 'NIFTY');
+         if (tokens && tokens.length > 0) {
+             const liveData = await kotakNeo.getQuotes(tokens);
+             // Logic to map liveData back into the options array will go here
+             // Using OptionMath.js to calculate Greeks
+         }
      }
   } catch (error) {
-     console.error('Failed to parse NSE data', error);
+     console.error('Failed to fetch from Kotak', error);
   }
 
-  // Fallback if NSE blocks us
+  // If market is closed or Kotak not mapped yet, show frozen framework 
+  // (We don't use Math.random() so it stays frozen, and we don't use NSE so there's no delay data)
   if (options.length === 0) {
-      const step = isBN ? 100 : 50;
       for (let i = -5; i <= 5; i++) {
         const strike = basePrice + (i * step);
         options.push({
           strike: strike,
-          CE: { ltp: "150.00", oi: 1500000, volume: 800000, iv: "14.20", delta: "0.50", theta: "-5.50", gamma: "0.0025", vega: "11.20" },
-          PE: { ltp: "160.00", oi: 1400000, volume: 750000, iv: "15.10", delta: "-0.50", theta: "-4.80", gamma: "0.0028", vega: "10.90" }
+          CE: { ltp: "---", oi: 0, volume: 0, iv: "0.00", delta: "0.00", theta: "0.00", gamma: "0.00", vega: "0.00" },
+          PE: { ltp: "---", oi: 0, volume: 0, iv: "0.00", delta: "0.00", theta: "0.00", gamma: "0.00", vega: "0.00" }
         });
       }
   }

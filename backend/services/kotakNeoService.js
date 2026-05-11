@@ -125,17 +125,25 @@ class KotakNeoService {
                 response.data.pipe(csv())
                 .on('data', (row) => {
                     const keys = Object.keys(row);
-                    const getVal = (keyStr) => {
-                        const key = keys.find(k => k.toLowerCase().includes(keyStr.toLowerCase()));
-                        return key ? row[key] : null;
-                    };
-
-                    const symbol = getVal('symbolname') || getVal('psymbolname') || row['pSymbolName'];
-                    const instType = getVal('insttype') || getVal('pinsttype') || row['pInstType'];
-                    const token = getVal('token') || getVal('ptoken') || row['pToken'];
-                    const strike = getVal('strikeprice') || getVal('pstrikeprice') || row['pStrikePrice'];
-                    const optType = getVal('optiontype') || getVal('poptiontype') || row['pOptionType'];
-                    const expiry = getVal('expiry') || getVal('pexpirydate') || row['pExpiryDate'];
+                    const symbol = row['pSymbolName'];
+                    const instType = row['pInstType'];
+                    const token = row['pSymbol'];
+                    const precision = parseInt(row['lPrecision'] || '2');
+                    
+                    let strikeRaw = row['dStrikePrice;'] || row['dStrikePrice'];
+                    if (!strikeRaw && keys) {
+                        const strikeKey = keys.find(k => k.toLowerCase().includes('strikeprice'));
+                        strikeRaw = strikeKey ? row[strikeKey] : 0;
+                    }
+                    const strike = parseFloat(strikeRaw) / Math.pow(10, precision);
+                    const optType = row['pOptionType'];
+                    
+                    let expiryUnix = parseInt(row['pExpiryDate']);
+                    if (isNaN(expiryUnix) && keys) {
+                        const expKey = keys.find(k => k.toLowerCase().includes('expirydate'));
+                        expiryUnix = parseInt(expKey ? row[expKey] : 0);
+                    }
+                    const expiry = moment.unix(expiryUnix).format('DD-MMM-YYYY');
 
                     if (instType === 'OPTIDX' && token) {
                         if (symbol === 'NIFTY') {

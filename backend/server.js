@@ -59,7 +59,7 @@ app.get('/api/market-data', (req, res) => {
 app.get('/api/option-chain', async (req, res) => {
   const { symbol, expiry } = req.query;
   const isBN = symbol === 'BANKNIFTY';
-  const basePrice = isBN ? 48200 : 22400; // Will be replaced by live Spot price in production
+  const basePrice = isBN ? 54700 : 24300; // Updated to match current user reported market levels
   const step = isBN ? 100 : 50;
   
   let optionsMap = {};

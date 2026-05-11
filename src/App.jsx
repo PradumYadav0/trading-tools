@@ -31,6 +31,7 @@ function App() {
         setLoading(false);
       } catch (error) {
         console.error('Error fetching data:', error);
+        setLoading(false); // Fix: Prevent infinite loading screen if backend is down
       }
     };
 

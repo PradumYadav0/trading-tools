@@ -128,6 +128,7 @@ app.get('/api/option-chain', async (req, res) => {
                          }
                      });
                  }
+                 }
              }
          }
      }

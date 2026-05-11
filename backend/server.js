@@ -77,13 +77,17 @@ app.get('/api/option-chain', async (req, res) => {
          if (kotakNeo.masterScripLoaded) {
              const allTokens = kotakNeo.getOptionTokens(symbol || 'NIFTY');
          if (allTokens && allTokens.length > 0) {
-             // 1. Filter for nearest strikes (-25 to +25) to avoid huge payloads
+             // 1. Find the closest expiry date
+             const sortedExpiries = [...new Set(allTokens.map(t => t.expiry))].sort((a, b) => moment(a, "DD-MMM-YYYY").valueOf() - moment(b, "DD-MMM-YYYY").valueOf());
+             const targetExpiry = expiry || sortedExpiries[0];
+
+             // 2. Filter for nearest strikes (-25 to +25) AND the target expiry
              const minStrike = basePrice - (25 * step);
              const maxStrike = basePrice + (25 * step);
              
              const targetTokens = allTokens.filter(t => {
                  const strikeNum = parseFloat(t.strike);
-                 return strikeNum >= minStrike && strikeNum <= maxStrike;
+                 return t.expiry === targetExpiry && strikeNum >= minStrike && strikeNum <= maxStrike;
              });
 
              // Initialize Map
@@ -99,12 +103,23 @@ app.get('/api/option-chain', async (req, res) => {
                  // Kotak API expects exchange segment prefixed tokens
                  const tokenStrs = targetTokens.map(t => `nse_fo-${t.token}`);
                  
-                 // Slice to 50 to avoid URL length limits
-                 const liveDataResponse = await kotakNeo.getQuotes(tokenStrs.slice(0, 50));
+                 // Fetch in chunks of 50 to avoid URL length / API limits
+                 let allQuotes = [];
+                 for (let i = 0; i < tokenStrs.length; i += 50) {
+                     const chunk = tokenStrs.slice(i, i + 50);
+                     try {
+                         const resp = await kotakNeo.getQuotes(chunk);
+                         if (resp && resp.data) {
+                             allQuotes = allQuotes.concat(resp.data);
+                         }
+                     } catch (e) {
+                         console.error("Chunk fetch failed", e.message);
+                     }
+                 }
                  
                  // Process live data
-                 if (liveDataResponse && liveDataResponse.data) {
-                     const quotes = liveDataResponse.data; // Array of quote objects
+                 if (allQuotes.length > 0) {
+                     const quotes = allQuotes; // Array of quote objects
                      
                      // 2. Map data
                      targetTokens.forEach(t => {

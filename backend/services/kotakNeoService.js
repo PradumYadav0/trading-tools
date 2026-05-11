@@ -1,20 +1,26 @@
 const axios = require('axios');
+const csv = require('csv-parser');
+const moment = require('moment');
 const btoa = (str) => Buffer.from(str).toString('base64');
 
 class KotakNeoService {
     constructor() {
-        this.baseUrl = 'https://napi.kotaksecurities.com'; // Wait, docs say mis.kotaksecurities.com for login, let's keep original or fallback
+        this.baseUrl = 'https://napi.kotaksecurities.com'; 
         this.loginUrl = 'https://mis.kotaksecurities.com';
-        this.accessToken = process.env.CONSUMER_KEY; // The Consumer Key IS the Access Token now
+        this.accessToken = process.env.CONSUMER_KEY; 
         this.neoId = process.env.NEO_ID;
         this.neoPassword = process.env.NEO_PASSWORD;
         this.sessionToken = null;
         this.sid = null;
+        this.instrumentMap = {
+            'NIFTY': { spot: 'Nifty 50', tokens: [] },
+            'BANKNIFTY': { spot: 'Nifty Bank', tokens: [] }
+        };
+        this.masterScripLoaded = false;
     }
 
     async login() {
         try {
-            // According to docs, send access token as plain string, no "Bearer"
             const response = await axios.post(`${this.loginUrl}/login/1.0/login/v2/validate`, {
                 mobileNumber: this.neoId,
                 password: this.neoPassword
@@ -27,7 +33,6 @@ class KotakNeoService {
             return response.data;
         } catch (error) {
             console.error('Login error:', error.response?.data || error.message);
-            // Fallback to old URL if mis.kotaksecurities.com fails
             try {
                const fallbackResponse = await axios.post(`${this.baseUrl}/login/v2/validate`, {
                    mobileNumber: this.neoId,
@@ -56,13 +61,11 @@ class KotakNeoService {
                 }
             });
             
-            // In the new API, this might return the token in a different format
             this.sessionToken = response.data.token || response.headers['auth'];
             this.sid = response.data.sid || response.headers['sid'];
             return this.sessionToken;
         } catch (error) {
             console.error('TOTP Validation error:', error.response?.data || error.message);
-            // Fallback to old URL
             try {
                const fallbackResponse = await axios.post(`${this.baseUrl}/login/v2/validate/otp`, {
                    otp: totp
@@ -97,25 +100,71 @@ class KotakNeoService {
         }
     }
 
-    // New Function: Download and Parse Kotak Master CSV
+    // Download and Parse Kotak Master CSV
     async fetchAndParseMasterScrip() {
-        console.log("Downloading Kotak Master Scrip...");
+        console.log("Downloading Kotak Master Scrip CSV...");
         try {
-            // First we need to get the file paths from the Scripmaster API
-            // Note: Since this is executed after login, we use the session SID and Token
+            const today = moment().format('YYYY-MM-DD');
+            const csvUrl = `https://lapi.kotaksecurities.com/wso2-scripmaster/v1/prod/${today}/transformed/nse_fo.csv`;
             
-            // Simulating the token mapping process
-            // In full production, this reads the CSV and populates this.instrumentMap
+            console.log("Fetching from:", csvUrl);
+            
+            const response = await axios({
+                method: 'get',
+                url: csvUrl,
+                responseType: 'stream'
+            });
+
+            // Reset Map
             this.instrumentMap = {
-                'NIFTY': { spot: 'Nifty 50', tokens: ['12345', '12346'] }, // DUMMY IDs
-                'BANKNIFTY': { spot: 'Nifty Bank', tokens: ['22345', '22346'] }
+                'NIFTY': { spot: 'Nifty 50', tokens: [] },
+                'BANKNIFTY': { spot: 'Nifty Bank', tokens: [] }
             };
-            
-            this.masterScripLoaded = true;
-            return { success: true, message: "Master Scrip architecture initialized and tokens mapped." };
+
+            return new Promise((resolve, reject) => {
+                response.data.pipe(csv())
+                .on('data', (row) => {
+                    const keys = Object.keys(row);
+                    const getVal = (keyStr) => {
+                        const key = keys.find(k => k.toLowerCase().includes(keyStr.toLowerCase()));
+                        return key ? row[key] : null;
+                    };
+
+                    const symbol = getVal('symbolname') || getVal('psymbolname') || row['pSymbolName'];
+                    const instType = getVal('insttype') || getVal('pinsttype') || row['pInstType'];
+                    const token = getVal('token') || getVal('ptoken') || row['pToken'];
+                    const strike = getVal('strikeprice') || getVal('pstrikeprice') || row['pStrikePrice'];
+                    const optType = getVal('optiontype') || getVal('poptiontype') || row['pOptionType'];
+                    const expiry = getVal('expiry') || getVal('pexpirydate') || row['pExpiryDate'];
+
+                    if (instType === 'OPTIDX' && token) {
+                        if (symbol === 'NIFTY') {
+                            this.instrumentMap['NIFTY'].tokens.push({ token, strike, optType, expiry });
+                        } else if (symbol === 'BANKNIFTY') {
+                            this.instrumentMap['BANKNIFTY'].tokens.push({ token, strike, optType, expiry });
+                        }
+                    }
+                })
+                .on('end', () => {
+                    this.masterScripLoaded = true;
+                    console.log(`Master Scrip Loaded successfully!`);
+                    console.log(`Mapped NIFTY Options: ${this.instrumentMap['NIFTY'].tokens.length}`);
+                    console.log(`Mapped BANKNIFTY Options: ${this.instrumentMap['BANKNIFTY'].tokens.length}`);
+                    resolve({ success: true, message: "Master Scrip downloaded and tokens mapped." });
+                })
+                .on('error', (err) => {
+                    console.error("CSV Parsing error", err);
+                    reject(err);
+                });
+            });
+
         } catch (error) {
-            console.error('Error in Master Scrip:', error);
-            return { success: false };
+            console.error('Error in Master Scrip Download:', error.message);
+            // Check if it's 404 (maybe weekend or file not generated yet)
+            if (error.response && error.response.status === 404) {
+                 console.log("Master Scrip for today not found. Market might be closed or file not generated yet.");
+            }
+            return { success: false, message: error.message };
         }
     }
 

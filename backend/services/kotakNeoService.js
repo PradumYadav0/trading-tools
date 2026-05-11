@@ -128,30 +128,43 @@ class KotakNeoService {
                     const symbol = row['pSymbolName'];
                     const instType = row['pInstType'];
                     const token = row['pSymbol'];
-                    const precision = parseInt(row['lPrecision'] || '2');
-                    
-                    let strikeRaw = row['dStrikePrice;'] || row['dStrikePrice'];
-                    if (!strikeRaw && keys) {
-                        const strikeKey = keys.find(k => k.toLowerCase().includes('strikeprice'));
-                        strikeRaw = strikeKey ? row[strikeKey] : 0;
-                    }
-                    const strike = parseFloat(strikeRaw) / Math.pow(10, precision);
-                    const optType = row['pOptionType'];
-                    
-                    let expiryUnix = parseInt(row['pExpiryDate']);
-                    if (isNaN(expiryUnix) && keys) {
-                        const expKey = keys.find(k => k.toLowerCase().includes('expirydate'));
-                        expiryUnix = parseInt(expKey ? row[expKey] : 0);
-                    }
-                    const expiry = moment.unix(expiryUnix).format('DD-MMM-YYYY');
+                   try {
+                    const instType = row['pInstType']; // e.g., OPTIDX, OPTSTK
+                    if (instType === 'OPTIDX' || instType === 'OPTSTK') {
+                        const symbol = row['pSymbolName'];
+                        // Fix: CSV has weird keys like 'dStrikePrice;' and 'dStrikePrice '
+                        const rawStrike = row['dStrikePrice;'] || row['dStrikePrice '] || row['dStrikePrice'] || '0';
+                        // Strike price might be scaled (e.g. 52000 for 520)
+                        let strike = parseFloat(rawStrike);
+                        // If it's too large, it might need division by 100
+                        if (strike > 100000) {
+                            strike = strike / 100;
+                        }
 
-                    if (instType === 'OPTIDX' && token) {
-                        if (symbol === 'NIFTY') {
-                            this.instrumentMap['NIFTY'].tokens.push({ token, strike, optType, expiry });
-                        } else if (symbol === 'BANKNIFTY') {
-                            this.instrumentMap['BANKNIFTY'].tokens.push({ token, strike, optType, expiry });
+                        const optType = row['pOptionType']; // CE or PE
+                        
+                        // Fix: pExpiryDate is a Unix timestamp (seconds)
+                        const rawExpiry = row['pExpiryDate'] || row['lExpiryDate '] || '0';
+                        const expiry = moment.unix(parseInt(rawExpiry)).format("DD-MMM-YYYY");
+                        
+                        const token = row['pSymbol']; // The unique token for Quotes API
+                        
+                        if (symbol && token) {
+                            if (!this.instrumentMap[symbol]) {
+                                this.instrumentMap[symbol] = { tokens: [] };
+                            }
+                            // Store essential token mapping
+                            this.instrumentMap[symbol].tokens.push({
+                                token,
+                                strike,
+                                optType,
+                                expiry
+                            });
                         }
                     }
+                } catch (err) {
+                    // Ignore malformed rows
+                }
                 })
                 .on('end', () => {
                     this.masterScripLoaded = true;

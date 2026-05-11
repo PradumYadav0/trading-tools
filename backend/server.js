@@ -59,28 +59,78 @@ app.get('/api/market-data', (req, res) => {
 app.get('/api/option-chain', async (req, res) => {
   const { symbol, expiry } = req.query;
   const isBN = symbol === 'BANKNIFTY';
-  const basePrice = isBN ? 48200 : 22400; // Will be replaced by live Spot price
+  const basePrice = isBN ? 48200 : 22400; // Will be replaced by live Spot price in production
   const step = isBN ? 100 : 50;
   
-  let options = [];
+  let optionsMap = {};
   
   try {
      // STRICTLY USE KOTAK NEO API
      // This will only work if Kotak Neo is successfully connected and Tokens are loaded
      if (kotakNeo.sessionToken && kotakNeo.masterScripLoaded) {
-         const tokens = kotakNeo.getOptionTokens(symbol || 'NIFTY');
-         if (tokens && tokens.length > 0) {
-             const liveData = await kotakNeo.getQuotes(tokens);
-             // Logic to map liveData back into the options array will go here
-             // Using OptionMath.js to calculate Greeks
+         const allTokens = kotakNeo.getOptionTokens(symbol || 'NIFTY');
+         if (allTokens && allTokens.length > 0) {
+             // 1. Filter for nearest strikes (-25 to +25) to avoid huge payloads
+             const minStrike = basePrice - (25 * step);
+             const maxStrike = basePrice + (25 * step);
+             
+             const targetTokens = allTokens.filter(t => {
+                 const strikeNum = parseFloat(t.strike);
+                 return strikeNum >= minStrike && strikeNum <= maxStrike;
+             });
+
+             // Initialize Map
+             for (let i = -25; i <= 25; i++) {
+                 optionsMap[basePrice + (i * step)] = {
+                    strike: basePrice + (i * step),
+                    CE: { ltp: "---", oi: 0, volume: 0, iv: "0.00", delta: "0.00", theta: "0.00", gamma: "0.00", vega: "0.00" },
+                    PE: { ltp: "---", oi: 0, volume: 0, iv: "0.00", delta: "0.00", theta: "0.00", gamma: "0.00", vega: "0.00" }
+                 };
+             }
+
+             if (targetTokens.length > 0) {
+                 const tokenStrs = targetTokens.map(t => t.token);
+                 // Kotak might have limits, so slice to 50 if needed, but usually 100 is fine
+                 const liveDataResponse = await kotakNeo.getQuotes(tokenStrs.slice(0, 100));
+                 
+                 // Process live data
+                 if (liveDataResponse && liveDataResponse.data) {
+                     const quotes = liveDataResponse.data; // Array of quote objects
+                     
+                     // 2. Map data
+                     targetTokens.forEach(t => {
+                         const strike = parseFloat(t.strike);
+                         const type = t.optType === 'CE' ? 'CE' : 'PE';
+                         
+                         // Find quote for this token
+                         // Depending on Kotak API structure, it could be instrumentToken or instrumentName
+                         const quote = quotes.find(q => String(q.instrumentToken) === String(t.token) || String(q.instrument) === String(t.token));
+                         
+                         if (quote && optionsMap[strike]) {
+                             const ltp = parseFloat(quote.lastPrice || quote.ltp || 0);
+                             optionsMap[strike][type].ltp = ltp > 0 ? ltp.toFixed(2) : "---";
+                             optionsMap[strike][type].oi = parseInt(quote.openInterest || quote.oi || 0);
+                             optionsMap[strike][type].volume = parseInt(quote.volume || quote.v || 0);
+                             
+                             // 3. Calculate Greeks using OptionMath
+                             const OptionMath = require('./utils/OptionMath');
+                             if (ltp > 0) {
+                                 const greeks = OptionMath.calculateGreeks(type, basePrice, strike, ltp, t.expiry || moment().format("DD-MMM-YYYY"));
+                                 optionsMap[strike][type] = { ...optionsMap[strike][type], ...greeks };
+                             }
+                         }
+                     });
+                 }
+             }
          }
      }
   } catch (error) {
-     console.error('Failed to fetch from Kotak', error);
+     console.error('Failed to fetch from Kotak', error.message);
   }
 
-  // If market is closed or Kotak not mapped yet, show frozen framework 
-  // (We don't use Math.random() so it stays frozen, and we don't use NSE so there's no delay data)
+  let options = Object.values(optionsMap).sort((a, b) => a.strike - b.strike);
+
+  // If market is closed, Kotak not mapped yet, or API failed, show frozen framework
   if (options.length === 0) {
       for (let i = -25; i <= 25; i++) {
         const strike = basePrice + (i * step);

@@ -130,30 +130,45 @@ app.get('/api/option-chain', async (req, res) => {
                  if (allQuotes.length > 0) {
                      const quotes = allQuotes; // Array of quote objects
                      
+                     // Debug: Dump the first quote object to see its structure
+                     if (quotes.length > 0 && !fetchErrorMsg) {
+                         fetchErrorMsg = "DATA FOUND: " + JSON.stringify(quotes[0]).substring(0, 250);
+                     }
+                     
                      // 2. Map data
                      targetTokens.forEach(t => {
                          const strike = parseFloat(t.strike);
                          const type = t.optType === 'CE' ? 'CE' : 'PE';
                          
-                         // Find quote for this token
+                         // Find quote for this token (supports camelCase and snake_case API responses)
                          const quote = quotes.find(q => 
                             String(q.instrumentToken) === String(t.token) || 
+                            String(q.instrument_token) === String(t.token) ||
                             String(q.instrumentToken) === `nse_fo-${t.token}` ||
+                            String(q.instrument_token) === `nse_fo-${t.token}` ||
                             String(q.instrumentTokens?.[0]?.instrument_token) === String(t.token)
                          );
                          
                          if (quote && optionsMap[strike]) {
-                             const ltp = parseFloat(quote.lastPrice || quote.ltp || 0);
-                             optionsMap[strike][type].ltp = ltp > 0 ? ltp.toFixed(2) : "---";
-                             optionsMap[strike][type].oi = parseInt(quote.openInterest || quote.oi || 0);
-                             optionsMap[strike][type].volume = parseInt(quote.volume || quote.v || 0);
+                             const ltp = parseFloat(quote.lastPrice || quote.ltp || quote.last_traded_price || quote.last_price || 0);
+                             const oi = parseFloat(quote.openInterest || quote.oi || quote.open_interest || 0);
+                             const volume = parseFloat(quote.volume || quote.vol || quote.traded_volume || 0);
                              
-                             // 3. Calculate Greeks using OptionMath
+                             // Retain previous state or 0 if missing
+                             optionsMap[strike][type].ltp = ltp > 0 ? ltp.toFixed(2) : optionsMap[strike][type].ltp;
+                             optionsMap[strike][type].oi = oi > 0 ? oi : optionsMap[strike][type].oi;
+                             optionsMap[strike][type].volume = volume > 0 ? volume : optionsMap[strike][type].volume;
+                             
+                             // Calculate Greeks dynamically
                              const OptionMath = require('./utils/OptionMath');
-                             if (ltp > 0) {
-                                 const greeks = OptionMath.calculateGreeks(type, basePrice, strike, ltp, t.expiry || moment().format("DD-MMM-YYYY"));
-                                 optionsMap[strike][type] = { ...optionsMap[strike][type], ...greeks };
-                             }
+                             const greeks = OptionMath.calculateGreeks(
+                               type, basePrice, strike, ltp, targetExpiry
+                             );
+                             
+                             optionsMap[strike][type] = {
+                               ...optionsMap[strike][type],
+                               ...greeks
+                             };
                          }
                      });
                  }

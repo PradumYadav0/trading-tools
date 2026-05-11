@@ -102,13 +102,43 @@ class KotakNeoService {
 
     // Download and Parse Kotak Master CSV
     async fetchAndParseMasterScrip() {
-        console.log("Downloading Kotak Master Scrip CSV...");
+        if (this.masterScripLoaded) return { success: true, message: "Already loaded" };
+
         try {
-            const today = moment().format('YYYY-MM-DD');
-            const csvUrl = `https://lapi.kotaksecurities.com/wso2-scripmaster/v1/prod/${today}/transformed/nse_fo.csv`;
+            console.log("Downloading Kotak Master Scrip CSV...");
             
-            console.log("Fetching from:", csvUrl);
+            let csvUrl = '';
             
+            // Try fetching from the dynamic discovery endpoint if we have an active session
+            if (this.sessionToken) {
+                try {
+                    const discoveryUrl = `${this.baseUrl}/script-details/1.0/masterscrip/file-paths`;
+                    console.log(`Fetching discovery from: ${discoveryUrl}`);
+                    const pathsResponse = await axios.get(discoveryUrl, {
+                        headers: {
+                            'Authorization': `Bearer ${this.sessionToken}`,
+                            'sid': this.sessionToken,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (pathsResponse.data && pathsResponse.data.data && pathsResponse.data.data.filesPaths) {
+                        const files = pathsResponse.data.data.filesPaths;
+                        const foFile = files.find(f => f.includes('nse_fo.csv'));
+                        if (foFile) csvUrl = foFile;
+                    }
+                } catch (discoveryErr) {
+                    console.log("Failed to fetch dynamic file paths, falling back to date-based URL", discoveryErr.message);
+                }
+            }
+            
+            // Fallback to manual date-based URL if dynamic discovery fails or not authenticated
+            if (!csvUrl) {
+                const today = moment().format('YYYY-MM-DD');
+                csvUrl = `https://lapi.kotaksecurities.com/wso2-scripmaster/v1/prod/${today}/transformed/nse_fo.csv`;
+            }
+            
+            console.log(`Fetching from: ${csvUrl}`);
             const response = await axios({
                 method: 'get',
                 url: csvUrl,

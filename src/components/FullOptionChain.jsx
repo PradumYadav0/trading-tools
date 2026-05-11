@@ -49,7 +49,7 @@ const FullOptionChain = ({ activeSymbol }) => {
     return <div style={{ padding: '20px', textAlign: 'center', color: 'var(--primary)' }}>LOADING ADVANCED CHAIN...</div>;
   }
 
-  const { data: strikes, spotPrice } = optionChainData;
+  const { data: strikes, spotPrice, apiError } = optionChainData;
 
   const formatLakhs = (val) => (val / 100000).toFixed(1) + 'L';
   const formatK = (val) => (val / 1000).toFixed(1) + 'K';
@@ -74,6 +74,11 @@ const FullOptionChain = ({ activeSymbol }) => {
 
   return (
     <div className="glass-panel" style={{ padding: '0', overflowX: 'auto', border: '1px solid var(--primary-glow)' }}>
+      {apiError && (
+         <div style={{ background: 'rgba(255, 59, 48, 0.1)', borderBottom: '1px solid #ff3b30', color: '#ff3b30', padding: '12px', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+            <span>⚠️ KOTAK API ERROR: {apiError}</span>
+         </div>
+      )}
       <div style={{ minWidth: '1000px' }}>
         {/* Header */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(17, 1fr)', background: 'rgba(255,255,255,0.05)', padding: '12px', borderBottom: '1px solid var(--border)' }}>

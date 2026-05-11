@@ -63,6 +63,7 @@ app.get('/api/option-chain', async (req, res) => {
   const step = isBN ? 100 : 50;
   
   let optionsMap = {};
+  let fetchErrorMsg = null;
   
   try {
      // STRICTLY USE KOTAK NEO API
@@ -114,6 +115,7 @@ app.get('/api/option-chain', async (req, res) => {
                          }
                      } catch (e) {
                          console.error("Chunk fetch failed", e.message);
+                         fetchErrorMsg = e.response ? JSON.stringify(e.response.data) : e.message;
                      }
                  }
                  
@@ -153,7 +155,8 @@ app.get('/api/option-chain', async (req, res) => {
          }
      }
   } catch (error) {
-     console.error('Failed to fetch from Kotak', error.message);
+      console.error('Failed to fetch from Kotak', error.message);
+      fetchErrorMsg = error.message;
   }
 
   let options = Object.values(optionsMap).sort((a, b) => a.strike - b.strike);
@@ -177,6 +180,7 @@ app.get('/api/option-chain', async (req, res) => {
     success: true,
     symbol: symbol || 'NIFTY',
     spotPrice: basePrice,
+    apiError: fetchErrorMsg, // Added for debugging
     data: options
   });
 });

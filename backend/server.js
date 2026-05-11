@@ -96,9 +96,11 @@ app.get('/api/option-chain', async (req, res) => {
              }
 
              if (targetTokens.length > 0) {
-                 const tokenStrs = targetTokens.map(t => t.token);
-                 // Kotak might have limits, so slice to 50 if needed, but usually 100 is fine
-                 const liveDataResponse = await kotakNeo.getQuotes(tokenStrs.slice(0, 100));
+                 // Kotak API expects exchange segment prefixed tokens
+                 const tokenStrs = targetTokens.map(t => `nse_fo-${t.token}`);
+                 
+                 // Slice to 50 to avoid URL length limits
+                 const liveDataResponse = await kotakNeo.getQuotes(tokenStrs.slice(0, 50));
                  
                  // Process live data
                  if (liveDataResponse && liveDataResponse.data) {
@@ -110,8 +112,11 @@ app.get('/api/option-chain', async (req, res) => {
                          const type = t.optType === 'CE' ? 'CE' : 'PE';
                          
                          // Find quote for this token
-                         // Depending on Kotak API structure, it could be instrumentToken or instrumentName
-                         const quote = quotes.find(q => String(q.instrumentToken) === String(t.token) || String(q.instrument) === String(t.token));
+                         const quote = quotes.find(q => 
+                            String(q.instrumentToken) === String(t.token) || 
+                            String(q.instrumentToken) === `nse_fo-${t.token}` ||
+                            String(q.instrumentTokens?.[0]?.instrument_token) === String(t.token)
+                         );
                          
                          if (quote && optionsMap[strike]) {
                              const ltp = parseFloat(quote.lastPrice || quote.ltp || 0);

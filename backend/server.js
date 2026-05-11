@@ -66,9 +66,16 @@ app.get('/api/option-chain', async (req, res) => {
   
   try {
      // STRICTLY USE KOTAK NEO API
-     // This will only work if Kotak Neo is successfully connected and Tokens are loaded
-     if (kotakNeo.sessionToken && kotakNeo.masterScripLoaded) {
-         const allTokens = kotakNeo.getOptionTokens(symbol || 'NIFTY');
+     // This will only work if Kotak Neo is successfully connected
+     if (kotakNeo.sessionToken) {
+         // Lazy load master scrip if user logged in earlier but scrip wasn't loaded
+         if (!kotakNeo.masterScripLoaded) {
+             console.log("Session active but scrip not loaded. Loading now...");
+             await kotakNeo.fetchAndParseMasterScrip();
+         }
+
+         if (kotakNeo.masterScripLoaded) {
+             const allTokens = kotakNeo.getOptionTokens(symbol || 'NIFTY');
          if (allTokens && allTokens.length > 0) {
              // 1. Filter for nearest strikes (-25 to +25) to avoid huge payloads
              const minStrike = basePrice - (25 * step);

@@ -88,7 +88,7 @@ class KotakNeoService {
             const response = await axios.get(`${this.baseUrl}/quotes/v1/quotes`, {
                 params: { instruments: symbols.join(',') },
                 headers: {
-                    'Authorization': `Bearer ${this.bearerToken}`,
+                    'Authorization': `Bearer ${this.sessionToken}`,
                     'sid': this.sessionToken,
                     'Content-Type': 'application/json'
                 }
@@ -178,7 +178,7 @@ class KotakNeoService {
         try {
             const response = await axios.post(`${this.baseUrl}/orders/v1/place`, params, {
                 headers: {
-                    'Authorization': `Bearer ${this.bearerToken}`,
+                    'Authorization': `Bearer ${this.sessionToken}`,
                     'sid': this.sessionToken,
                     'Content-Type': 'application/json'
                 }

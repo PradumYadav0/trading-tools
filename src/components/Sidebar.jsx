@@ -15,7 +15,7 @@ const Sidebar = () => {
   ];
 
   return (
-    <div className="glass-panel" style={{ width: '240px', height: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column', padding: '16px' }}>
+    <div className="glass-panel sidebar" style={{ width: '240px', height: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column', padding: '16px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '32px', padding: '0 8px' }}>
         <div style={{ background: 'var(--primary)', padding: '6px', borderRadius: '8px' }}>
           <Zap size={20} color="black" />

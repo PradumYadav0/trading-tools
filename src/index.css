@@ -121,3 +121,60 @@ h1, h2, h3 {
 .animate-pulse-subtle {
   animation: pulse 2s infinite ease-in-out;
 }
+
+/* --- Responsive Layout Utilities --- */
+@media (max-width: 1024px) {
+  .app-container {
+    flex-direction: column !important;
+    padding: 8px !important;
+    height: auto !important;
+  }
+  
+  .sidebar {
+    width: 100% !important;
+    height: auto !important;
+    min-height: unset !important;
+    flex-direction: column !important;
+  }
+  
+  .sidebar nav {
+    flex-direction: row !important;
+    overflow-x: auto !important;
+    padding-bottom: 8px !important;
+  }
+  
+  .sidebar nav a {
+    flex-shrink: 0 !important;
+    padding: 8px 12px !important;
+  }
+  
+  .header-container {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 16px !important;
+    height: auto !important;
+  }
+  
+  .header-controls {
+    flex-wrap: wrap !important;
+    justify-content: flex-start !important;
+    width: 100% !important;
+  }
+  
+  /* Make all inline grids single column on mobile, excluding large option chain grids */
+  div[style*="grid-template-columns"]:not([style*="repeat(17"]):not([style*="repeat(5"]):not([style*="1fr 1fr 1fr 1fr 1fr"]) {
+    grid-template-columns: 1fr !important;
+  }
+  
+  /* Ensure grids that stay multi-column can scroll horizontally */
+  div[style*="repeat(17"], div[style*="repeat(5"], div[style*="1fr 1fr 1fr 1fr 1fr"] {
+    overflow-x: auto !important;
+    padding-bottom: 8px !important;
+  }
+  
+  /* Add horizontal scroll to the Global Cues area */
+  .glass-panel > div[style*="overflowX: 'auto'"], .glass-panel > div[style*="overflow-x: auto"] {
+    width: 100% !important;
+    -webkit-overflow-scrolling: touch;
+  }
+}

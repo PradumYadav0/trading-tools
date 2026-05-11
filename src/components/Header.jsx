@@ -11,8 +11,8 @@ const Header = ({ activeSymbol, setActiveSymbol }) => {
 
 
   return (
-    <header className="glass-panel" style={{ padding: '12px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+    <header className="glass-panel header-container" style={{ padding: '12px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+      <div className="header-logo-section" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
         <div style={{ background: 'var(--primary)', padding: '8px', borderRadius: '8px', display: 'flex' }}>
           <Activity color="black" size={24} />
         </div>
@@ -56,7 +56,7 @@ const Header = ({ activeSymbol, setActiveSymbol }) => {
         <span style={{ fontSize: '18px', fontWeight: 900, color: 'white', letterSpacing: '2px' }}>{activeSymbol}</span>
       </div>
       
-      <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+      <div className="header-controls" style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
         {/* Real-time System Clock */}
         <div style={{ textAlign: 'right', borderRight: '1px solid var(--border)', paddingRight: '15px' }}>
           <p style={{ fontSize: '10px', color: 'var(--text-muted)' }}>SYSTEM TIME</p>

@@ -51,7 +51,7 @@ function App() {
 
   return (
     <Router>
-      <div style={{ display: 'flex', minHeight: '100vh', background: '#050608', padding: '16px', gap: '16px', paddingBottom: '50px' }}>
+      <div className="app-container" style={{ display: 'flex', minHeight: '100vh', background: '#050608', padding: '16px', gap: '16px', paddingBottom: '50px' }}>
         <Sidebar />
         
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>

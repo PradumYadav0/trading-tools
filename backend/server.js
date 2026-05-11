@@ -211,7 +211,12 @@ app.post('/api/kotak/validate-totp', async (req, res) => {
     const { totp } = req.body;
     try {
         const token = await kotakNeo.validateTOTP(totp);
-        res.json({ success: true, token });
+        
+        // As soon as login is successful, trigger the CSV download!
+        // We do it asynchronously without waiting, or await it. Awaiting ensures it's ready.
+        const scripResult = await kotakNeo.fetchAndParseMasterScrip();
+        
+        res.json({ success: true, token, scripLoaded: scripResult.success });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

@@ -110,8 +110,15 @@ app.get('/api/option-chain', async (req, res) => {
                      const chunk = tokenStrs.slice(i, i + 50);
                      try {
                          const resp = await kotakNeo.getQuotes(chunk);
-                         if (resp && resp.data) {
+                         // Kotak might return 200 OK but with an error inside
+                         if (resp && Array.isArray(resp.data)) {
                              allQuotes = allQuotes.concat(resp.data);
+                         } else if (resp && resp.success) {
+                             allQuotes = allQuotes.concat(resp.success);
+                         } else {
+                             // Silent failure (e.g. 200 OK but error payload)
+                             console.error("Silent API Failure:", JSON.stringify(resp));
+                             fetchErrorMsg = "Silent Failure: " + JSON.stringify(resp).substring(0, 100);
                          }
                      } catch (e) {
                          console.error("Chunk fetch failed", e.message);

@@ -77,12 +77,9 @@ const ChartAnalysis = () => {
     setError(null);
     try {
       let url = '';
-      let fetchInterval = interval;
-      
       if (interval === 'DAY' || interval === 'MONTH') {
         url = `/api/charts/historical?symbol=${symbol}`;
       } else if (interval === '10') {
-        // Dhan doesn't support 10m natively, so we fetch 5m and aggregate
         url = `/api/charts/intraday?symbol=${symbol}&interval=5`;
       } else {
         url = `/api/charts/intraday?symbol=${symbol}&interval=${interval}`;
@@ -98,6 +95,15 @@ const ChartAnalysis = () => {
           chartData = aggregateToMonthly(chartData);
         } else if (interval === '10') {
           chartData = aggregateTo10Min(chartData);
+        }
+        
+        // Add IST offset (5 hours 30 mins = 19800 seconds) for intraday charts
+        // This forces the chart to show Indian time regardless of browser timezone
+        if (interval !== 'DAY' && interval !== 'MONTH') {
+          chartData = chartData.map(item => ({
+            ...item,
+            time: item.time + 19800
+          }));
         }
         
         seriesRef.current.setData(chartData);
@@ -129,7 +135,6 @@ const ChartAnalysis = () => {
           close: second.close
         });
       } else {
-        // If it's the last odd candle
         tenMinData.push(first);
       }
     }
@@ -175,7 +180,7 @@ const ChartAnalysis = () => {
       <div style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>Chart Analysis</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Live data from Dhan API</p>
+          <p style={{ color: 'var(--text-secondary)' }}>Live data from Dhan API (IST Timezone)</p>
         </div>
         
         {/* Controls */}
@@ -283,7 +288,7 @@ const ChartAnalysis = () => {
                 ? 'Viewing historical data. Monthly view is auto-aggregated from daily data.' 
                 : interval === '10' 
                 ? 'Viewing 10-minute data (Aggregated from 5-minute candles).' 
-                : 'Viewing intraday data. (Note: Intraday data might not be available on market holidays or weekends).'}
+                : 'Viewing intraday data. Time is shown in Indian Standard Time (IST).'}
             </p>
           </div>
         </div>

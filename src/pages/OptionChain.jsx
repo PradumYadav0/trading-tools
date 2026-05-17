@@ -61,7 +61,7 @@ const OptionChain = () => {
         }
       }, 500);
     }
-  }, [strikes, visibleStrikesCount]); // Run when full strikes list or count updates
+  }, [strikes, visibleStrikesCount]);
 
   if (loading) {
     return <div className="container flex-center" style={{ height: '80vh' }}>Loading Option Chain from Dhan API...</div>;
@@ -168,7 +168,8 @@ const OptionChain = () => {
         </div>
       </div>
 
-      <div className="glass-panel" style={{ height: 'calc(100vh - 250px)', overflowY: 'auto' }}>
+      {/* Increased height to make table bigger */}
+      <div className="glass-panel" style={{ height: 'calc(100vh - 180px)', overflowY: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '0.85rem' }}>
           <thead style={{ position: 'sticky', top: 0, zIndex: 2, background: '#161B22' }}>
             <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
@@ -189,17 +190,18 @@ const OptionChain = () => {
             </tr>
           </thead>
           <tbody>
-            {displayedStrikes.map((row) => {
+            {displayedStrikes.flatMap((row, index) => {
               const isAtm = row.strike === atmStrike;
+              const elements = [];
               
-              return (
+              elements.push(
                 <tr 
                   key={row.strike} 
                   className={isAtm ? 'atm-row' : ''}
                   style={{ 
                     borderBottom: '1px solid var(--border-color)', 
                     height: '35px',
-                    background: isAtm ? 'rgba(var(--accent-primary-rgb), 0.1)' : 'transparent'
+                    background: isAtm ? 'rgba(var(--accent-primary-rgb), 0.05)' : 'transparent'
                   }}
                 >
                   <td style={{ color: 'var(--text-secondary)' }}>{row.callOi.toLocaleString()}</td>
@@ -210,8 +212,7 @@ const OptionChain = () => {
                   <td style={{ color: 'var(--text-primary)', borderRight: '1px solid var(--border-color)' }}>
                     {row.callLtp.toFixed(2)}
                   </td>
-                  <td className={isAtm ? 'atm-strike' : ''} style={{ fontWeight: '700', position: 'relative' }}>
-                    {isAtm && <span style={{ position: 'absolute', left: '5px', fontSize: '0.7rem', color: 'var(--accent-primary)' }}>ATM</span>}
+                  <td className={isAtm ? 'atm-strike' : ''} style={{ fontWeight: '700' }}>
                     {row.strike}
                   </td>
                   <td style={{ color: 'var(--text-primary)', borderLeft: '1px solid var(--border-color)' }}>
@@ -224,6 +225,41 @@ const OptionChain = () => {
                   <td style={{ color: 'var(--text-secondary)' }}>{row.putOi.toLocaleString()}</td>
                 </tr>
               );
+
+              // Insert Dhan-style Spot Price Line
+              const nextRow = displayedStrikes[index + 1];
+              if (nextRow && row.strike <= spotPrice && nextRow.strike > spotPrice) {
+                elements.push(
+                  <tr key="spot-line" style={{ height: '3px', background: 'transparent' }}>
+                    <td colSpan="9" style={{ padding: '0', position: 'relative' }}>
+                      <div style={{ 
+                        height: '3px', 
+                        background: 'var(--accent-primary)', 
+                        width: '100%',
+                        boxShadow: '0 0 10px var(--accent-primary)'
+                      }}>
+                        <span style={{ 
+                          position: 'absolute', 
+                          top: '-10px', 
+                          left: '50%', 
+                          transform: 'translateX(-50%)',
+                          background: 'var(--accent-primary)',
+                          color: '#000',
+                          padding: '0.1rem 0.5rem',
+                          borderRadius: '4px',
+                          fontSize: '0.75rem',
+                          fontWeight: '700',
+                          zIndex: 3
+                        }}>
+                          SPOT: {spotPrice.toFixed(2)}
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              }
+
+              return elements;
             })}
           </tbody>
         </table>

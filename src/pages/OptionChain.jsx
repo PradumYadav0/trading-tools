@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { RefreshCw } from 'lucide-react';
 
 const OptionChain = () => {
   const [spotPrice, setSpotPrice] = useState(0);
@@ -7,32 +8,34 @@ const OptionChain = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [expiry, setExpiry] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const response = await axios.get('/api/option-chain');
-        if (response.data.success) {
-          setStrikes(response.data.data);
-          setSpotPrice(response.data.spotPrice);
-          setExpiry(response.data.expiry);
-          setLoading(false);
-          setError(null);
-        } else {
-          const detailStr = response.data.details ? JSON.stringify(response.data.details) : '';
-          setError(`${response.data.message} ${detailStr}`.trim() || 'Failed to fetch data');
-          setLoading(false);
-        }
-      } catch (err) {
-        setError(err.message || 'Server Error');
+  const fetchData = async () => {
+    setIsRefreshing(true);
+    try {
+      const response = await axios.get('/api/option-chain');
+      if (response.data.success) {
+        setStrikes(response.data.data);
+        setSpotPrice(response.data.spotPrice);
+        setExpiry(response.data.expiry);
+        setLoading(false);
+        setError(null);
+      } else {
+        const detailStr = response.data.details ? JSON.stringify(response.data.details) : '';
+        setError(`${response.data.message} ${detailStr}`.trim() || 'Failed to fetch data');
         setLoading(false);
       }
-    };
+    } catch (err) {
+      setError(err.message || 'Server Error');
+      setLoading(false);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
+  useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 5000); // Poll every 5 seconds
-
-    return () => clearInterval(interval);
+    // Auto-polling disabled to prevent 429 Rate Limit errors
   }, []);
 
   // Find ATM Strike
@@ -48,7 +51,24 @@ const OptionChain = () => {
     return (
       <div className="container flex-center" style={{ height: '80vh', flexDirection: 'column', gap: '1rem' }}>
         <div style={{ color: 'var(--bearish)', fontSize: '1.2rem' }}>Error: {error}</div>
-        <p style={{ color: 'var(--text-secondary)' }}>Make sure your Dhan token is valid and set in .env file.</p>
+        <p style={{ color: 'var(--text-secondary)' }}>Dhan API might be rate limiting or token is invalid.</p>
+        <button 
+          onClick={fetchData} 
+          style={{
+            background: 'var(--accent-primary)',
+            color: 'white',
+            border: 'none',
+            padding: '0.5rem 1rem',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem'
+          }}
+        >
+          <RefreshCw size={16} className={isRefreshing ? 'spin' : ''} />
+          Try Again
+        </button>
       </div>
     );
   }
@@ -81,6 +101,26 @@ const OptionChain = () => {
             </div>
           </div>
         </div>
+
+        <button 
+          onClick={fetchData} 
+          disabled={isRefreshing}
+          style={{
+            background: 'rgba(255, 255, 255, 0.05)',
+            color: 'var(--text-primary)',
+            border: '1px solid var(--border-color)',
+            padding: '0.5rem 1rem',
+            borderRadius: '10px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            transition: 'var(--transition-smooth)'
+          }}
+        >
+          <RefreshCw size={16} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
+          {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
+        </button>
       </div>
 
       <div className="glass-panel" style={{ height: 'calc(100vh - 250px)', overflowY: 'auto' }}>
@@ -134,6 +174,14 @@ const OptionChain = () => {
           </tbody>
         </table>
       </div>
+
+      {/* Add spin animation to global styles or inline */}
+      <style>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 };

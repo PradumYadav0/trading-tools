@@ -24,6 +24,13 @@ const OptionChain = () => {
 
   // Responsive State
   const [showAllColumns, setShowAllColumns] = useState(false); // Toggle for mobile
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const fetchData = async () => {
     if (mode === 'history') return; // Don't fetch live data in history mode
@@ -525,7 +532,7 @@ const OptionChain = () => {
                 if (nextRow && row.strike <= spotPrice && nextRow.strike > spotPrice) {
                   elements.push(
                     <tr key="spot-line" id="spot-line" style={{ height: '10px', background: 'transparent' }}>
-                      <td colSpan={showAllColumns ? 9 : 5} style={{ padding: '0', position: 'relative', verticalAlign: 'middle' }}>
+                      <td colSpan={showAllColumns || !isMobile ? 9 : 5} style={{ padding: '0', position: 'relative', verticalAlign: 'middle' }}>
                         <div style={{ 
                           height: '2px', 
                           background: 'var(--accent-primary)', 

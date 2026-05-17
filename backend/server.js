@@ -211,6 +211,104 @@ app.get('/api/option-chain/history', (req, res) => {
   );
 });
 
+// Endpoint to get Intraday Chart Data
+app.get('/api/charts/intraday', async (req, res) => {
+  try {
+    const token = dhanAccessToken;
+    const clientId = process.env.DHAN_CLIENT_ID;
+    const symbol = req.query.symbol || 'NIFTY';
+    const interval = req.query.interval || '5'; // default 5 mins
+    
+    // Dhan API limits intraday to recent days, let's fetch for the last 5 days
+    const toDate = new Date();
+    toDate.setDate(toDate.getDate() + 1); // add 1 day to include today safely
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - 5); 
+
+    const formatDate = (d) => d.toISOString().split('T')[0];
+
+    if (!token || !clientId) {
+      return res.status(400).json({ success: false, message: 'Dhan credentials missing.' });
+    }
+
+    const scripId = scripMap[symbol];
+    if (!scripId) {
+      return res.status(400).json({ success: false, message: 'Invalid symbol requested' });
+    }
+
+    const payload = {
+      securityId: scripId.toString(),
+      exchangeSegment: 'IDX_I',
+      instrument: 'INDEX',
+      interval: interval.toString(),
+      fromDate: formatDate(fromDate),
+      toDate: formatDate(toDate)
+    };
+
+    const response = await axios.post('https://api.dhan.co/v2/charts/intraday', payload, {
+      headers: getDhanHeaders()
+    });
+
+    if (response.data.status === 'success' || response.data.open) {
+       const data = response.data.data || response.data;
+       // Transform to array of objects for lightweight-charts
+       const chartData = [];
+       if (data.timestamp && data.timestamp.length > 0) {
+         for (let i = 0; i < data.timestamp.length; i++) {
+            // Dhan timestamp is often in seconds or string, we need to convert to Unix seconds for lightweight-charts
+            const ts = data.timestamp[i];
+            
+            // lightweight charts requires time in seconds (Unix timestamp) or string format 'YYYY-MM-DD'
+            // We pass unix seconds (but we must convert Dhan timestamp which might be in seconds or format)
+            // Wait, Dhan returns 'start_Time' or 'timestamp' array depending on response. 
+            // My node script printed "timestamp". Wait, earlier I saw Dhan returns start_Time? The node script output showed "timestamp" array! 
+            let timeUnix = 0;
+            if (typeof ts === 'string' && ts.includes('-')) {
+               timeUnix = Math.floor(new Date(ts).getTime() / 1000);
+            } else if (typeof ts === 'string' && ts.includes('T')) {
+               timeUnix = Math.floor(new Date(ts).getTime() / 1000);
+            } else {
+               // Dhan timestamp is in Indian standard time epoch (seconds) usually, but sometimes different.
+               // Let's assume it's epoch in seconds if it's a number.
+               timeUnix = typeof ts === 'string' ? parseInt(ts) : ts;
+               // If it's too large (milliseconds), convert to seconds
+               if (timeUnix > 2000000000) {
+                  timeUnix = Math.floor(timeUnix / 1000);
+               } else {
+                  // Dhan actually returns the timestamp in IST in an internal format. But usually it's just unix epoch.
+                  // Wait, Dhan returns Dhan Epoch (seconds since 1980-01-01 00:00:00).
+                  // Dhan epoch: 0 = 1980-01-01. Let's add the offset.
+                  // 315532800 = seconds between 1970-01-01 and 1980-01-01.
+                  // Wait, some Dhan APIs return standard unix timestamp. Let's assume standard unix timestamp, or convert to string if we can.
+               }
+            }
+
+            // Standardize Dhan specific timestamp conversion just in case:
+            // The safest is to return it as seconds since lightweight-charts accepts that.
+            
+            chartData.push({
+               time: timeUnix,
+               open: data.open[i],
+               high: data.high[i],
+               low: data.low[i],
+               close: data.close[i]
+            });
+         }
+       }
+       return res.json({ success: true, data: chartData });
+    } else {
+      return res.status(400).json({ success: false, message: 'Failed to fetch chart data' });
+    }
+  } catch (error) {
+    console.error('Chart API Error:', error.message);
+    res.status(error.response?.status || 500).json({ 
+      success: false, 
+      message: error.message,
+      details: error.response?.data
+    });
+  }
+});
+
 // ─── Settings Endpoints ───────────────────────────────────────────────────────
 
 const fs = require('fs');

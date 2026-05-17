@@ -531,15 +531,31 @@ const OptionChain = () => {
                 const nextRow = displayedStrikes[index + 1];
                 if (nextRow && row.strike <= spotPrice && nextRow.strike > spotPrice) {
                   elements.push(
-                    <tr key="spot-line" id="spot-line" style={{ height: '10px', background: 'transparent' }}>
+                    <tr key="spot-line" id="spot-line" style={{ height: '15px', background: 'transparent' }}>
                       <td colSpan={showAllColumns || !isMobile ? 9 : 5} style={{ padding: '0', position: 'relative', verticalAlign: 'middle' }}>
                         <div style={{ 
                           height: '2px', 
                           background: 'var(--accent-primary)', 
                           width: '100%',
-                          boxShadow: '0 0 10px var(--accent-primary)'
+                          boxShadow: '0 0 10px var(--accent-primary)',
+                          position: 'relative'
                         }}>
-                          {/* Badge removed to reduce gap and avoid looking like a separate strike */}
+                          <span style={{ 
+                            position: 'absolute', 
+                            top: '50%', 
+                            left: '50%', 
+                            transform: 'translate(-50%, -50%)',
+                            background: 'var(--accent-primary)',
+                            color: '#000',
+                            padding: '0.1rem 0.4rem',
+                            borderRadius: '4px',
+                            fontSize: '0.75rem',
+                            fontWeight: '700',
+                            zIndex: 3,
+                            whiteSpace: 'nowrap'
+                          }}>
+                            {spotPrice.toFixed(2)}
+                          </span>
                         </div>
                       </td>
                     </tr>

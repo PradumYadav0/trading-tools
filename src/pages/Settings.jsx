@@ -6,6 +6,7 @@ const Settings = () => {
   const [clientId, setClientId] = useState('');
   const [pin, setPin] = useState('');
   const [totpSecret, setTotpSecret] = useState('');
+  const [geminiApiKey, setGeminiApiKey] = useState('');
   
   const [status, setStatus] = useState({ loading: true, data: null });
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -34,6 +35,7 @@ const Settings = () => {
       const payload = { clientId };
       if (pin) payload.pin = pin;
       if (totpSecret) payload.totpSecret = totpSecret;
+      if (geminiApiKey) payload.geminiApiKey = geminiApiKey;
 
       const response = await axios.post('/api/settings', payload);
       if (response.data.success) {
@@ -152,6 +154,32 @@ const Settings = () => {
                 value={totpSecret}
                 onChange={(e) => setTotpSecret(e.target.value)}
                 placeholder={status.data?.hasTotpSecret ? "Enter new TOTP secret to update" : "Enter your TOTP Secret Key"}
+                style={{
+                  width: '100%',
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '10px',
+                  padding: '0.75rem 0.75rem 0.75rem 2.5rem',
+                  color: 'var(--text-primary)',
+                  fontSize: '0.9rem',
+                  outline: 'none'
+                }}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+              Gemini API Key
+              {status.data?.hasGeminiKey && <span style={{ marginLeft: '10px', color: 'var(--bullish)', fontSize: '0.8rem' }}>(Set)</span>}
+            </label>
+            <div style={{ position: 'relative' }}>
+              <Key size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input 
+                type="password" 
+                value={geminiApiKey}
+                onChange={(e) => setGeminiApiKey(e.target.value)}
+                placeholder={status.data?.hasGeminiKey ? "Enter new API key to update" : "Enter your Gemini API Key"}
                 style={{
                   width: '100%',
                   background: 'rgba(255, 255, 255, 0.03)',

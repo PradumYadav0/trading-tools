@@ -435,6 +435,7 @@ app.get('/api/settings', (req, res) => {
       hasPin: !!(env.DHAN_PIN && env.DHAN_PIN !== 'xxxx'),
       hasTotpSecret: !!env.DHAN_TOTP_SECRET,
       hasAccessToken: !!env.DHAN_ACCESS_TOKEN,
+      hasGeminiKey: !!env.GEMINI_API_KEY,
     });
   } catch (e) {
     res.status(500).json({ success: false, message: e.message });
@@ -444,12 +445,13 @@ app.get('/api/settings', (req, res) => {
 // POST to save credentials and trigger token refresh
 app.post('/api/settings', async (req, res) => {
   try {
-    const { pin, totpSecret, clientId } = req.body;
+    const { pin, totpSecret, clientId, geminiApiKey } = req.body;
     const env = readEnvFile();
 
     if (clientId) env.DHAN_CLIENT_ID = clientId;
     if (pin) env.DHAN_PIN = pin;
     if (totpSecret) env.DHAN_TOTP_SECRET = totpSecret;
+    if (geminiApiKey) env.GEMINI_API_KEY = geminiApiKey;
 
     writeEnvFile(env);
 
@@ -457,6 +459,7 @@ app.post('/api/settings', async (req, res) => {
     if (clientId) process.env.DHAN_CLIENT_ID = clientId;
     if (pin) process.env.DHAN_PIN = pin;
     if (totpSecret) process.env.DHAN_TOTP_SECRET = totpSecret;
+    if (geminiApiKey) process.env.GEMINI_API_KEY = geminiApiKey;
 
     res.json({ success: true, message: 'Settings saved successfully' });
   } catch (e) {

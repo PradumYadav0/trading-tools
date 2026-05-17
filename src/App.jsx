@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
@@ -9,12 +9,34 @@ import Settings from './pages/Settings';
 import './App.css';
 
 function App() {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   return (
     <Router>
       <div className="app-container">
-        <Sidebar />
-        <div className="main-content">
-          <Header />
+        {/* Sidebar */}
+        <Sidebar isOpen={sidebarOpen} closeSidebar={() => setSidebarOpen(false)} />
+        
+        {/* Mobile Backdrop */}
+        {sidebarOpen && (
+          <div 
+            className="sidebar-backdrop" 
+            onClick={() => setSidebarOpen(false)}
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: '100vw',
+              height: '100vh',
+              background: 'rgba(0, 0, 0, 0.5)',
+              zIndex: 9,
+              backdropFilter: 'blur(2px)'
+            }}
+          ></div>
+        )}
+
+        <div className="main-content" style={{ marginLeft: '260px' }}>
+          <Header toggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
           <div className="content-area">
             <Routes>
               <Route path="/" element={<Dashboard />} />

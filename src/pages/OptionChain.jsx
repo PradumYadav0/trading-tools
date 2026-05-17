@@ -415,7 +415,7 @@ const OptionChain = () => {
       )}
 
       {strikes.length > 0 && (
-        <div className="glass-panel">
+        <div className="glass-panel" style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '0.85rem' }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 2, background: '#161B22' }}>
               <tr style={{ borderBottom: '1px solid var(--border-color)' }}>

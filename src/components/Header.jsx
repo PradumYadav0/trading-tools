@@ -1,12 +1,29 @@
 import React from 'react';
-import { Bell, User, Search, Wifi } from 'lucide-react';
+import { Bell, User, Search, Wifi, Menu } from 'lucide-react';
 
-const Header = () => {
+const Header = ({ toggleSidebar }) => {
   return (
     <header className="header">
       <div className="header-left">
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <h2 style={{ fontSize: '1.25rem', color: 'var(--text-primary)' }}>Market Overview</h2>
+          {/* Hamburger Menu on mobile */}
+          <button 
+            className="mobile-menu-btn"
+            onClick={toggleSidebar}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--text-primary)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            <Menu size={24} />
+          </button>
+          
+          <h2 style={{ fontSize: '1.25rem', color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>Market Overview</h2>
           <div style={{ 
             display: 'flex', 
             alignItems: 'center', 
@@ -16,16 +33,17 @@ const Header = () => {
             background: 'rgba(16, 185, 129, 0.1)',
             padding: '0.25rem 0.75rem',
             borderRadius: '20px',
-            fontWeight: '500'
+            fontWeight: '500',
+            whiteSpace: 'nowrap'
           }}>
             <Wifi size={14} />
-            <span>Connected to Dhan</span>
+            <span>Connected</span>
           </div>
         </div>
       </div>
 
-      <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+      <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <div className="search-container" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
           <Search size={18} style={{ position: 'absolute', left: '12px', color: 'var(--text-muted)' }} />
           <input 
             type="text" 
@@ -36,7 +54,7 @@ const Header = () => {
               borderRadius: '10px',
               padding: '0.5rem 1rem 0.5rem 2.5rem',
               color: 'var(--text-primary)',
-              width: '240px',
+              width: '180px',
               fontSize: '0.9rem',
               outline: 'none',
               transition: 'var(--transition-smooth)'
@@ -46,7 +64,7 @@ const Header = () => {
           />
         </div>
 
-        <div style={{ display: 'flex', gap: '1rem' }}>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
           <button style={{ 
             background: 'none', 
             border: 'none', 
@@ -77,7 +95,7 @@ const Header = () => {
             border: '1px solid var(--border-color)'
           }}>
             <User size={18} color="var(--text-secondary)" />
-            <span style={{ fontSize: '0.9rem', fontWeight: '500' }}>Trader</span>
+            <span style={{ fontSize: '0.9rem', fontWeight: '500', display: 'none' /* Hidden on mobile */ }}>Trader</span>
           </div>
         </div>
       </div>

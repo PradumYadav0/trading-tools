@@ -15,6 +15,7 @@
   position: fixed;
   height: 100vh;
   z-index: 10;
+  transition: left 0.3s ease;
 }
 
 .main-content {
@@ -23,6 +24,7 @@
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  transition: margin-left 0.3s ease;
 }
 
 .header {
@@ -94,4 +96,62 @@
   align-items: center;
   justify-content: center;
   color: white;
+}
+
+/* Mobile Responsive Styles */
+@media (max-width: 768px) {
+  .sidebar {
+    left: -260px; /* Hide by default on mobile */
+    width: 240px;
+  }
+  
+  .sidebar.open {
+    left: 0; /* Show when open */
+  }
+  
+  .main-content {
+    margin-left: 0 !important; /* No margin on mobile */
+  }
+  
+  .header {
+    padding: 0 1rem;
+  }
+  
+  .content-area {
+    padding: 1rem;
+  }
+  
+  .mobile-close-btn {
+    display: block !important;
+  }
+  
+  .mobile-menu-btn {
+    display: flex !important;
+  }
+  
+  .search-container {
+    display: none !important; /* Hide search on mobile header to save space */
+  }
+  
+  /* Make Option Chain Header stack on mobile */
+  .container > div:first-child {
+    flex-direction: column;
+    align-items: flex-start !important;
+  }
+  
+  .container > div:first-child > div:last-child {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+/* For larger screens, hide mobile buttons */
+@media (min-width: 769px) {
+  .mobile-close-btn {
+    display: none !important;
+  }
+  
+  .mobile-menu-btn {
+    display: none !important;
+  }
 }

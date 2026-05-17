@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { RefreshCw, Filter, Zap, ZapOff, BarChart2, Calendar } from 'lucide-react';
+import { RefreshCw, Filter, Zap, ZapOff, BarChart2, Calendar, Clock } from 'lucide-react';
 
 const OptionChain = () => {
   const [spotPrice, setSpotPrice] = useState(0);
@@ -14,6 +14,7 @@ const OptionChain = () => {
   const [autoRefresh, setAutoRefresh] = useState(false); // Default to off
   const [symbol, setSymbol] = useState('NIFTY'); // Default to NIFTY
   const [selectedExpiry, setSelectedExpiry] = useState(''); // Selected expiry
+  const [lastUpdated, setLastUpdated] = useState(''); // Last update timestamp
 
   const fetchData = async () => {
     setIsRefreshing(true);
@@ -24,6 +25,7 @@ const OptionChain = () => {
         setSpotPrice(response.data.spotPrice);
         setExpiry(response.data.expiry);
         setExpiryList(response.data.expiryList || []);
+        setLastUpdated(new Date().toLocaleTimeString());
         setLoading(false);
         setError(null);
       } else {
@@ -119,7 +121,7 @@ const OptionChain = () => {
           <h1 style={{ fontSize: '1.75rem', marginBottom: '0.25rem' }}>Option Chain Analysis</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
             
-            {/* Symbol Selector */}
+            {/* Symbol Selector with solid background to fix white-on-white issue */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <BarChart2 size={16} style={{ color: 'var(--text-secondary)' }} />
               <select 
@@ -129,8 +131,8 @@ const OptionChain = () => {
                   setSelectedExpiry(''); // Reset expiry when symbol changes
                 }}
                 style={{
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  color: 'var(--text-primary)',
+                  background: '#1c2128', // Solid dark background
+                  color: '#fff',
                   border: '1px solid var(--border-color)',
                   padding: '0.4rem 0.6rem',
                   borderRadius: '8px',
@@ -144,15 +146,15 @@ const OptionChain = () => {
               </select>
             </div>
 
-            {/* Expiry Selector */}
+            {/* Expiry Selector with solid background */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Calendar size={16} style={{ color: 'var(--text-secondary)' }} />
               <select 
                 value={selectedExpiry || expiry} 
                 onChange={(e) => setSelectedExpiry(e.target.value)}
                 style={{
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  color: 'var(--text-primary)',
+                  background: '#1c2128', // Solid dark background
+                  color: '#fff',
                   border: '1px solid var(--border-color)',
                   padding: '0.4rem 0.6rem',
                   borderRadius: '8px',
@@ -161,7 +163,7 @@ const OptionChain = () => {
                 }}
               >
                 {expiryList.map(exp => (
-                  <option key={exp} value={exp}>{exp}</option>
+                  <option key={exp} value={exp} style={{ background: '#1c2128', color: '#fff' }}>{exp}</option>
                 ))}
               </select>
             </div>
@@ -174,6 +176,18 @@ const OptionChain = () => {
               fontWeight: '600'
             }}>
               Spot: <span style={{ color: 'var(--accent-primary)' }}>{spotPrice.toFixed(2)}</span>
+            </div>
+
+            {/* Last Updated Time */}
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.25rem',
+              fontSize: '0.85rem',
+              color: 'var(--text-secondary)'
+            }}>
+              <Clock size={14} />
+              <span>Last Updated: {lastUpdated}</span>
             </div>
           </div>
         </div>
@@ -207,8 +221,8 @@ const OptionChain = () => {
               value={visibleStrikesCount} 
               onChange={(e) => setVisibleStrikesCount(Number(e.target.value))}
               style={{
-                background: 'rgba(255, 255, 255, 0.05)',
-                color: 'var(--text-primary)',
+                background: '#1c2128', // Solid dark background
+                color: '#fff',
                 border: '1px solid var(--border-color)',
                 padding: '0.5rem',
                 borderRadius: '8px',

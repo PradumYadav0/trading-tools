@@ -219,11 +219,17 @@ app.get('/api/charts/intraday', async (req, res) => {
     const symbol = req.query.symbol || 'NIFTY';
     const interval = req.query.interval || '5'; // default 5 mins
     
-    // Dhan API limits intraday to recent days, let's fetch for the last 5 days
+    // Dhan API limits intraday to recent days
     const toDate = new Date();
     toDate.setDate(toDate.getDate() + 1); // add 1 day to include today safely
+    
     const fromDate = new Date();
-    fromDate.setDate(fromDate.getDate() - 5); 
+    if (interval === '1') {
+      // For 1-minute data, request only last 2 days to reduce data volume and avoid 400 errors
+      fromDate.setDate(fromDate.getDate() - 2);
+    } else {
+      fromDate.setDate(fromDate.getDate() - 5); 
+    }
 
     const formatDate = (d) => d.toISOString().split('T')[0];
 

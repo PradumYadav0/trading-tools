@@ -219,6 +219,9 @@ const ENV_PATH = path.resolve(__dirname, './.env');
 
 // Helper: read .env file into object
 function readEnvFile() {
+  if (!fs.existsSync(ENV_PATH)) {
+    fs.writeFileSync(ENV_PATH, '', 'utf8');
+  }
   const raw = fs.readFileSync(ENV_PATH, 'utf8');
   const env = {};
   raw.split('\n').forEach(line => {

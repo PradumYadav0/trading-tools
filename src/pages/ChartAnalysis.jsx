@@ -110,6 +110,17 @@ const ChartAnalysis = () => {
           .filter(d => d.close !== undefined && d.close !== null)
           .sort((a, b) => a.time - b.time);
         
+        // Deduplicate by time (CRITICAL for lightweight-charts)
+        const uniqueChartData = [];
+        const seenTimes = new Set();
+        chartData.forEach(item => {
+          if (!seenTimes.has(item.time)) {
+            seenTimes.add(item.time);
+            uniqueChartData.push(item);
+          }
+        });
+        chartData = uniqueChartData;
+        
         if (interval === 'MONTH') {
           chartData = aggregateToMonthly(chartData);
         } else if (interval === '10') {

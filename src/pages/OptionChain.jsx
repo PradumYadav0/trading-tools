@@ -418,20 +418,20 @@ const OptionChain = () => {
         <div className="glass-panel" style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '0.85rem' }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 2, background: '#161B22' }}>
-              <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+              <tr className="mobile-hide" style={{ borderBottom: '1px solid var(--border-color)' }}>
                 <th colSpan="4" style={{ padding: '0.75rem', color: 'var(--bearish)', borderRight: '1px solid var(--border-color)' }}>CALLS</th>
                 <th style={{ padding: '0.75rem' }}>STRIKE</th>
                 <th colSpan="4" style={{ padding: '0.75rem', color: 'var(--bullish)', borderLeft: '1px solid var(--border-color)' }}>PUTS</th>
               </tr>
               <tr style={{ background: 'rgba(255, 255, 255, 0.01)', borderBottom: '1px solid var(--border-color)' }}>
                 <th style={{ padding: '0.5rem' }}>OI</th>
-                <th style={{ padding: '0.5rem' }}>Chg OI</th>
-                <th style={{ padding: '0.5rem' }}>Volume</th>
+                <th className="mobile-hide" style={{ padding: '0.5rem' }}>Chg OI</th>
+                <th className="mobile-hide" style={{ padding: '0.5rem' }}>Volume</th>
                 <th style={{ padding: '0.5rem', borderRight: '1px solid var(--border-color)' }}>LTP</th>
                 <th style={{ padding: '0.5rem' }}>Strike Price</th>
                 <th style={{ padding: '0.5rem', borderLeft: '1px solid var(--border-color)' }}>LTP</th>
-                <th style={{ padding: '0.5rem' }}>Volume</th>
-                <th style={{ padding: '0.5rem' }}>Chg OI</th>
+                <th className="mobile-hide" style={{ padding: '0.5rem' }}>Volume</th>
+                <th className="mobile-hide" style={{ padding: '0.5rem' }}>Chg OI</th>
                 <th style={{ padding: '0.5rem' }}>OI</th>
               </tr>
             </thead>
@@ -462,10 +462,10 @@ const OptionChain = () => {
                       {row.callOi.toLocaleString()}
                       {isMaxCallOi && <Trophy size={12} style={{ color: 'orange', marginLeft: '2px', display: 'inline' }} />}
                     </td>
-                    <td style={{ color: row.callChgOi > 0 ? 'var(--bearish)' : 'var(--bullish)' }}>
+                    <td className="mobile-hide" style={{ color: row.callChgOi > 0 ? 'var(--bearish)' : 'var(--bullish)' }}>
                       {row.callChgOi > 0 ? `+${row.callChgOi}` : row.callChgOi}
                     </td>
-                    <td style={{ 
+                    <td className="mobile-hide" style={{ 
                       color: 'var(--text-secondary)',
                       background: isMaxCallVol ? 'rgba(0, 191, 255, 0.05)' : 'transparent'
                     }}>
@@ -484,13 +484,13 @@ const OptionChain = () => {
                     <td style={{ color: 'var(--text-primary)', borderLeft: '1px solid var(--border-color)' }}>
                       {row.putLtp.toFixed(2)}
                     </td>
-                    <td style={{ 
+                    <td className="mobile-hide" style={{ 
                       color: 'var(--text-secondary)',
                       background: isMaxPutVol ? 'rgba(0, 191, 255, 0.05)' : 'transparent'
                     }}>
                       {(row.putVolume || 0).toLocaleString()}
                     </td>
-                    <td style={{ color: row.putChgOi > 0 ? 'var(--bullish)' : 'var(--bearish)' }}>
+                    <td className="mobile-hide" style={{ color: row.putChgOi > 0 ? 'var(--bullish)' : 'var(--bearish)' }}>
                       {row.putChgOi > 0 ? `+${row.putChgOi}` : row.putChgOi}
                     </td>
                     <td style={{ 
@@ -548,6 +548,17 @@ Transform: 'translateX(-50%)',
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
+        }
+        @media (max-width: 768px) {
+          .mobile-hide {
+            display: none !important;
+          }
+          table {
+            font-size: 0.75rem !important;
+          }
+          th, td {
+            padding: 0.25rem !important;
+          }
         }
       `}</style>
     </div>

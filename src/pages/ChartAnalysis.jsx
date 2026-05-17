@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { createChart, ColorType } from 'lightweight-charts';
+import { createChart, CandlestickSeries } from 'lightweight-charts';
 
 const ChartAnalysis = () => {
   const chartContainerRef = useRef();
@@ -11,7 +11,7 @@ const ChartAnalysis = () => {
       width: chartContainerRef.current.clientWidth || 800,
       height: 400,
       layout: {
-        background: { type: ColorType.Solid, color: 'transparent' },
+        background: { type: 'solid', color: 'transparent' },
         textColor: '#94A3B8',
       },
       grid: {
@@ -26,7 +26,7 @@ const ChartAnalysis = () => {
       },
     });
 
-    const candleSeries = chart.addCandlestickSeries({
+    const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: '#10B981',
       downColor: '#EF4444',
       borderVisible: false,

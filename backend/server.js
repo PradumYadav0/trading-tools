@@ -225,8 +225,8 @@ app.get('/api/charts/intraday', async (req, res) => {
     
     const fromDate = new Date();
     if (interval === '1') {
-      // For 1-minute data, request only last 2 days to reduce data volume and avoid 400 errors
-      fromDate.setDate(fromDate.getDate() - 2);
+      // For 1-minute data, request only 1 day to reduce data volume and avoid 400 errors
+      fromDate.setDate(fromDate.getDate() - 1);
     } else {
       fromDate.setDate(fromDate.getDate() - 5); 
     }
@@ -307,6 +307,9 @@ app.get('/api/charts/intraday', async (req, res) => {
     }
   } catch (error) {
     console.error('Chart API Error:', error.message);
+    if (error.response) {
+      console.error('Dhan API Error Details:', error.response.data);
+    }
     res.status(error.response?.status || 500).json({ 
       success: false, 
       message: error.message,

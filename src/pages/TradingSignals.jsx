@@ -9,6 +9,7 @@ const TradingSignals = () => {
   const [cooldown, setCooldown] = useState(false);
 
   useEffect(() => {
+    setCooldown(false); // Reset cooldown when switching symbols
     fetchSignals();
     // Auto refresh every 1 minute
     const interval = setInterval(fetchSignals, 60000);

@@ -197,11 +197,9 @@ const OptionChain = () => {
               elements.push(
                 <tr 
                   key={row.strike} 
-                  className={isAtm ? 'atm-row' : ''}
                   style={{ 
                     borderBottom: '1px solid var(--border-color)', 
-                    height: '35px',
-                    background: isAtm ? 'rgba(var(--accent-primary-rgb), 0.05)' : 'transparent'
+                    height: '35px'
                   }}
                 >
                   <td style={{ color: 'var(--text-secondary)' }}>{row.callOi.toLocaleString()}</td>
@@ -212,7 +210,7 @@ const OptionChain = () => {
                   <td style={{ color: 'var(--text-primary)', borderRight: '1px solid var(--border-color)' }}>
                     {row.callLtp.toFixed(2)}
                   </td>
-                  <td className={isAtm ? 'atm-strike' : ''} style={{ fontWeight: '700' }}>
+                  <td style={{ fontWeight: '700' }}>
                     {row.strike}
                   </td>
                   <td style={{ color: 'var(--text-primary)', borderLeft: '1px solid var(--border-color)' }}>

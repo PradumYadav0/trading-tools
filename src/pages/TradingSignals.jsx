@@ -6,6 +6,7 @@ const TradingSignals = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [signalData, setSignalData] = useState(null);
+  const [cooldown, setCooldown] = useState(false);
 
   useEffect(() => {
     fetchSignals();
@@ -15,8 +16,15 @@ const TradingSignals = () => {
   }, [symbol]);
 
   const fetchSignals = async () => {
+    if (cooldown) return;
+    
     setLoading(true);
     setError(null);
+    
+    // Set cooldown for 10 seconds
+    setCooldown(true);
+    setTimeout(() => setCooldown(false), 10000);
+
     try {
       const response = await fetch(`/api/option-chain?symbol=${symbol}`);
       const result = await response.json();

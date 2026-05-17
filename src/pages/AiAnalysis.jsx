@@ -6,11 +6,19 @@ const AiAnalysis = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [analysis, setAnalysis] = useState('');
+  const [cooldown, setCooldown] = useState(false);
 
   const fetchAiAnalysis = async () => {
+    if (cooldown) return;
+    
     setLoading(true);
     setError(null);
     setAnalysis('');
+    
+    // Set cooldown for 30 seconds
+    setCooldown(true);
+    setTimeout(() => setCooldown(false), 30000);
+
     try {
       const response = await fetch('/api/ai-analysis', {
         method: 'POST',
@@ -63,23 +71,24 @@ const AiAnalysis = () => {
 
           <button 
             onClick={fetchAiAnalysis}
-            disabled={loading}
+            disabled={loading || cooldown}
             style={{ 
               background: 'linear-gradient(135deg, #6366F1 0%, #A855F7 100%)', 
               color: 'white', 
               border: 'none', 
               padding: '0.5rem 1.5rem', 
               borderRadius: '8px',
-              cursor: 'pointer',
+              cursor: (loading || cooldown) ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               gap: '0.5rem',
               fontWeight: '600',
+              opacity: (loading || cooldown) ? 0.7 : 1,
               boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
             }}
           >
             {loading ? <RefreshCw size={18} className="spin" /> : <Sparkles size={18} />}
-            {loading ? 'Analyzing...' : 'Ask AI for Analysis'}
+            {loading ? 'Analyzing...' : cooldown ? 'Wait 30s...' : 'Ask AI for Analysis'}
           </button>
         </div>
       </div>

@@ -140,6 +140,34 @@ app.get('/api/option-chain', async (req, res) => {
   }
 });
 
+// Endpoint to get historical data
+app.get('/api/option-chain/history', (req, res) => {
+  const symbol = req.query.symbol || 'NIFTY';
+  const date = req.query.date; // Format: YYYY-MM-DD
+
+  if (!date) {
+    return res.status(400).json({ success: false, message: 'Date is required (YYYY-MM-DD)' });
+  }
+
+  db.all(
+    `SELECT * FROM option_chain_history WHERE symbol = ? AND timestamp LIKE ? ORDER BY timestamp DESC`,
+    [symbol, `${date}%`],
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ success: false, message: err.message });
+      }
+      
+      // Parse the JSON data in each row
+      const parsedRows = rows.map(row => ({
+        ...row,
+        data: JSON.parse(row.data)
+      }));
+
+      res.json({ success: true, data: parsedRows });
+    }
+  );
+});
+
 app.listen(PORT, () => {
   console.log(`Backend server running on port ${PORT}`);
 });

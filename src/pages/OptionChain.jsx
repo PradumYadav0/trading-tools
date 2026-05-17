@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { RefreshCw, Filter, Zap, ZapOff, BarChart2, Calendar, Clock, Trophy, Database, Play } from 'lucide-react';
+import { RefreshCw, Filter, Zap, ZapOff, BarChart2, Calendar, Clock, Trophy, Database, Eye, EyeOff } from 'lucide-react';
 
 const OptionChain = () => {
   const [spotPrice, setSpotPrice] = useState(0);
@@ -21,6 +21,9 @@ const OptionChain = () => {
   const [historyDate, setHistoryDate] = useState(new Date().toISOString().slice(0, 10));
   const [historySnapshots, setHistorySnapshots] = useState([]);
   const [selectedSnapshotIndex, setSelectedSnapshotIndex] = useState(0);
+
+  // Responsive State
+  const [showAllColumns, setShowAllColumns] = useState(false); // Toggle for mobile
 
   const fetchData = async () => {
     if (mode === 'history') return; // Don't fetch live data in history mode
@@ -56,7 +59,6 @@ const OptionChain = () => {
       if (response.data.success) {
         setHistorySnapshots(response.data.data);
         if (response.data.data.length > 0) {
-          // Load the latest snapshot of that day by default
           const latestSnap = response.data.data[0];
           setStrikes(latestSnap.data);
           setSpotPrice(latestSnap.spot_price);
@@ -85,9 +87,8 @@ const OptionChain = () => {
     } else {
       fetchHistoryData();
     }
-  }, [symbol, selectedExpiry, mode, historyDate]); // Refetch on mode or date change too
+  }, [symbol, selectedExpiry, mode, historyDate]);
 
-  // Handle snapshot change in history mode
   const handleSnapshotChange = (index) => {
     setSelectedSnapshotIndex(index);
     const snap = historySnapshots[index];
@@ -99,7 +100,6 @@ const OptionChain = () => {
     }
   };
 
-  // Auto-Refresh Logic (1 Minute interval) - Only in Live mode
   useEffect(() => {
     let interval = null;
     if (autoRefresh && mode === 'live') {
@@ -112,12 +112,10 @@ const OptionChain = () => {
     };
   }, [autoRefresh, symbol, selectedExpiry, mode]);
 
-  // Find ATM Strike
   const atmStrike = strikes.reduce((prev, curr) => {
     return (Math.abs(curr.strike - spotPrice) < Math.abs(prev.strike - spotPrice) ? curr : prev);
   }, strikes[0] || { strike: 0 }).strike;
 
-  // Filter to show N strikes around ATM
   const atmIndex = strikes.findIndex(s => s.strike === atmStrike);
   const half = Math.floor(visibleStrikesCount / 2);
   
@@ -126,7 +124,6 @@ const OptionChain = () => {
     Math.min(strikes.length, atmIndex + half + 1)
   ) : strikes;
 
-  // Auto-center Spot Line
   useEffect(() => {
     if (displayedStrikes.length > 0) {
       setTimeout(() => {
@@ -138,12 +135,10 @@ const OptionChain = () => {
     }
   }, [strikes, visibleStrikesCount, symbol, selectedExpiry, selectedSnapshotIndex]);
 
-  // Calculate PCR (Put-Call Ratio)
   const totalCallOi = strikes.reduce((sum, row) => sum + row.callOi, 0);
   const totalPutOi = strikes.reduce((sum, row) => sum + row.putOi, 0);
   const pcr = totalCallOi > 0 ? (totalPutOi / totalCallOi).toFixed(2) : '0.00';
 
-  // Find Max values for highlighting (among displayed strikes)
   const maxCallOi = Math.max(...displayedStrikes.map(s => s.callOi));
   const maxPutOi = Math.max(...displayedStrikes.map(s => s.putOi));
   const maxCallVol = Math.max(...displayedStrikes.map(s => s.callVolume));
@@ -225,7 +220,7 @@ const OptionChain = () => {
               </select>
             </div>
 
-            {/* Expiry Selector (Only in Live Mode, in History it's locked to saved data) */}
+            {/* Expiry Selector */}
             {mode === 'live' && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <Calendar size={16} style={{ color: 'var(--text-secondary)' }} />
@@ -249,7 +244,7 @@ const OptionChain = () => {
               </div>
             )}
 
-            {/* History Date Picker (Only in History Mode) */}
+            {/* History Date Picker */}
             {mode === 'history' && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <Calendar size={16} style={{ color: 'var(--text-secondary)' }} />
@@ -270,7 +265,7 @@ const OptionChain = () => {
               </div>
             )}
 
-            {/* Time Slider (Only in History Mode and if snapshots exist) */}
+            {/* Time Slider */}
             {mode === 'history' && historySnapshots.length > 0 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <Clock size={16} style={{ color: 'var(--text-secondary)' }} />
@@ -332,7 +327,28 @@ const OptionChain = () => {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          {/* Auto Refresh Toggle (Only in Live Mode) */}
+          {/* Column Toggle for Mobile */}
+          <button
+            className="mobile-only"
+            onClick={() => setShowAllColumns(!showAllColumns)}
+            style={{
+              background: 'rgba(255, 255, 255, 0.05)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border-color)',
+              padding: '0.5rem 1rem',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              fontSize: '0.9rem'
+            }}
+          >
+            {showAllColumns ? <EyeOff size={16} /> : <Eye size={16} />}
+            {showAllColumns ? 'Hide Vol/Chg' : 'Show Vol/Chg'}
+          </button>
+
+          {/* Auto Refresh Toggle */}
           {mode === 'live' && (
             <button
               onClick={() => setAutoRefresh(!autoRefresh)}
@@ -418,20 +434,20 @@ const OptionChain = () => {
         <div className="glass-panel" style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '0.85rem' }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 2, background: '#161B22' }}>
-              <tr className="mobile-hide" style={{ borderBottom: '1px solid var(--border-color)' }}>
-                <th colSpan="4" style={{ padding: '0.75rem', color: 'var(--bearish)', borderRight: '1px solid var(--border-color)' }}>CALLS</th>
+              <tr className={!showAllColumns ? "mobile-hide" : ""} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                <th colSpan={showAllColumns ? 4 : 2} style={{ padding: '0.75rem', color: 'var(--bearish)', borderRight: '1px solid var(--border-color)' }}>CALLS</th>
                 <th style={{ padding: '0.75rem' }}>STRIKE</th>
-                <th colSpan="4" style={{ padding: '0.75rem', color: 'var(--bullish)', borderLeft: '1px solid var(--border-color)' }}>PUTS</th>
+                <th colSpan={showAllColumns ? 4 : 2} style={{ padding: '0.75rem', color: 'var(--bullish)', borderLeft: '1px solid var(--border-color)' }}>PUTS</th>
               </tr>
               <tr style={{ background: 'rgba(255, 255, 255, 0.01)', borderBottom: '1px solid var(--border-color)' }}>
                 <th style={{ padding: '0.5rem' }}>OI</th>
-                <th className="mobile-hide" style={{ padding: '0.5rem' }}>Chg OI</th>
-                <th className="mobile-hide" style={{ padding: '0.5rem' }}>Volume</th>
+                <th className={!showAllColumns ? "mobile-hide" : ""} style={{ padding: '0.5rem' }}>Chg OI</th>
+                <th className={!showAllColumns ? "mobile-hide" : ""} style={{ padding: '0.5rem' }}>Volume</th>
                 <th style={{ padding: '0.5rem', borderRight: '1px solid var(--border-color)' }}>LTP</th>
                 <th style={{ padding: '0.5rem' }}>Strike Price</th>
                 <th style={{ padding: '0.5rem', borderLeft: '1px solid var(--border-color)' }}>LTP</th>
-                <th className="mobile-hide" style={{ padding: '0.5rem' }}>Volume</th>
-                <th className="mobile-hide" style={{ padding: '0.5rem' }}>Chg OI</th>
+                <th className={!showAllColumns ? "mobile-hide" : ""} style={{ padding: '0.5rem' }}>Volume</th>
+                <th className={!showAllColumns ? "mobile-hide" : ""} style={{ padding: '0.5rem' }}>Chg OI</th>
                 <th style={{ padding: '0.5rem' }}>OI</th>
               </tr>
             </thead>
@@ -462,10 +478,10 @@ const OptionChain = () => {
                       {row.callOi.toLocaleString()}
                       {isMaxCallOi && <Trophy size={12} style={{ color: 'orange', marginLeft: '2px', display: 'inline' }} />}
                     </td>
-                    <td className="mobile-hide" style={{ color: row.callChgOi > 0 ? 'var(--bearish)' : 'var(--bullish)' }}>
+                    <td className={!showAllColumns ? "mobile-hide" : ""} style={{ color: row.callChgOi > 0 ? 'var(--bearish)' : 'var(--bullish)' }}>
                       {row.callChgOi > 0 ? `+${row.callChgOi}` : row.callChgOi}
                     </td>
-                    <td className="mobile-hide" style={{ 
+                    <td className={!showAllColumns ? "mobile-hide" : ""} style={{ 
                       color: 'var(--text-secondary)',
                       background: isMaxCallVol ? 'rgba(0, 191, 255, 0.05)' : 'transparent'
                     }}>
@@ -484,13 +500,13 @@ const OptionChain = () => {
                     <td style={{ color: 'var(--text-primary)', borderLeft: '1px solid var(--border-color)' }}>
                       {row.putLtp.toFixed(2)}
                     </td>
-                    <td className="mobile-hide" style={{ 
+                    <td className={!showAllColumns ? "mobile-hide" : ""} style={{ 
                       color: 'var(--text-secondary)',
                       background: isMaxPutVol ? 'rgba(0, 191, 255, 0.05)' : 'transparent'
                     }}>
                       {(row.putVolume || 0).toLocaleString()}
                     </td>
-                    <td className="mobile-hide" style={{ color: row.putChgOi > 0 ? 'var(--bullish)' : 'var(--bearish)' }}>
+                    <td className={!showAllColumns ? "mobile-hide" : ""} style={{ color: row.putChgOi > 0 ? 'var(--bullish)' : 'var(--bearish)' }}>
                       {row.putChgOi > 0 ? `+${row.putChgOi}` : row.putChgOi}
                     </td>
                     <td style={{ 
@@ -508,26 +524,28 @@ const OptionChain = () => {
                 const nextRow = displayedStrikes[index + 1];
                 if (nextRow && row.strike <= spotPrice && nextRow.strike > spotPrice) {
                   elements.push(
-                    <tr key="spot-line" id="spot-line" style={{ height: '3px', background: 'transparent' }}>
-                      <td colSpan="9" style={{ padding: '0', position: 'relative' }}>
+                    <tr key="spot-line" id="spot-line" style={{ height: '40px', background: 'transparent' }}>
+                      <td colSpan={showAllColumns ? 9 : 5} style={{ padding: '0', position: 'relative', verticalAlign: 'middle' }}>
                         <div style={{ 
-                          height: '3px', 
+                          height: '2px', 
                           background: 'var(--accent-primary)', 
                           width: '100%',
-                          boxShadow: '0 0 10px var(--accent-primary)'
+                          boxShadow: '0 0 10px var(--accent-primary)',
+                          position: 'relative'
                         }}>
                           <span style={{ 
                             position: 'absolute', 
-                            top: '-10px', 
+                            top: '50%', 
                             left: '50%', 
-Transform: 'translateX(-50%)',
+                            transform: 'translate(-50%, -50%)',
                             background: 'var(--accent-primary)',
                             color: '#000',
-                            padding: '0.1rem 0.5rem',
+                            padding: '0.2rem 0.6rem',
                             borderRadius: '4px',
                             fontSize: '0.75rem',
                             fontWeight: '700',
-                            zIndex: 3
+                            zIndex: 3,
+                            whiteSpace: 'nowrap'
                           }}>
                             SPOT: {spotPrice.toFixed(2)}
                           </span>
@@ -558,6 +576,11 @@ Transform: 'translateX(-50%)',
           }
           th, td {
             padding: 0.25rem !important;
+          }
+        }
+        @media (min-width: 769px) {
+          .mobile-only {
+            display: none !important;
           }
         }
       `}</style>

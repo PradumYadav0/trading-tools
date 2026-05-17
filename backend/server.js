@@ -174,7 +174,7 @@ app.get('/api/option-chain', async (req, res) => {
       };
     }).sort((a, b) => a.strike - b.strike);
 
-    // 4. Save to Database for history (Optional: Avoid duplicates or save on interval)
+    // 4. Save to Database for history
     db.run(
       `INSERT INTO option_chain_history (symbol, spot_price, expiry, data) VALUES (?, ?, ?, ?)`,
       [symbol, spotPrice, expiryToUse, JSON.stringify(strikesArray)],
@@ -186,6 +186,62 @@ app.get('/api/option-chain', async (req, res) => {
         }
       }
     );
+
+    // 5. Auto-calculate and save signals to ai_signals
+    let totalCallOi = 0;
+    let totalPutOi = 0;
+    let maxCallOi = 0;
+    let maxPutOi = 0;
+    let supportStrike = 0;
+    let resistanceStrike = 0;
+
+    strikesArray.forEach(strike => {
+      totalCallOi += strike.callOi;
+      totalPutOi += strike.putOi;
+
+      if (strike.callOi > maxCallOi) {
+        maxCallOi = strike.callOi;
+        resistanceStrike = strike.strike;
+      }
+
+      if (strike.putOi > maxPutOi) {
+        maxPutOi = strike.putOi;
+        supportStrike = strike.strike;
+      }
+    });
+
+    const pcr = totalCallOi > 0 ? (totalPutOi / totalCallOi).toFixed(2) : 0;
+    
+    let type = null;
+    let target_price = 0;
+    let stoploss_price = 0;
+
+    if (pcr > 1.2 && spotPrice > supportStrike) {
+      type = 'CALL';
+      stoploss_price = supportStrike;
+      target_price = resistanceStrike;
+    } else if (pcr < 0.8 && spotPrice < resistanceStrike) {
+      type = 'PUT';
+      stoploss_price = resistanceStrike;
+      target_price = supportStrike;
+    }
+
+    if (type) {
+      // Check if we already have a pending signal for this symbol
+      db.get(`SELECT id FROM ai_signals WHERE symbol = ? AND status = 'PENDING'`, [symbol], (err, row) => {
+        if (!err && !row) {
+          // No pending signal, save new one
+          db.run(
+            `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price) VALUES (?, ?, ?, ?, ?)`,
+            [symbol, type, spotPrice, target_price, stoploss_price],
+            function(err) {
+              if (err) console.error('Error auto-saving signal:', err.message);
+              else console.log(`Auto-saved signal for ${symbol} with ID: ${this.lastID}`);
+            }
+          );
+        }
+      });
+    }
 
     res.json({ 
       success: true, 

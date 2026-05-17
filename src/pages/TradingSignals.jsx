@@ -20,6 +20,7 @@ const TradingSignals = () => {
     
     setLoading(true);
     setError(null);
+    setSignalData(null); // Clear old data to avoid showing wrong data for new symbol
     
     // Set cooldown for 10 seconds
     setCooldown(true);

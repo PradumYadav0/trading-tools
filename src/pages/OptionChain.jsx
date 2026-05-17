@@ -19,7 +19,8 @@ const OptionChain = () => {
           setLoading(false);
           setError(null);
         } else {
-          setError(response.data.message || 'Failed to fetch data');
+          const detailStr = response.data.details ? JSON.stringify(response.data.details) : '';
+          setError(`${response.data.message} ${detailStr}`.trim() || 'Failed to fetch data');
           setLoading(false);
         }
       } catch (err) {

@@ -8,10 +8,10 @@ const ChartAnalysis = () => {
     if (!chartContainerRef.current) return;
 
     const chart = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth,
+      width: chartContainerRef.current.clientWidth || 800,
       height: 400,
       layout: {
-        background: { color: '#161B22' },
+        background: { color: 'transparent' },
         textColor: '#94A3B8',
       },
       grid: {
@@ -44,14 +44,16 @@ const ChartAnalysis = () => {
       { time: '2026-05-15', open: 22300, high: 22500, low: 22250, close: 22450 },
     ]);
 
-    const handleResize = () => {
-      chart.applyOptions({ width: chartContainerRef.current.clientWidth });
-    };
+    const resizeObserver = new ResizeObserver(entries => {
+      if (entries.length === 0 || entries[0].target !== chartContainerRef.current) return;
+      const newRect = entries[0].contentRect;
+      chart.applyOptions({ width: newRect.width });
+    });
 
-    window.addEventListener('resize', handleResize);
+    resizeObserver.observe(chartContainerRef.current);
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
       chart.remove();
     };
   }, []);
@@ -64,7 +66,7 @@ const ChartAnalysis = () => {
       </div>
 
       <div className="glass-panel" style={{ padding: '1rem', marginBottom: '2rem' }}>
-        <div ref={chartContainerRef} style={{ width: '100%' }} />
+        <div ref={chartContainerRef} style={{ width: '100%', height: '400px', position: 'relative' }} />
       </div>
 
       <div className="glass-panel" style={{ padding: '1.5rem' }}>

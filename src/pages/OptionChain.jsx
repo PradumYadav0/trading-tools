@@ -38,6 +38,17 @@ const OptionChain = () => {
     // Auto-polling disabled to prevent 429 Rate Limit errors
   }, []);
 
+  useEffect(() => {
+    if (strikes.length > 0) {
+      setTimeout(() => {
+        const atmRow = document.querySelector('.atm-row');
+        if (atmRow) {
+          atmRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 500);
+    }
+  }, [strikes]);
+
   // Find ATM Strike
   const atmStrike = strikes.reduce((prev, curr) => {
     return (Math.abs(curr.strike - spotPrice) < Math.abs(prev.strike - spotPrice) ? curr : prev);

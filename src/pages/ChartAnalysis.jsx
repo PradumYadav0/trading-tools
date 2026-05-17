@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, CandlestickSeries } from 'lightweight-charts';
-import { AlertCircle, RefreshCw } from 'lucide-react';
+import { AlertCircle, RefreshCw, Brain, Sparkles, X } from 'lucide-react';
 
 const ChartAnalysis = () => {
   const chartContainerRef = useRef();
@@ -10,6 +10,11 @@ const ChartAnalysis = () => {
   const [error, setError] = useState(null);
   const chartRef = useRef(null);
   const seriesRef = useRef(null);
+  
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResponse, setAiResponse] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [aiCooldown, setAiCooldown] = useState(false);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -175,6 +180,49 @@ const ChartAnalysis = () => {
     }));
   };
 
+  const handleAiAnalysis = async () => {
+    if (aiCooldown) return;
+    setAiLoading(true);
+    setAiResponse('');
+    setModalOpen(true);
+    
+    setAiCooldown(true);
+    setTimeout(() => setAiCooldown(false), 30000);
+
+    try {
+      // 1. Take screenshot of chart
+      const canvas = chartContainerRef.current.querySelector('canvas');
+      let base64Image = '';
+      if (canvas) {
+        base64Image = canvas.toDataURL('image/png');
+      }
+
+      // 2. Call API
+      const response = await fetch('/api/ai-analysis', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ 
+          symbol, 
+          image: base64Image
+        })
+      });
+      
+      const result = await response.json();
+      if (result.success) {
+        setAiResponse(result.analysis);
+      } else {
+        setAiResponse('Error: ' + result.message);
+      }
+    } catch (err) {
+      setAiResponse('Error connecting to server');
+      console.error(err);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   return (
     <div className="container">
       <div style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -226,9 +274,9 @@ const ChartAnalysis = () => {
             onClick={fetchData}
             disabled={loading}
             style={{ 
-              background: 'var(--primary-color)', 
+              background: 'rgba(255, 255, 255, 0.05)', 
               color: 'white', 
-              border: 'none', 
+              border: '1px solid var(--border-color)', 
               padding: '0.5rem 1rem', 
               borderRadius: '8px',
               cursor: 'pointer',
@@ -239,6 +287,27 @@ const ChartAnalysis = () => {
           >
             <RefreshCw size={16} className={loading ? 'spin' : ''} />
             Refresh
+          </button>
+
+          <button 
+            onClick={handleAiAnalysis}
+            disabled={aiCooldown}
+            style={{ 
+              background: 'linear-gradient(135deg, #6366F1 0%, #A855F7 100%)', 
+              color: 'white', 
+              border: 'none', 
+              padding: '0.5rem 1.25rem', 
+              borderRadius: '8px',
+              cursor: aiCooldown ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              fontWeight: '600',
+              opacity: aiCooldown ? 0.7 : 1
+            }}
+          >
+            <Sparkles size={16} />
+            {aiCooldown ? 'Wait 30s...' : 'Ask AI'}
           </button>
         </div>
       </div>
@@ -293,6 +362,81 @@ const ChartAnalysis = () => {
           </div>
         </div>
       </div>
+
+      {/* AI Analysis Modal */}
+      {modalOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0, 0, 0, 0.7)',
+          backdropFilter: 'blur(5px)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1000,
+          animation: 'fadeIn 0.3s ease-out'
+        }}>
+          <div className="glass-panel" style={{
+            width: '90%',
+            maxWidth: '600px',
+            maxHeight: '80vh',
+            overflowY: 'auto',
+            padding: '2rem',
+            position: 'relative',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
+          }}>
+            <button 
+              onClick={() => setModalOpen(false)}
+              style={{
+                position: 'absolute',
+                top: '1rem',
+                right: '1rem',
+                background: 'rgba(255,255,255,0.05)',
+                border: 'none',
+                borderRadius: '50%',
+                width: '32px',
+                height: '32px',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                cursor: 'pointer',
+                color: 'var(--text-secondary)'
+              }}
+            >
+              <X size={18} />
+            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+              <Brain size={24} color="#A855F7" />
+              <h2 style={{ fontSize: '1.5rem' }}>AI Chart & Option Chain Analysis</h2>
+            </div>
+
+            {aiLoading ? (
+              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '3rem 0' }}>
+                <RefreshCw size={36} className="spin" style={{ color: '#A855F7', marginBottom: '1rem' }} />
+                <p style={{ color: 'var(--text-secondary)' }}>AI is analyzing the chart screenshot and option chain...</p>
+              </div>
+            ) : (
+              <div style={{ 
+                color: 'var(--text-primary)', 
+                fontSize: '1.05rem', 
+                lineHeight: '1.8',
+                whiteSpace: 'pre-wrap',
+                fontFamily: 'Inter, sans-serif'
+              }}>
+                {aiResponse}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+      `}</style>
     </div>
   );
 };

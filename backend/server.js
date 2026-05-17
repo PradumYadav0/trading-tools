@@ -504,11 +504,24 @@ IMPORTANT INSTRUCTIONS for the tone and format:
 
     // Call Gemini API
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    
+    const parts = [{ text: prompt }];
+    
+    // Add image if provided
+    if (req.body.image) {
+      // Remove data:image/png;base64, prefix if present
+      const base64Data = req.body.image.includes(',') ? req.body.image.split(',')[1] : req.body.image;
+      parts.push({
+        inlineData: {
+          mimeType: "image/png",
+          data: base64Data
+        }
+      });
+    }
+
     const geminiResponse = await axios.post(geminiUrl, {
       contents: [{
-        parts: [{
-          text: prompt
-        }]
+        parts: parts
       }]
     });
 

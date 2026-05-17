@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { RefreshCw, Filter, Zap, ZapOff, BarChart2 } from 'lucide-react';
+import { RefreshCw, Filter, Zap, ZapOff, BarChart2, Calendar } from 'lucide-react';
 
 const OptionChain = () => {
   const [spotPrice, setSpotPrice] = useState(0);
@@ -8,19 +8,22 @@ const OptionChain = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [expiry, setExpiry] = useState('');
+  const [expiryList, setExpiryList] = useState([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [visibleStrikesCount, setVisibleStrikesCount] = useState(30); // Default to 30
   const [autoRefresh, setAutoRefresh] = useState(false); // Default to off
   const [symbol, setSymbol] = useState('NIFTY'); // Default to NIFTY
+  const [selectedExpiry, setSelectedExpiry] = useState(''); // Selected expiry
 
   const fetchData = async () => {
     setIsRefreshing(true);
     try {
-      const response = await axios.get(`/api/option-chain?symbol=${symbol}`);
+      const response = await axios.get(`/api/option-chain?symbol=${symbol}&expiry=${selectedExpiry}`);
       if (response.data.success) {
         setStrikes(response.data.data);
         setSpotPrice(response.data.spotPrice);
         setExpiry(response.data.expiry);
+        setExpiryList(response.data.expiryList || []);
         setLoading(false);
         setError(null);
       } else {
@@ -38,7 +41,7 @@ const OptionChain = () => {
 
   useEffect(() => {
     fetchData();
-  }, [symbol]); // Refetch when symbol changes
+  }, [symbol, selectedExpiry]); // Refetch when symbol or expiry changes
 
   // Auto-Refresh Logic (1 Minute interval)
   useEffect(() => {
@@ -51,7 +54,7 @@ const OptionChain = () => {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [autoRefresh, symbol]);
+  }, [autoRefresh, symbol, selectedExpiry]);
 
   // Find ATM Strike
   const atmStrike = strikes.reduce((prev, curr) => {
@@ -77,7 +80,7 @@ const OptionChain = () => {
         }
       }, 500);
     }
-  }, [strikes, visibleStrikesCount, symbol]);
+  }, [strikes, visibleStrikesCount, symbol, selectedExpiry]);
 
   if (loading) {
     return <div className="container flex-center" style={{ height: '80vh' }}>Loading Option Chain from Dhan API...</div>;
@@ -121,7 +124,10 @@ const OptionChain = () => {
               <BarChart2 size={16} style={{ color: 'var(--text-secondary)' }} />
               <select 
                 value={symbol} 
-                onChange={(e) => setSymbol(e.target.value)}
+                onChange={(e) => {
+                  setSymbol(e.target.value);
+                  setSelectedExpiry(''); // Reset expiry when symbol changes
+                }}
                 style={{
                   background: 'rgba(255, 255, 255, 0.05)',
                   color: 'var(--text-primary)',
@@ -138,6 +144,28 @@ const OptionChain = () => {
               </select>
             </div>
 
+            {/* Expiry Selector */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Calendar size={16} style={{ color: 'var(--text-secondary)' }} />
+              <select 
+                value={selectedExpiry || expiry} 
+                onChange={(e) => setSelectedExpiry(e.target.value)}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-color)',
+                  padding: '0.4rem 0.6rem',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem'
+                }}
+              >
+                {expiryList.map(exp => (
+                  <option key={exp} value={exp}>{exp}</option>
+                ))}
+              </select>
+            </div>
+
             <div style={{ 
               background: 'rgba(255, 255, 255, 0.03)', 
               padding: '0.25rem 0.75rem', 
@@ -146,16 +174,6 @@ const OptionChain = () => {
               fontWeight: '600'
             }}>
               Spot: <span style={{ color: 'var(--accent-primary)' }}>{spotPrice.toFixed(2)}</span>
-            </div>
-            <div style={{ 
-              background: 'rgba(255, 255, 255, 0.03)', 
-              padding: '0.25rem 0.75rem', 
-              borderRadius: '8px',
-              fontSize: '0.9rem',
-              fontWeight: '500',
-              color: 'var(--text-secondary)'
-            }}>
-              Expiry: {expiry}
             </div>
           </div>
         </div>

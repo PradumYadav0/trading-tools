@@ -73,13 +73,14 @@ app.get('/api/option-chain', async (req, res) => {
       return res.status(400).json({ success: false, message: `Failed to fetch expiry list for ${symbol}` });
     }
 
-    const latestExpiry = expiryResponse.data.data[0]; // Use the closest expiry
+    const expiryList = expiryResponse.data.data;
+    const expiryToUse = req.query.expiry || expiryList[0];
 
     // 2. Get Option Chain for that expiry
     const ocResponse = await axios.post('https://api.dhan.co/v2/optionchain', {
       UnderlyingScrip: scripId,
       UnderlyingSeg: 'IDX_I',
-      Expiry: latestExpiry
+      Expiry: expiryToUse
     }, { headers: getDhanHeaders() });
 
     if (ocResponse.data.status !== 'success') {
@@ -111,7 +112,7 @@ app.get('/api/option-chain', async (req, res) => {
     // 4. Save to Database for history (Optional: Avoid duplicates or save on interval)
     db.run(
       `INSERT INTO option_chain_history (symbol, spot_price, expiry, data) VALUES (?, ?, ?, ?)`,
-      [symbol, spotPrice, latestExpiry, JSON.stringify(strikesArray)],
+      [symbol, spotPrice, expiryToUse, JSON.stringify(strikesArray)],
       function(err) {
         if (err) {
           console.error('Error saving to DB:', err.message);
@@ -124,7 +125,8 @@ app.get('/api/option-chain', async (req, res) => {
     res.json({ 
       success: true, 
       spotPrice,
-      expiry: latestExpiry,
+      expiry: expiryToUse,
+      expiryList,
       data: strikesArray 
     });
 

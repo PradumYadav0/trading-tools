@@ -2,9 +2,9 @@ const express = require('express');
 const axios = require('axios');
 const dotenv = require('dotenv');
 const sqlite3 = require('sqlite3').verbose();
-const { authenticator } = require('otplib');
+const { generateSync } = require('otplib');
 
-dotenv.config({ path: '../.env' }); // Load .env from root
+dotenv.config({ path: './.env' }); // Load .env from backend folder
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -40,15 +40,15 @@ const refreshDhanToken = async () => {
   }
 
   try {
-    const totp = authenticator.generate(secret);
+    const totp = generateSync({ secret });
     console.log(`[${new Date().toLocaleTimeString()}] Generating new Dhan token with TOTP...`);
     
     const url = `https://auth.dhan.co/app/generateAccessToken?dhanClientId=${clientId}&pin=${pin}&totp=${totp}`;
     const response = await axios.post(url);
     
-    // Dhan response usually contains the token directly or in data
-    if (response.data && (response.data.access_token || response.data.data?.access_token)) {
-      dhanAccessToken = response.data.access_token || response.data.data.access_token;
+    const token = response.data?.access_token || response.data?.data?.access_token || response.data?.accessToken || response.data?.data?.accessToken;
+    if (token) {
+      dhanAccessToken = token;
       console.log('Dhan Access Token refreshed successfully!');
     } else {
       console.error('Failed to refresh Dhan token. Response:', response.data);
@@ -209,6 +209,104 @@ app.get('/api/option-chain/history', (req, res) => {
       res.json({ success: true, data: parsedRows });
     }
   );
+});
+
+// ─── Settings Endpoints ───────────────────────────────────────────────────────
+
+const fs = require('fs');
+const path = require('path');
+const ENV_PATH = path.resolve(__dirname, './.env');
+
+// Helper: read .env file into object
+function readEnvFile() {
+  const raw = fs.readFileSync(ENV_PATH, 'utf8');
+  const env = {};
+  raw.split('\n').forEach(line => {
+    const [key, ...rest] = line.split('=');
+    if (key && key.trim()) env[key.trim()] = rest.join('=').trim();
+  });
+  return env;
+}
+
+// Helper: write object back to .env file
+function writeEnvFile(obj) {
+  const content = Object.entries(obj).map(([k, v]) => `${k}=${v}`).join('\n') + '\n';
+  fs.writeFileSync(ENV_PATH, content, 'utf8');
+}
+
+// GET current settings (masked)
+app.get('/api/settings', (req, res) => {
+  try {
+    const env = readEnvFile();
+    res.json({
+      success: true,
+      clientId: env.DHAN_CLIENT_ID || '',
+      hasPin: !!(env.DHAN_PIN && env.DHAN_PIN !== 'xxxx'),
+      hasTotpSecret: !!env.DHAN_TOTP_SECRET,
+      hasAccessToken: !!env.DHAN_ACCESS_TOKEN,
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// POST to save credentials and trigger token refresh
+app.post('/api/settings', async (req, res) => {
+  try {
+    const { pin, totpSecret, clientId } = req.body;
+    const env = readEnvFile();
+
+    if (clientId) env.DHAN_CLIENT_ID = clientId;
+    if (pin) env.DHAN_PIN = pin;
+    if (totpSecret) env.DHAN_TOTP_SECRET = totpSecret;
+
+    writeEnvFile(env);
+
+    // Reload into process.env
+    if (clientId) process.env.DHAN_CLIENT_ID = clientId;
+    if (pin) process.env.DHAN_PIN = pin;
+    if (totpSecret) process.env.DHAN_TOTP_SECRET = totpSecret;
+
+    res.json({ success: true, message: 'Settings saved successfully' });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// POST to manually trigger token refresh from UI
+app.post('/api/settings/refresh-token', async (req, res) => {
+  const secret = process.env.DHAN_TOTP_SECRET;
+  const pin = process.env.DHAN_PIN;
+  const clientId = process.env.DHAN_CLIENT_ID;
+
+  if (!secret || !pin || pin === 'xxxx') {
+    return res.status(400).json({ success: false, message: 'TOTP Secret and PIN not configured. Please save settings first.' });
+  }
+
+  try {
+    const totp = generateSync({ secret });
+    const url = `https://auth.dhan.co/app/generateAccessToken?dhanClientId=${clientId}&pin=${pin}&totp=${totp}`;
+    const response = await axios.post(url);
+
+    const token = response.data?.access_token || response.data?.data?.access_token || response.data?.accessToken || response.data?.data?.accessToken;
+    if (token) {
+      dhanAccessToken = token;
+      // Save new token to .env
+      const env = readEnvFile();
+      env.DHAN_ACCESS_TOKEN = token;
+      writeEnvFile(env);
+      process.env.DHAN_ACCESS_TOKEN = token;
+      return res.json({ success: true, message: 'Token refreshed successfully!' });
+    } else {
+      return res.status(400).json({ success: false, message: 'Token refresh failed. Check your PIN and TOTP Secret.', details: response.data });
+    }
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      details: error.response?.data
+    });
+  }
 });
 
 app.listen(PORT, () => {

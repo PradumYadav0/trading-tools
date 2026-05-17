@@ -463,46 +463,17 @@ const ChartAnalysis = () => {
 
       <div className="glass-panel" style={{ padding: '1.5rem' }}>
         <h3 style={{ marginBottom: '1rem' }}>Technical Suggestions</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-          
-          {/* EMA Status */}
-          <div style={{ padding: '1rem', background: 'rgba(255, 255, 255, 0.05)', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
-            <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.25rem' }}>EMA 9 Status</div>
-            <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: technicalSignals.ema === 'Bullish' ? 'var(--bullish)' : 'var(--bearish)' }}>
-              {technicalSignals.ema}
-            </div>
+        <div style={{ display: 'flex', gap: '1rem', flexDirection: 'column' }}>
+          <div style={{ padding: '1rem', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '10px', border: '1px solid rgba(16, 185, 129, 0.1)' }}>
+            <div style={{ color: 'var(--bullish)', fontWeight: '600', marginBottom: '0.25rem' }}>Automated Insights</div>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+              {interval === 'DAY' || interval === 'MONTH' 
+                ? 'Viewing historical data. Monthly view is auto-aggregated from daily data.' 
+                : interval === '10' 
+                ? 'Viewing 10-minute data (Aggregated from 5-minute candles).' 
+                : 'Viewing intraday data. Time is shown in Indian Standard Time (IST).'}
+            </p>
           </div>
-
-          {/* RSI Status */}
-          <div style={{ padding: '1rem', background: 'rgba(255, 255, 255, 0.05)', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
-            <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.25rem' }}>RSI (14)</div>
-            <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: parseFloat(technicalSignals.rsi) > 70 ? 'var(--bearish)' : parseFloat(technicalSignals.rsi) < 30 ? 'var(--bullish)' : 'var(--text-primary)' }}>
-              {technicalSignals.rsi}
-            </div>
-          </div>
-
-          {/* Overall Status */}
-          <div style={{ padding: '1rem', background: 'rgba(255, 255, 255, 0.05)', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
-            <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.25rem' }}>Chart Signal</div>
-            <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: technicalSignals.status.includes('Bullish') ? 'var(--bullish)' : technicalSignals.status.includes('Bearish') ? 'var(--bearish)' : 'var(--text-secondary)' }}>
-              {technicalSignals.status}
-            </div>
-          </div>
-
-        </div>
-
-        <div style={{ marginTop: '1rem', padding: '1rem', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '10px', border: '1px solid rgba(16, 185, 129, 0.1)' }}>
-          <div style={{ color: 'var(--bullish)', fontWeight: '600', marginBottom: '0.25rem' }}>Automated Insights</div>
-          <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-            {interval === 'DAY' || interval === 'MONTH' 
-              ? 'Viewing historical data. Monthly view is auto-aggregated from daily data.' 
-              : interval === '10' 
-              ? 'Viewing 10-minute data (Aggregated from 5-minute candles).' 
-              : 'Viewing intraday data. Time is shown in Indian Standard Time (IST).'}
-            <span style={{ display: 'block', marginTop: '0.5rem', color: 'var(--primary-color)', fontWeight: 'bold' }}>
-              Total Candles Loaded: {technicalSignals.candleCount || 0}
-            </span>
-          </p>
         </div>
       </div>
 

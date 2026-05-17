@@ -111,6 +111,36 @@ const TradingSignals = () => {
     });
   };
 
+  const saveToTesting = async () => {
+    if (!signalData) return;
+    
+    try {
+      const response = await fetch('/api/signals', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          symbol,
+          type: signalData.signal.includes('BULLISH') ? 'CALL' : 'PUT',
+          entry_price: signalData.spotPrice,
+          target_price: signalData.target,
+          stoploss_price: signalData.stoploss
+        })
+      });
+      
+      const result = await response.json();
+      if (result.success) {
+        alert('Signal saved to AI Testing page!');
+      } else {
+        alert('Failed to save signal: ' + result.message);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error saving signal');
+    }
+  };
+
   return (
     <div className="container">
       <div style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -187,6 +217,29 @@ const TradingSignals = () => {
               {signalData.signal}
             </div>
             <p style={{ color: 'white', fontSize: '1.1rem' }}>{signalData.recommendation}</p>
+            
+            {signalData.signal.includes('STRONG') && (
+              <button
+                onClick={saveToTesting}
+                style={{
+                  marginTop: '1.5rem',
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  color: 'white',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                  padding: '0.5rem 1rem',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem',
+                  fontWeight: '600',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem'
+                }}
+              >
+                <TrendingUp size={16} />
+                Track this Signal
+              </button>
+            )}
           </div>
 
           {/* Target & Stoploss Card */}

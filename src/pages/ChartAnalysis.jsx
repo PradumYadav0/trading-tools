@@ -15,6 +15,7 @@ const ChartAnalysis = () => {
   const [aiResponse, setAiResponse] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [aiCooldown, setAiCooldown] = useState(false);
+  const [technicalSignals, setTechnicalSignals] = useState({ ema: 'N/A', rsi: 'N/A', status: 'N/A' });
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -124,9 +125,35 @@ const ChartAnalysis = () => {
         seriesRef.current.setData(chartData);
         
         // Calculate and set EMA data
+        let currentEma = 0;
         if (chartRef.current.emaSeries && chartData.length > 9) {
           const emaData = calculateEMA(chartData, 9);
           chartRef.current.emaSeries.setData(emaData);
+          if (emaData.length > 0) {
+            currentEma = emaData[emaData.length - 1].value;
+          }
+        }
+        
+        // Calculate RSI
+        let currentRsi = 0;
+        if (chartData.length > 14) {
+          const rsiData = calculateRSI(chartData, 14);
+          if (rsiData.length > 0) {
+            currentRsi = rsiData[rsiData.length - 1].value;
+          }
+        }
+        
+        // Update Technical Signals state
+        if (chartData.length > 0) {
+          const lastCandle = chartData[chartData.length - 1];
+          const isBullishEma = lastCandle.close > currentEma;
+          const isBullishRsi = currentRsi > 50;
+          
+          setTechnicalSignals({
+            ema: isBullishEma ? 'Bullish' : 'Bearish',
+            rsi: currentRsi ? currentRsi.toFixed(2) : 'N/A',
+            status: (isBullishEma && isBullishRsi) ? 'Strong Bullish' : (!isBullishEma && !isBullishRsi) ? 'Strong Bearish' : 'Neutral'
+          });
         }
         
         chartRef.current.timeScale().fitContent();
@@ -212,6 +239,40 @@ const ChartAnalysis = () => {
       emaData.push({ time: data[i].time, value: ema });
     }
     return emaData;
+  };
+
+  // Helper to calculate RSI
+  const calculateRSI = (data, period = 14) => {
+    let rsiData = [];
+    if (data.length < period + 1) return rsiData;
+    
+    let gains = [];
+    let losses = [];
+    
+    for (let i = 1; i < data.length; i++) {
+      const change = data[i].close - data[i-1].close;
+      gains.push(change > 0 ? change : 0);
+      losses.push(change < 0 ? -change : 0);
+    }
+    
+    let avgGain = gains.slice(0, period).reduce((a, b) => a + b, 0) / period;
+    let avgLoss = losses.slice(0, period).reduce((a, b) => a + b, 0) / period;
+    
+    let rs = avgGain / (avgLoss || 1);
+    let rsi = 100 - (100 / (1 + rs));
+    
+    rsiData.push({ time: data[period].time, value: rsi });
+    
+    for (let i = period + 1; i < data.length; i++) {
+      avgGain = (avgGain * (period - 1) + gains[i-1]) / period;
+      avgLoss = (avgLoss * (period - 1) + losses[i-1]) / period;
+      
+      rs = avgGain / (avgLoss || 1);
+      rsi = 100 - (100 / (1 + rs));
+      rsiData.push({ time: data[i].time, value: rsi });
+    }
+    
+    return rsiData;
   };
 
   const handleAiAnalysis = async () => {
@@ -383,17 +444,43 @@ const ChartAnalysis = () => {
 
       <div className="glass-panel" style={{ padding: '1.5rem' }}>
         <h3 style={{ marginBottom: '1rem' }}>Technical Suggestions</h3>
-        <div style={{ display: 'flex', gap: '1rem', flexDirection: 'column' }}>
-          <div style={{ padding: '1rem', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '10px', border: '1px solid rgba(16, 185, 129, 0.1)' }}>
-            <div style={{ color: 'var(--bullish)', fontWeight: '600', marginBottom: '0.25rem' }}>Automated Insights</div>
-            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-              {interval === 'DAY' || interval === 'MONTH' 
-                ? 'Viewing historical data. Monthly view is auto-aggregated from daily data.' 
-                : interval === '10' 
-                ? 'Viewing 10-minute data (Aggregated from 5-minute candles).' 
-                : 'Viewing intraday data. Time is shown in Indian Standard Time (IST).'}
-            </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+          
+          {/* EMA Status */}
+          <div style={{ padding: '1rem', background: 'rgba(255, 255, 255, 0.05)', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.25rem' }}>EMA 9 Status</div>
+            <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: technicalSignals.ema === 'Bullish' ? 'var(--bullish)' : 'var(--bearish)' }}>
+              {technicalSignals.ema}
+            </div>
           </div>
+
+          {/* RSI Status */}
+          <div style={{ padding: '1rem', background: 'rgba(255, 255, 255, 0.05)', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.25rem' }}>RSI (14)</div>
+            <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: parseFloat(technicalSignals.rsi) > 70 ? 'var(--bearish)' : parseFloat(technicalSignals.rsi) < 30 ? 'var(--bullish)' : 'var(--text-primary)' }}>
+              {technicalSignals.rsi}
+            </div>
+          </div>
+
+          {/* Overall Status */}
+          <div style={{ padding: '1rem', background: 'rgba(255, 255, 255, 0.05)', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.25rem' }}>Chart Signal</div>
+            <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: technicalSignals.status.includes('Bullish') ? 'var(--bullish)' : technicalSignals.status.includes('Bearish') ? 'var(--bearish)' : 'var(--text-secondary)' }}>
+              {technicalSignals.status}
+            </div>
+          </div>
+
+        </div>
+
+        <div style={{ marginTop: '1rem', padding: '1rem', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '10px', border: '1px solid rgba(16, 185, 129, 0.1)' }}>
+          <div style={{ color: 'var(--bullish)', fontWeight: '600', marginBottom: '0.25rem' }}>Automated Insights</div>
+          <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+            {interval === 'DAY' || interval === 'MONTH' 
+              ? 'Viewing historical data. Monthly view is auto-aggregated from daily data.' 
+              : interval === '10' 
+              ? 'Viewing 10-minute data (Aggregated from 5-minute candles).' 
+              : 'Viewing intraday data. Time is shown in Indian Standard Time (IST).'}
+          </p>
         </div>
       </div>
 

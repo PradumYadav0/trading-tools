@@ -2,6 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const dotenv = require('dotenv');
 const sqlite3 = require('sqlite3').verbose();
+const { authenticator } = require('otplib');
 
 dotenv.config({ path: '../.env' }); // Load .env from root
 
@@ -16,6 +17,55 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, access-token, client-id');
   next();
 });
+
+// Global state for token
+let dhanAccessToken = process.env.DHAN_ACCESS_TOKEN;
+
+// Helper to get Dhan Headers
+const getDhanHeaders = () => ({
+  'Content-Type': 'application/json',
+  'access-token': dhanAccessToken,
+  'client-id': process.env.DHAN_CLIENT_ID
+});
+
+// Function to refresh Dhan Token automatically
+const refreshDhanToken = async () => {
+  const secret = process.env.DHAN_TOTP_SECRET;
+  const pin = process.env.DHAN_PIN;
+  const clientId = process.env.DHAN_CLIENT_ID;
+
+  if (!secret || !pin || pin === 'xxxx') {
+    console.log('Auto token refresh skipped: DHAN_TOTP_SECRET or DHAN_PIN not set in .env');
+    return;
+  }
+
+  try {
+    const totp = authenticator.generate(secret);
+    console.log(`[${new Date().toLocaleTimeString()}] Generating new Dhan token with TOTP...`);
+    
+    const url = `https://auth.dhan.co/app/generateAccessToken?dhanClientId=${clientId}&pin=${pin}&totp=${totp}`;
+    const response = await axios.post(url);
+    
+    // Dhan response usually contains the token directly or in data
+    if (response.data && (response.data.access_token || response.data.data?.access_token)) {
+      dhanAccessToken = response.data.access_token || response.data.data.access_token;
+      console.log('Dhan Access Token refreshed successfully!');
+    } else {
+      console.error('Failed to refresh Dhan token. Response:', response.data);
+    }
+  } catch (error) {
+    console.error('Error refreshing Dhan token:', error.message);
+    if (error.response) {
+      console.error('Error response from Dhan:', error.response.data);
+    }
+  }
+};
+
+// Refresh on startup
+refreshDhanToken();
+
+// Refresh every 23 hours to be safe
+setInterval(refreshDhanToken, 23 * 60 * 60 * 1000);
 
 // Initialize SQLite Database
 const db = new sqlite3.Database('./option_chain.db', (err) => {
@@ -34,13 +84,6 @@ const db = new sqlite3.Database('./option_chain.db', (err) => {
   }
 });
 
-// Helper to get Dhan Headers
-const getDhanHeaders = () => ({
-  'Content-Type': 'application/json',
-  'access-token': process.env.DHAN_ACCESS_TOKEN,
-  'client-id': process.env.DHAN_CLIENT_ID
-});
-
 // Scrip Mapping for Indices
 const scripMap = {
   'NIFTY': 13,
@@ -50,12 +93,12 @@ const scripMap = {
 // Endpoint to get Option Chain
 app.get('/api/option-chain', async (req, res) => {
   try {
-    const token = process.env.DHAN_ACCESS_TOKEN;
+    const token = dhanAccessToken;
     const clientId = process.env.DHAN_CLIENT_ID;
     const symbol = req.query.symbol || 'NIFTY';
 
     if (!token || !clientId) {
-      return res.status(400).json({ success: false, message: 'Dhan credentials missing in .env file' });
+      return res.status(400).json({ success: false, message: 'Dhan credentials missing. Please set them or wait for auto-refresh.' });
     }
 
     const scripId = scripMap[symbol];

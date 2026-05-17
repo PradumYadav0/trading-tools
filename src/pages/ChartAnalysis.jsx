@@ -49,6 +49,16 @@ const ChartAnalysis = () => {
       wickDownColor: '#EF4444',
     });
 
+    // Add EMA Line Series
+    const emaSeries = chartRef.current.addLineSeries({
+      color: '#F59E0B', // Amber color for EMA
+      lineWidth: 2,
+      title: 'EMA 9',
+    });
+    
+    // Store reference to EMA series
+    chartRef.current.emaSeries = emaSeries;
+
     // Handle resize
     const resizeObserver = new ResizeObserver(entries => {
       if (entries.length === 0 || entries[0].target !== chartContainerRef.current) return;
@@ -112,6 +122,13 @@ const ChartAnalysis = () => {
         }
         
         seriesRef.current.setData(chartData);
+        
+        // Calculate and set EMA data
+        if (chartRef.current.emaSeries && chartData.length > 9) {
+          const emaData = calculateEMA(chartData, 9);
+          chartRef.current.emaSeries.setData(emaData);
+        }
+        
         chartRef.current.timeScale().fitContent();
       } else {
         setError(result.message || 'Failed to fetch chart data');
@@ -178,6 +195,23 @@ const ChartAnalysis = () => {
       low: item.low,
       close: item.close
     }));
+  };
+
+  // Helper to calculate EMA
+  const calculateEMA = (data, period) => {
+    const k = 2 / (period + 1);
+    let emaData = [];
+    
+    if (data.length === 0) return emaData;
+    
+    let ema = data[0].close; // Start with first close
+    emaData.push({ time: data[0].time, value: ema });
+    
+    for (let i = 1; i < data.length; i++) {
+      ema = (data[i].close * k) + (ema * (1 - k));
+      emaData.push({ time: data[i].time, value: ema });
+    }
+    return emaData;
   };
 
   const handleAiAnalysis = async () => {

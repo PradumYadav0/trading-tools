@@ -28,11 +28,21 @@ const TradingSignals = () => {
     setTimeout(() => setCooldown(false), 10000);
 
     try {
+      // Fetch Option Chain
       const response = await fetch(`/api/option-chain?symbol=${symbol}`);
       const result = await response.json();
 
+      // Fetch Chart Data for EMA
+      const chartResponse = await fetch(`/api/charts/intraday?symbol=${symbol}&interval=5`);
+      const chartResult = await chartResponse.json();
+      
+      let chartData = [];
+      if (chartResult.success && chartResult.data) {
+        chartData = chartResult.data.sort((a, b) => a.time - b.time);
+      }
+
       if (result.success && result.data) {
-        calculateSignals(result.data, result.spotPrice);
+        calculateSignals(result.data, result.spotPrice, chartData);
       } else {
         setError(result.message || 'Failed to fetch data');
       }
@@ -44,7 +54,7 @@ const TradingSignals = () => {
     }
   };
 
-  const calculateSignals = (ocData, spotPrice) => {
+  const calculateSignals = (ocData, spotPrice, chartData) => {
     let totalCallOi = 0;
     let totalPutOi = 0;
     let maxCallOi = 0;
@@ -69,6 +79,20 @@ const TradingSignals = () => {
 
     const pcr = totalCallOi > 0 ? (totalPutOi / totalCallOi).toFixed(2) : 0;
     
+    // Calculate EMA 9 from chart data
+    let ema9 = 0;
+    let priceAboveEma = false;
+    
+    if (chartData.length >= 9) {
+      const k = 2 / (9 + 1);
+      let ema = chartData[0].close;
+      for (let i = 1; i < chartData.length; i++) {
+        ema = (chartData[i].close * k) + (ema * (1 - k));
+      }
+      ema9 = parseFloat(ema.toFixed(2));
+      priceAboveEma = spotPrice > ema9;
+    }
+
     // Determine Signal
     let signal = 'NEUTRAL';
     let signalColor = 'var(--text-secondary)';
@@ -76,26 +100,35 @@ const TradingSignals = () => {
     let stoploss = 0;
     let target = 0;
 
-    if (pcr > 1.2 && spotPrice > supportStrike) {
+    // Combine Option Chain and Chart (EMA)
+    if (pcr > 1.2 && spotPrice > supportStrike && priceAboveEma) {
       signal = 'STRONG BULLISH';
       signalColor = 'var(--bullish)';
-      recommendation = `Market is bullish. Consider buying Call Options above ${spotPrice}.`;
-      stoploss = supportStrike; // Stoploss at support
-      target = resistanceStrike; // Target at resistance
-    } else if (pcr < 0.8 && spotPrice < resistanceStrike) {
+      recommendation = `Option Chain & Chart are Bullish! Price is above EMA 9. Consider buying Call.`;
+      stoploss = supportStrike;
+      target = resistanceStrike;
+    } else if (pcr < 0.8 && spotPrice < resistanceStrike && !priceAboveEma) {
       signal = 'STRONG BEARISH';
       signalColor = 'var(--bearish)';
-      recommendation = `Market is bearish. Consider buying Put Options below ${spotPrice}.`;
-      stoploss = resistanceStrike; // Stoploss at resistance
-      target = supportStrike; // Target at support
-    } else if (pcr > 1.0) {
+      recommendation = `Option Chain & Chart are Bearish! Price is below EMA 9. Consider buying Put.`;
+      stoploss = resistanceStrike;
+      target = supportStrike;
+    } else if (pcr > 1.0 && priceAboveEma) {
       signal = 'MILD BULLISH';
       signalColor = '#10B981';
-      recommendation = 'Slightly bullish bias. Avoid big trades.';
-    } else if (pcr < 1.0) {
+      recommendation = 'Price is above EMA and PCR is positive. Slight bullish bias.';
+    } else if (pcr < 1.0 && !priceAboveEma) {
       signal = 'MILD BEARISH';
       signalColor = '#EF4444';
-      recommendation = 'Slightly bearish bias. Avoid big trades.';
+      recommendation = 'Price is below EMA and PCR is negative. Slight bearish bias.';
+    } else if (pcr > 1.0 && !priceAboveEma) {
+      signal = 'CONFLICTING';
+      signalColor = '#EAB308';
+      recommendation = 'Option Chain is Bullish but Chart is Bearish (Below EMA). Avoid trading.';
+    } else if (pcr < 1.0 && priceAboveEma) {
+      signal = 'CONFLICTING';
+      signalColor = '#EAB308';
+      recommendation = 'Option Chain is Bearish but Chart is Bullish (Above EMA). Avoid trading.';
     }
 
     setSignalData({
@@ -109,7 +142,9 @@ const TradingSignals = () => {
       stoploss,
       target,
       totalCallOi,
-      totalPutOi
+      totalPutOi,
+      ema9,
+      priceAboveEma
     });
   };
 

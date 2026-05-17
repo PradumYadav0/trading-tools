@@ -50,6 +50,16 @@ const refreshDhanToken = async () => {
     if (token) {
       dhanAccessToken = token;
       console.log('Dhan Access Token refreshed successfully!');
+      
+      // Save new token to .env file so it persists across restarts
+      try {
+        const env = readEnvFile();
+        env.DHAN_ACCESS_TOKEN = token;
+        writeEnvFile(env);
+        process.env.DHAN_ACCESS_TOKEN = token;
+      } catch (e) {
+        console.log('Error saving token to .env:', e.message);
+      }
     } else {
       console.error('Failed to refresh Dhan token. Response:', response.data);
     }

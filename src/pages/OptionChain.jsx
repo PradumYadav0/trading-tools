@@ -168,8 +168,7 @@ const OptionChain = () => {
         </div>
       </div>
 
-      {/* Increased height to make table bigger */}
-      <div className="glass-panel" style={{ height: 'calc(100vh - 180px)', overflowY: 'auto' }}>
+      <div className="glass-panel">
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '0.85rem' }}>
           <thead style={{ position: 'sticky', top: 0, zIndex: 2, background: '#161B22' }}>
             <tr style={{ borderBottom: '1px solid var(--border-color)' }}>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { RefreshCw, Filter } from 'lucide-react';
+import { RefreshCw, Filter, Zap, ZapOff } from 'lucide-react';
 
 const OptionChain = () => {
   const [spotPrice, setSpotPrice] = useState(0);
@@ -10,6 +10,7 @@ const OptionChain = () => {
   const [expiry, setExpiry] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [visibleStrikesCount, setVisibleStrikesCount] = useState(30); // Default to 30
+  const [autoRefresh, setAutoRefresh] = useState(false); // Default to off
 
   const fetchData = async () => {
     setIsRefreshing(true);
@@ -38,6 +39,19 @@ const OptionChain = () => {
     fetchData();
   }, []);
 
+  // Auto-Refresh Logic (1 Minute interval to avoid rate limits)
+  useEffect(() => {
+    let interval = null;
+    if (autoRefresh) {
+      interval = setInterval(() => {
+        fetchData();
+      }, 60000); // 60 seconds
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [autoRefresh]);
+
   // Find ATM Strike
   const atmStrike = strikes.reduce((prev, curr) => {
     return (Math.abs(curr.strike - spotPrice) < Math.abs(prev.strike - spotPrice) ? curr : prev);
@@ -52,6 +66,7 @@ const OptionChain = () => {
     Math.min(strikes.length, atmIndex + half + 1)
   ) : strikes;
 
+  // Auto-center Spot Price / ATM row
   useEffect(() => {
     if (displayedStrikes.length > 0) {
       setTimeout(() => {
@@ -123,6 +138,27 @@ const OptionChain = () => {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          {/* Auto Refresh Toggle */}
+          <button
+            onClick={() => setAutoRefresh(!autoRefresh)}
+            style={{
+              background: autoRefresh ? 'rgba(0, 200, 5, 0.1)' : 'rgba(255, 255, 255, 0.05)',
+              color: autoRefresh ? '#00c805' : 'var(--text-secondary)',
+              border: `1px solid ${autoRefresh ? '#00c805' : 'var(--border-color)'}`,
+              padding: '0.5rem 1rem',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              fontSize: '0.9rem',
+              transition: 'var(--transition-smooth)'
+            }}
+          >
+            {autoRefresh ? <Zap size={16} /> : <ZapOff size={16} />}
+            {autoRefresh ? 'Live Auto-Refresh (1m)' : 'Auto-Refresh Off'}
+          </button>
+
           {/* Filter Dropdown */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Filter size={16} style={{ color: 'var(--text-secondary)' }} />
@@ -196,6 +232,7 @@ const OptionChain = () => {
               elements.push(
                 <tr 
                   key={row.strike} 
+                  className={isAtm ? 'atm-row' : ''}
                   style={{ 
                     borderBottom: '1px solid var(--border-color)', 
                     height: '35px'

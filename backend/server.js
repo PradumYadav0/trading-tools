@@ -71,8 +71,8 @@ const refreshDhanToken = async () => {
   }
 };
 
-// Refresh on startup
-refreshDhanToken();
+// Refresh on startup (Commented out to avoid rate limit on restarts)
+// refreshDhanToken();
 
 // Refresh every 23 hours to be safe
 setInterval(refreshDhanToken, 23 * 60 * 60 * 1000);

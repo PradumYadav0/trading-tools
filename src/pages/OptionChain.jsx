@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { RefreshCw, Filter, Zap, ZapOff, BarChart2, Calendar, Clock } from 'lucide-react';
+import { RefreshCw, Filter, Zap, ZapOff, BarChart2, Calendar, Clock, Trophy } from 'lucide-react';
 
 const OptionChain = () => {
   const [spotPrice, setSpotPrice] = useState(0);
@@ -84,6 +84,17 @@ const OptionChain = () => {
     }
   }, [strikes, visibleStrikesCount, symbol, selectedExpiry]);
 
+  // Calculate PCR (Put-Call Ratio)
+  const totalCallOi = strikes.reduce((sum, row) => sum + row.callOi, 0);
+  const totalPutOi = strikes.reduce((sum, row) => sum + row.putOi, 0);
+  const pcr = totalCallOi > 0 ? (totalPutOi / totalCallOi).toFixed(2) : '0.00';
+
+  // Find Max values for highlighting (among displayed strikes)
+  const maxCallOi = Math.max(...displayedStrikes.map(s => s.callOi));
+  const maxPutOi = Math.max(...displayedStrikes.map(s => s.putOi));
+  const maxCallVol = Math.max(...displayedStrikes.map(s => s.callVolume));
+  const maxPutVol = Math.max(...displayedStrikes.map(s => s.putVolume));
+
   if (loading) {
     return <div className="container flex-center" style={{ height: '80vh' }}>Loading Option Chain from Dhan API...</div>;
   }
@@ -121,7 +132,7 @@ const OptionChain = () => {
           <h1 style={{ fontSize: '1.75rem', marginBottom: '0.25rem' }}>Option Chain Analysis</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
             
-            {/* Symbol Selector with solid background to fix white-on-white issue */}
+            {/* Symbol Selector */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <BarChart2 size={16} style={{ color: 'var(--text-secondary)' }} />
               <select 
@@ -131,7 +142,7 @@ const OptionChain = () => {
                   setSelectedExpiry(''); // Reset expiry when symbol changes
                 }}
                 style={{
-                  background: '#1c2128', // Solid dark background
+                  background: '#1c2128',
                   color: '#fff',
                   border: '1px solid var(--border-color)',
                   padding: '0.4rem 0.6rem',
@@ -146,14 +157,14 @@ const OptionChain = () => {
               </select>
             </div>
 
-            {/* Expiry Selector with solid background */}
+            {/* Expiry Selector */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Calendar size={16} style={{ color: 'var(--text-secondary)' }} />
               <select 
                 value={selectedExpiry || expiry} 
                 onChange={(e) => setSelectedExpiry(e.target.value)}
                 style={{
-                  background: '#1c2128', // Solid dark background
+                  background: '#1c2128',
                   color: '#fff',
                   border: '1px solid var(--border-color)',
                   padding: '0.4rem 0.6rem',
@@ -176,6 +187,17 @@ const OptionChain = () => {
               fontWeight: '600'
             }}>
               Spot: <span style={{ color: 'var(--accent-primary)' }}>{spotPrice.toFixed(2)}</span>
+            </div>
+
+            {/* PCR Display */}
+            <div style={{ 
+              background: 'rgba(255, 255, 255, 0.03)', 
+              padding: '0.25rem 0.75rem', 
+              borderRadius: '8px',
+              fontSize: '0.9rem',
+              fontWeight: '600'
+            }}>
+              PCR: <span style={{ color: parseFloat(pcr) > 1 ? 'var(--bullish)' : 'var(--bearish)' }}>{pcr}</span>
             </div>
 
             {/* Last Updated Time */}
@@ -221,7 +243,7 @@ const OptionChain = () => {
               value={visibleStrikesCount} 
               onChange={(e) => setVisibleStrikesCount(Number(e.target.value))}
               style={{
-                background: '#1c2128', // Solid dark background
+                background: '#1c2128',
                 color: '#fff',
                 border: '1px solid var(--border-color)',
                 padding: '0.5rem',
@@ -282,6 +304,11 @@ const OptionChain = () => {
           <tbody>
             {displayedStrikes.flatMap((row, index) => {
               const isAtm = row.strike === atmStrike;
+              const isMaxCallOi = row.callOi === maxCallOi && maxCallOi > 0;
+              const isMaxPutOi = row.putOi === maxPutOi && maxPutOi > 0;
+              const isMaxCallVol = row.callVolume === maxCallVol && maxCallVol > 0;
+              const isMaxPutVol = row.putVolume === maxPutVol && maxPutVol > 0;
+              
               const elements = [];
               
               elements.push(
@@ -292,25 +319,54 @@ const OptionChain = () => {
                     height: '35px'
                   }}
                 >
-                  <td style={{ color: 'var(--text-secondary)' }}>{row.callOi.toLocaleString()}</td>
+                  {/* CALLS */}
+                  <td style={{ 
+                    color: 'var(--text-secondary)',
+                    background: isMaxCallOi ? 'rgba(255, 165, 0, 0.05)' : 'transparent',
+                    fontWeight: isMaxCallOi ? 'bold' : 'normal'
+                  }}>
+                    {row.callOi.toLocaleString()}
+                    {isMaxCallOi && <Trophy size={12} style={{ color: 'orange', marginLeft: '2px', display: 'inline' }} />}
+                  </td>
                   <td style={{ color: row.callChgOi > 0 ? 'var(--bearish)' : 'var(--bullish)' }}>
                     {row.callChgOi > 0 ? `+${row.callChgOi}` : row.callChgOi}
                   </td>
-                  <td style={{ color: 'var(--text-secondary)' }}>{(row.callVolume || 0).toLocaleString()}</td>
+                  <td style={{ 
+                    color: 'var(--text-secondary)',
+                    background: isMaxCallVol ? 'rgba(0, 191, 255, 0.05)' : 'transparent'
+                  }}>
+                    {(row.callVolume || 0).toLocaleString()}
+                  </td>
                   <td style={{ color: 'var(--text-primary)', borderRight: '1px solid var(--border-color)' }}>
                     {row.callLtp.toFixed(2)}
                   </td>
+
+                  {/* STRIKE */}
                   <td style={{ fontWeight: '700' }}>
                     {row.strike}
                   </td>
+
+                  {/* PUTS */}
                   <td style={{ color: 'var(--text-primary)', borderLeft: '1px solid var(--border-color)' }}>
                     {row.putLtp.toFixed(2)}
                   </td>
-                  <td style={{ color: 'var(--text-secondary)' }}>{(row.putVolume || 0).toLocaleString()}</td>
+                  <td style={{ 
+                    color: 'var(--text-secondary)',
+                    background: isMaxPutVol ? 'rgba(0, 191, 255, 0.05)' : 'transparent'
+                  }}>
+                    {(row.putVolume || 0).toLocaleString()}
+                  </td>
                   <td style={{ color: row.putChgOi > 0 ? 'var(--bullish)' : 'var(--bearish)' }}>
                     {row.putChgOi > 0 ? `+${row.putChgOi}` : row.putChgOi}
                   </td>
-                  <td style={{ color: 'var(--text-secondary)' }}>{row.putOi.toLocaleString()}</td>
+                  <td style={{ 
+                    color: 'var(--text-secondary)',
+                    background: isMaxPutOi ? 'rgba(255, 165, 0, 0.05)' : 'transparent',
+                    fontWeight: isMaxPutOi ? 'bold' : 'normal'
+                  }}>
+                    {row.putOi.toLocaleString()}
+                    {isMaxPutOi && <Trophy size={12} style={{ color: 'orange', marginLeft: '2px', display: 'inline' }} />}
+                  </td>
                 </tr>
               );
 

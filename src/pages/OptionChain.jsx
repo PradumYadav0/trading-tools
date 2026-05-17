@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Filter } from 'lucide-react';
 
 const OptionChain = () => {
   const [spotPrice, setSpotPrice] = useState(0);
@@ -9,6 +9,7 @@ const OptionChain = () => {
   const [error, setError] = useState(null);
   const [expiry, setExpiry] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [visibleStrikesCount, setVisibleStrikesCount] = useState(30); // Default to 30
 
   const fetchData = async () => {
     setIsRefreshing(true);
@@ -42,11 +43,13 @@ const OptionChain = () => {
     return (Math.abs(curr.strike - spotPrice) < Math.abs(prev.strike - spotPrice) ? curr : prev);
   }, strikes[0] || { strike: 0 }).strike;
 
-  // Filter to show 30 strikes around ATM (15 above, 15 below)
+  // Filter to show N strikes around ATM
   const atmIndex = strikes.findIndex(s => s.strike === atmStrike);
+  const half = Math.floor(visibleStrikesCount / 2);
+  
   const displayedStrikes = atmIndex >= 0 ? strikes.slice(
-    Math.max(0, atmIndex - 15),
-    Math.min(strikes.length, atmIndex + 16) // +16 to get 31 rows (ATM + 15 either side)
+    Math.max(0, atmIndex - half),
+    Math.min(strikes.length, atmIndex + half + 1)
   ) : strikes;
 
   useEffect(() => {
@@ -58,7 +61,7 @@ const OptionChain = () => {
         }
       }, 500);
     }
-  }, [strikes]); // Run when full strikes list updates
+  }, [strikes, visibleStrikesCount]); // Run when full strikes list or count updates
 
   if (loading) {
     return <div className="container flex-center" style={{ height: '80vh' }}>Loading Option Chain from Dhan API...</div>;
@@ -92,11 +95,11 @@ const OptionChain = () => {
 
   return (
     <div className="container">
-      <div style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h1 style={{ fontSize: '1.75rem', marginBottom: '0.25rem' }}>Option Chain Analysis</h1>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <p style={{ color: 'var(--text-secondary)' }}>Live Data from Dhan API. Showing ~30 strikes around ATM.</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+            <p style={{ color: 'var(--text-secondary)' }}>Live Data from Dhan API.</p>
             <div style={{ 
               background: 'rgba(255, 255, 255, 0.03)', 
               padding: '0.25rem 0.75rem', 
@@ -119,25 +122,50 @@ const OptionChain = () => {
           </div>
         </div>
 
-        <button 
-          onClick={fetchData} 
-          disabled={isRefreshing}
-          style={{
-            background: 'rgba(255, 255, 255, 0.05)',
-            color: 'var(--text-primary)',
-            border: '1px solid var(--border-color)',
-            padding: '0.5rem 1rem',
-            borderRadius: '10px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            transition: 'var(--transition-smooth)'
-          }}
-        >
-          <RefreshCw size={16} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
-          {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          {/* Filter Dropdown */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Filter size={16} style={{ color: 'var(--text-secondary)' }} />
+            <select 
+              value={visibleStrikesCount} 
+              onChange={(e) => setVisibleStrikesCount(Number(e.target.value))}
+              style={{
+                background: 'rgba(255, 255, 255, 0.05)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-color)',
+                padding: '0.5rem',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '0.9rem'
+              }}
+            >
+              <option value={10}>Show 10 Strikes</option>
+              <option value={20}>Show 20 Strikes</option>
+              <option value={30}>Show 30 Strikes</option>
+              <option value={50}>Show 50 Strikes</option>
+            </select>
+          </div>
+
+          <button 
+            onClick={fetchData} 
+            disabled={isRefreshing}
+            style={{
+              background: 'rgba(255, 255, 255, 0.05)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border-color)',
+              padding: '0.5rem 1rem',
+              borderRadius: '10px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              transition: 'var(--transition-smooth)'
+            }}
+          >
+            <RefreshCw size={16} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
+            {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
+          </button>
+        </div>
       </div>
 
       <div className="glass-panel" style={{ height: 'calc(100vh - 250px)', overflowY: 'auto' }}>
@@ -168,7 +196,11 @@ const OptionChain = () => {
                 <tr 
                   key={row.strike} 
                   className={isAtm ? 'atm-row' : ''}
-                  style={{ borderBottom: '1px solid var(--border-color)', height: '35px' }}
+                  style={{ 
+                    borderBottom: '1px solid var(--border-color)', 
+                    height: '35px',
+                    background: isAtm ? 'rgba(var(--accent-primary-rgb), 0.1)' : 'transparent'
+                  }}
                 >
                   <td style={{ color: 'var(--text-secondary)' }}>{row.callOi.toLocaleString()}</td>
                   <td style={{ color: row.callChgOi > 0 ? 'var(--bearish)' : 'var(--bullish)' }}>
@@ -178,7 +210,8 @@ const OptionChain = () => {
                   <td style={{ color: 'var(--text-primary)', borderRight: '1px solid var(--border-color)' }}>
                     {row.callLtp.toFixed(2)}
                   </td>
-                  <td className={isAtm ? 'atm-strike' : ''} style={{ fontWeight: '700' }}>
+                  <td className={isAtm ? 'atm-strike' : ''} style={{ fontWeight: '700', position: 'relative' }}>
+                    {isAtm && <span style={{ position: 'absolute', left: '5px', fontSize: '0.7rem', color: 'var(--accent-primary)' }}>ATM</span>}
                     {row.strike}
                   </td>
                   <td style={{ color: 'var(--text-primary)', borderLeft: '1px solid var(--border-color)' }}>

@@ -91,6 +91,18 @@ const db = new sqlite3.Database('./option_chain.db', (err) => {
       expiry TEXT,
       data TEXT
     )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS ai_signals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      symbol TEXT,
+      type TEXT,
+      entry_price REAL,
+      target_price REAL,
+      stoploss_price REAL,
+      status TEXT DEFAULT 'PENDING',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
   }
 });
 
@@ -539,6 +551,101 @@ IMPORTANT INSTRUCTIONS for the tone and format:
       message: error.message,
       details: error.response?.data
     });
+  }
+});
+
+// Endpoint to save a new AI signal
+app.post('/api/signals', (req, res) => {
+  const { symbol, type, entry_price, target_price, stoploss_price } = req.body;
+  
+  if (!symbol || !type || !entry_price) {
+    return res.status(400).json({ success: false, message: 'Missing required fields' });
+  }
+
+  const query = `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price) 
+                 VALUES (?, ?, ?, ?, ?)`;
+  
+  db.run(query, [symbol, type, entry_price, target_price, stoploss_price], function(err) {
+    if (err) {
+      console.error('Error saving signal:', err.message);
+      return res.status(500).json({ success: false, message: err.message });
+    }
+    res.json({ success: true, id: this.lastID });
+  });
+});
+
+// Endpoint to get all signals and update status
+app.get('/api/signals', async (req, res) => {
+  try {
+    // Get the latest spot prices from option_chain_history to avoid rate limits
+    const getLatestPrice = (sym) => {
+      return new Promise((resolve) => {
+        db.get(`SELECT spot_price FROM option_chain_history WHERE symbol = ? ORDER BY timestamp DESC LIMIT 1`, [sym], (err, row) => {
+          if (err || !row) resolve(null);
+          else resolve(row.spot_price);
+        });
+      });
+    };
+
+    const niftySpot = await getLatestPrice('NIFTY');
+    const bankNiftySpot = await getLatestPrice('BANKNIFTY');
+
+    // Update PENDING signals
+    const updateSignals = () => {
+      return new Promise((resolve, reject) => {
+        db.all(`SELECT * FROM ai_signals WHERE status = 'PENDING'`, [], (err, rows) => {
+          if (err) return reject(err);
+          
+          if (rows.length === 0) return resolve(0);
+
+          let pendingUpdates = rows.length;
+          let updatedCount = 0;
+
+          rows.forEach(row => {
+            const currentSpot = row.symbol === 'NIFTY' ? niftySpot : bankNiftySpot;
+            if (!currentSpot) {
+              pendingUpdates--;
+              if (pendingUpdates === 0) resolve(updatedCount);
+              return;
+            }
+
+            let newStatus = 'PENDING';
+            if (row.type === 'CALL') {
+              if (row.target_price && currentSpot >= row.target_price) newStatus = 'SUCCESS';
+              else if (row.stoploss_price && currentSpot <= row.stoploss_price) newStatus = 'FAILED';
+            } else if (row.type === 'PUT') {
+              if (row.target_price && currentSpot <= row.target_price) newStatus = 'SUCCESS';
+              else if (row.stoploss_price && currentSpot >= row.stoploss_price) newStatus = 'FAILED';
+            }
+
+            if (newStatus !== 'PENDING') {
+              db.run(`UPDATE ai_signals SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [newStatus, row.id], function(err) {
+                if (!err) updatedCount++;
+                pendingUpdates--;
+                if (pendingUpdates === 0) resolve(updatedCount);
+              });
+            } else {
+              pendingUpdates--;
+              if (pendingUpdates === 0) resolve(updatedCount);
+            }
+          });
+        });
+      });
+    };
+
+    await updateSignals();
+
+    // Return all signals
+    db.all(`SELECT * FROM ai_signals ORDER BY created_at DESC`, [], (err, rows) => {
+      if (err) {
+        return res.status(500).json({ success: false, message: err.message });
+      }
+      res.json({ success: true, data: rows });
+    });
+
+  } catch (error) {
+    console.error('Error in /api/signals:', error.message);
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 

@@ -5,7 +5,7 @@ import { AlertCircle, RefreshCw } from 'lucide-react';
 const ChartAnalysis = () => {
   const chartContainerRef = useRef();
   const [symbol, setSymbol] = useState('NIFTY');
-  const [interval, setInterval] = useState('5');
+  const [interval, setInterval] = useState('DAY'); // 'DAY' or 'MONTH'
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const chartRef = useRef(null);
@@ -32,7 +32,6 @@ const ChartAnalysis = () => {
       timeScale: {
         borderColor: 'rgba(255, 255, 255, 0.1)',
         timeVisible: true,
-        secondsVisible: false,
       },
     });
 
@@ -77,15 +76,19 @@ const ChartAnalysis = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/charts/intraday?symbol=${symbol}&interval=${interval}`);
+      // Both 1Day and Monthly use the historical daily endpoint
+      const response = await fetch(`/api/charts/historical?symbol=${symbol}`);
       const result = await response.json();
       
       if (result.success && result.data) {
-        // Sort data by time just in case
-        const sortedData = result.data.sort((a, b) => a.time - b.time);
-        seriesRef.current.setData(sortedData);
+        let chartData = result.data.sort((a, b) => a.time - b.time);
         
-        // Fit content so user sees the chart immediately
+        if (interval === 'MONTH') {
+          // Aggregate daily data to monthly
+          chartData = aggregateToMonthly(chartData);
+        }
+        
+        seriesRef.current.setData(chartData);
         chartRef.current.timeScale().fitContent();
       } else {
         setError(result.message || 'Failed to fetch chart data');
@@ -98,12 +101,50 @@ const ChartAnalysis = () => {
     }
   };
 
+  // Helper to aggregate daily candles to monthly
+  const aggregateToMonthly = (dailyData) => {
+    const monthlyMap = {};
+    
+    dailyData.forEach(candle => {
+      const date = new Date(candle.time * 1000);
+      const year = date.getFullYear();
+      const month = date.getMonth();
+      const key = `${year}-${month}`;
+      
+      if (!monthlyMap[key]) {
+        monthlyMap[key] = {
+          time: candle.time, // Use the time of the first day of the month as reference
+          open: candle.open,
+          high: candle.high,
+          low: candle.low,
+          close: candle.close,
+          rawDate: date // keep for sorting
+        };
+      } else {
+        // Update high and low
+        monthlyMap[key].high = Math.max(monthlyMap[key].high, candle.high);
+        monthlyMap[key].low = Math.min(monthlyMap[key].low, candle.low);
+        // Update close to the latest candle in the month
+        monthlyMap[key].close = candle.close;
+      }
+    });
+    
+    // Convert map back to array and sort by time
+    return Object.values(monthlyMap).sort((a, b) => a.time - b.time).map(item => ({
+      time: item.time,
+      open: item.open,
+      high: item.high,
+      low: item.low,
+      close: item.close
+    }));
+  };
+
   return (
     <div className="container">
       <div style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>Chart Analysis</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Live intraday data from Dhan API</p>
+          <p style={{ color: 'var(--text-secondary)' }}>Live historical data from Dhan API</p>
         </div>
         
         {/* Controls */}
@@ -136,11 +177,8 @@ const ChartAnalysis = () => {
               cursor: 'pointer'
             }}
           >
-            <option value="1">1 Minute</option>
-            <option value="5">5 Minutes</option>
-            <option value="15">15 Minutes</option>
-            <option value="25">25 Minutes</option>
-            <option value="60">1 Hour</option>
+            <option value="DAY">1 Day</option>
+            <option value="MONTH">Monthly</option>
           </select>
 
           <button 
@@ -204,7 +242,7 @@ const ChartAnalysis = () => {
         <div style={{ display: 'flex', gap: '1rem', flexDirection: 'column' }}>
           <div style={{ padding: '1rem', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '10px', border: '1px solid rgba(16, 185, 129, 0.1)' }}>
             <div style={{ color: 'var(--bullish)', fontWeight: '600', marginBottom: '0.25rem' }}>Automated Insights</div>
-            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Select a symbol and timeframe to view live charts. The data is fetched directly from your Dhan account.</p>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Viewing historical data. Monthly view is auto-aggregated from daily data.</p>
           </div>
         </div>
       </div>

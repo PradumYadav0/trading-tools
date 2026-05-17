@@ -309,6 +309,77 @@ app.get('/api/charts/intraday', async (req, res) => {
   }
 });
 
+// Endpoint to get Historical Daily Chart Data
+app.get('/api/charts/historical', async (req, res) => {
+  try {
+    const token = dhanAccessToken;
+    const clientId = process.env.DHAN_CLIENT_ID;
+    const symbol = req.query.symbol || 'NIFTY';
+    
+    // Fetch for the last 2 years for good daily/monthly view
+    const toDate = new Date();
+    toDate.setDate(toDate.getDate() + 1);
+    const fromDate = new Date();
+    fromDate.setFullYear(fromDate.getFullYear() - 2); 
+
+    const formatDate = (d) => d.toISOString().split('T')[0];
+
+    if (!token || !clientId) {
+      return res.status(400).json({ success: false, message: 'Dhan credentials missing.' });
+    }
+
+    const scripId = scripMap[symbol];
+    if (!scripId) {
+      return res.status(400).json({ success: false, message: 'Invalid symbol requested' });
+    }
+
+    const payload = {
+      securityId: scripId.toString(),
+      exchangeSegment: 'IDX_I',
+      instrument: 'INDEX',
+      fromDate: formatDate(fromDate),
+      toDate: formatDate(toDate)
+    };
+
+    // Dhan uses /v2/charts/historical for daily data
+    const response = await axios.post('https://api.dhan.co/v2/charts/historical', payload, {
+      headers: getDhanHeaders()
+    });
+
+    if (response.data.status === 'success' || response.data.open) {
+       const data = response.data.data || response.data;
+       const chartData = [];
+       if (data.timestamp && data.timestamp.length > 0) {
+         for (let i = 0; i < data.timestamp.length; i++) {
+            const ts = data.timestamp[i];
+            let timeUnix = typeof ts === 'string' ? parseInt(ts) : ts;
+            if (timeUnix > 2000000000) {
+               timeUnix = Math.floor(timeUnix / 1000);
+            }
+            
+            chartData.push({
+               time: timeUnix,
+               open: data.open[i],
+               high: data.high[i],
+               low: data.low[i],
+               close: data.close[i]
+            });
+         }
+       }
+       return res.json({ success: true, data: chartData });
+    } else {
+      return res.status(400).json({ success: false, message: 'Failed to fetch historical chart data' });
+    }
+  } catch (error) {
+    console.error('Historical Chart API Error:', error.message);
+    res.status(error.response?.status || 500).json({ 
+      success: false, 
+      message: error.message,
+      details: error.response?.data
+    });
+  }
+});
+
 // ─── Settings Endpoints ───────────────────────────────────────────────────────
 
 const fs = require('fs');

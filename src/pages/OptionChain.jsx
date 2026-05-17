@@ -135,7 +135,6 @@ const OptionChain = () => {
               >
                 <option value="NIFTY">NIFTY</option>
                 <option value="BANKNIFTY">BANKNIFTY</option>
-                <option value="FINNIFTY">FINNIFTY</option>
               </select>
             </div>
 

@@ -44,8 +44,7 @@ const getDhanHeaders = () => ({
 // Scrip Mapping for Indices
 const scripMap = {
   'NIFTY': 13,
-  'BANKNIFTY': 14,
-  'FINNIFTY': 15
+  'BANKNIFTY': 25
 };
 
 // Endpoint to get Option Chain

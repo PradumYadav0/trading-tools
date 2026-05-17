@@ -167,7 +167,8 @@ const ChartAnalysis = () => {
             setTechnicalSignals({
               ema: isBullishEma ? 'Bullish' : 'Bearish',
               rsi: currentRsi ? currentRsi.toFixed(2) : 'N/A',
-              status: (isBullishEma && isBullishRsi) ? 'Strong Bullish' : (!isBullishEma && !isBullishRsi) ? 'Strong Bearish' : 'Neutral'
+              status: (isBullishEma && isBullishRsi) ? 'Strong Bullish' : (!isBullishEma && !isBullishRsi) ? 'Strong Bearish' : 'Neutral',
+              candleCount: chartData.length
             });
           }
         } catch (indicatorErr) {
@@ -498,6 +499,9 @@ const ChartAnalysis = () => {
               : interval === '10' 
               ? 'Viewing 10-minute data (Aggregated from 5-minute candles).' 
               : 'Viewing intraday data. Time is shown in Indian Standard Time (IST).'}
+            <span style={{ display: 'block', marginTop: '0.5rem', color: 'var(--primary-color)', fontWeight: 'bold' }}>
+              Total Candles Loaded: {technicalSignals.candleCount || 0}
+            </span>
           </p>
         </div>
       </div>

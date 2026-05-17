@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { RefreshCw, Filter, Zap, ZapOff } from 'lucide-react';
+import { RefreshCw, Filter, Zap, ZapOff, BarChart2 } from 'lucide-react';
 
 const OptionChain = () => {
   const [spotPrice, setSpotPrice] = useState(0);
@@ -11,11 +11,12 @@ const OptionChain = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [visibleStrikesCount, setVisibleStrikesCount] = useState(30); // Default to 30
   const [autoRefresh, setAutoRefresh] = useState(false); // Default to off
+  const [symbol, setSymbol] = useState('NIFTY'); // Default to NIFTY
 
   const fetchData = async () => {
     setIsRefreshing(true);
     try {
-      const response = await axios.get('/api/option-chain');
+      const response = await axios.get(`/api/option-chain?symbol=${symbol}`);
       if (response.data.success) {
         setStrikes(response.data.data);
         setSpotPrice(response.data.spotPrice);
@@ -37,20 +38,20 @@ const OptionChain = () => {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [symbol]); // Refetch when symbol changes
 
-  // Auto-Refresh Logic (1 Minute interval to avoid rate limits)
+  // Auto-Refresh Logic (1 Minute interval)
   useEffect(() => {
     let interval = null;
     if (autoRefresh) {
       interval = setInterval(() => {
         fetchData();
-      }, 60000); // 60 seconds
+      }, 60000);
     }
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [autoRefresh]);
+  }, [autoRefresh, symbol]);
 
   // Find ATM Strike
   const atmStrike = strikes.reduce((prev, curr) => {
@@ -66,17 +67,17 @@ const OptionChain = () => {
     Math.min(strikes.length, atmIndex + half + 1)
   ) : strikes;
 
-  // Auto-center Spot Price / ATM row
+  // Auto-center Spot Line
   useEffect(() => {
     if (displayedStrikes.length > 0) {
       setTimeout(() => {
-        const atmRow = document.querySelector('.atm-row');
-        if (atmRow) {
-          atmRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const spotLine = document.getElementById('spot-line');
+        if (spotLine) {
+          spotLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
       }, 500);
     }
-  }, [strikes, visibleStrikesCount]);
+  }, [strikes, visibleStrikesCount, symbol]);
 
   if (loading) {
     return <div className="container flex-center" style={{ height: '80vh' }}>Loading Option Chain from Dhan API...</div>;
@@ -114,7 +115,30 @@ const OptionChain = () => {
         <div>
           <h1 style={{ fontSize: '1.75rem', marginBottom: '0.25rem' }}>Option Chain Analysis</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-            <p style={{ color: 'var(--text-secondary)' }}>Live Data from Dhan API.</p>
+            
+            {/* Symbol Selector */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <BarChart2 size={16} style={{ color: 'var(--text-secondary)' }} />
+              <select 
+                value={symbol} 
+                onChange={(e) => setSymbol(e.target.value)}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-color)',
+                  padding: '0.4rem 0.6rem',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem',
+                  fontWeight: '600'
+                }}
+              >
+                <option value="NIFTY">NIFTY</option>
+                <option value="BANKNIFTY">BANKNIFTY</option>
+                <option value="FINNIFTY">FINNIFTY</option>
+              </select>
+            </div>
+
             <div style={{ 
               background: 'rgba(255, 255, 255, 0.03)', 
               padding: '0.25rem 0.75rem', 
@@ -232,7 +256,6 @@ const OptionChain = () => {
               elements.push(
                 <tr 
                   key={row.strike} 
-                  className={isAtm ? 'atm-row' : ''}
                   style={{ 
                     borderBottom: '1px solid var(--border-color)', 
                     height: '35px'
@@ -264,7 +287,7 @@ const OptionChain = () => {
               const nextRow = displayedStrikes[index + 1];
               if (nextRow && row.strike <= spotPrice && nextRow.strike > spotPrice) {
                 elements.push(
-                  <tr key="spot-line" style={{ height: '3px', background: 'transparent' }}>
+                  <tr key="spot-line" id="spot-line" style={{ height: '3px', background: 'transparent' }}>
                     <td colSpan="9" style={{ padding: '0', position: 'relative' }}>
                       <div style={{ 
                         height: '3px', 

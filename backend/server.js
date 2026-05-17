@@ -1,7 +1,7 @@
-// Last updated: 2026-05-17 for live testing
 const express = require('express');
 const axios = require('axios');
 const dotenv = require('dotenv');
+const sqlite3 = require('sqlite3').verbose();
 
 dotenv.config({ path: '../.env' }); // Load .env from root
 
@@ -17,6 +17,23 @@ app.use((req, res, next) => {
   next();
 });
 
+// Initialize SQLite Database
+const db = new sqlite3.Database('./option_chain.db', (err) => {
+  if (err) {
+    console.error('Database opening error:', err.message);
+  } else {
+    console.log('Connected to the SQLite database.');
+    db.run(`CREATE TABLE IF NOT EXISTS option_chain_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      symbol TEXT,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      spot_price REAL,
+      expiry TEXT,
+      data TEXT
+    )`);
+  }
+});
+
 // Helper to get Dhan Headers
 const getDhanHeaders = () => ({
   'Content-Type': 'application/json',
@@ -24,31 +41,44 @@ const getDhanHeaders = () => ({
   'client-id': process.env.DHAN_CLIENT_ID
 });
 
+// Scrip Mapping for Indices
+const scripMap = {
+  'NIFTY': 13,
+  'BANKNIFTY': 14,
+  'FINNIFTY': 15
+};
+
 // Endpoint to get Option Chain
 app.get('/api/option-chain', async (req, res) => {
   try {
     const token = process.env.DHAN_ACCESS_TOKEN;
     const clientId = process.env.DHAN_CLIENT_ID;
+    const symbol = req.query.symbol || 'NIFTY';
 
     if (!token || !clientId) {
       return res.status(400).json({ success: false, message: 'Dhan credentials missing in .env file' });
     }
 
-    // 1. Get Expiry List for Nifty (Scrip 13, Segment IDX_I)
+    const scripId = scripMap[symbol];
+    if (!scripId) {
+      return res.status(400).json({ success: false, message: 'Invalid symbol requested' });
+    }
+
+    // 1. Get Expiry List for requested symbol
     const expiryResponse = await axios.post('https://api.dhan.co/v2/optionchain/expirylist', {
-      UnderlyingScrip: 13,
+      UnderlyingScrip: scripId,
       UnderlyingSeg: 'IDX_I'
     }, { headers: getDhanHeaders() });
 
     if (expiryResponse.data.status !== 'success' || !expiryResponse.data.data.length) {
-      return res.status(400).json({ success: false, message: 'Failed to fetch expiry list' });
+      return res.status(400).json({ success: false, message: `Failed to fetch expiry list for ${symbol}` });
     }
 
     const latestExpiry = expiryResponse.data.data[0]; // Use the closest expiry
 
     // 2. Get Option Chain for that expiry
     const ocResponse = await axios.post('https://api.dhan.co/v2/optionchain', {
-      UnderlyingScrip: 13,
+      UnderlyingScrip: scripId,
       UnderlyingSeg: 'IDX_I',
       Expiry: latestExpiry
     }, { headers: getDhanHeaders() });
@@ -78,6 +108,19 @@ app.get('/api/option-chain', async (req, res) => {
         updateStatus: null
       };
     }).sort((a, b) => a.strike - b.strike);
+
+    // 4. Save to Database for history (Optional: Avoid duplicates or save on interval)
+    db.run(
+      `INSERT INTO option_chain_history (symbol, spot_price, expiry, data) VALUES (?, ?, ?, ?)`,
+      [symbol, spotPrice, latestExpiry, JSON.stringify(strikesArray)],
+      function(err) {
+        if (err) {
+          console.error('Error saving to DB:', err.message);
+        } else {
+          console.log(`Saved history for ${symbol} with ID: ${this.lastID}`);
+        }
+      }
+    );
 
     res.json({ 
       success: true, 

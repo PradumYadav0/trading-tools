@@ -415,10 +415,23 @@ app.post('/api/ai-analysis', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid symbol requested' });
     }
 
+    // Get Expiry List first
+    const expiryResponse = await axios.post('https://api.dhan.co/v2/optionchain/expirylist', {
+      UnderlyingScrip: scripId,
+      UnderlyingSeg: 'IDX_I'
+    }, { headers: getDhanHeaders() });
+
+    if (expiryResponse.data.status !== 'success' || !expiryResponse.data.data.length) {
+      return res.status(400).json({ success: false, message: `Failed to fetch expiry list for ${symbol}` });
+    }
+
+    const expiryList = expiryResponse.data.data;
+    const expiryToUse = req.body.expiry || expiryList[0];
+
     const ocResponse = await axios.post('https://api.dhan.co/v2/optionchain', {
       UnderlyingScrip: scripId,
       UnderlyingSeg: 'IDX_I',
-      Expiry: req.body.expiry
+      Expiry: expiryToUse
     }, { headers: getDhanHeaders() });
 
     // 2. Fetch Chart Data (Last 20 candles of 5 min)

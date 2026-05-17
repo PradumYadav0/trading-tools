@@ -5,7 +5,7 @@ import { AlertCircle, RefreshCw } from 'lucide-react';
 const ChartAnalysis = () => {
   const chartContainerRef = useRef();
   const [symbol, setSymbol] = useState('NIFTY');
-  const [interval, setInterval] = useState('DAY'); // 'DAY' or 'MONTH'
+  const [interval, setInterval] = useState('5'); // '1', '5', '15', '60', 'DAY', 'MONTH'
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const chartRef = useRef(null);
@@ -76,8 +76,14 @@ const ChartAnalysis = () => {
     setLoading(true);
     setError(null);
     try {
-      // Both 1Day and Monthly use the historical daily endpoint
-      const response = await fetch(`/api/charts/historical?symbol=${symbol}`);
+      let url = '';
+      if (interval === 'DAY' || interval === 'MONTH') {
+        url = `/api/charts/historical?symbol=${symbol}`;
+      } else {
+        url = `/api/charts/intraday?symbol=${symbol}&interval=${interval}`;
+      }
+
+      const response = await fetch(url);
       const result = await response.json();
       
       if (result.success && result.data) {
@@ -118,7 +124,6 @@ const ChartAnalysis = () => {
           high: candle.high,
           low: candle.low,
           close: candle.close,
-          rawDate: date // keep for sorting
         };
       } else {
         // Update high and low
@@ -144,7 +149,7 @@ const ChartAnalysis = () => {
       <div style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>Chart Analysis</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Live historical data from Dhan API</p>
+          <p style={{ color: 'var(--text-secondary)' }}>Live data from Dhan API</p>
         </div>
         
         {/* Controls */}
@@ -177,6 +182,10 @@ const ChartAnalysis = () => {
               cursor: 'pointer'
             }}
           >
+            <option value="1">1 Minute</option>
+            <option value="5">5 Minutes</option>
+            <option value="15">15 Minutes</option>
+            <option value="60">1 Hour</option>
             <option value="DAY">1 Day</option>
             <option value="MONTH">Monthly</option>
           </select>
@@ -242,7 +251,11 @@ const ChartAnalysis = () => {
         <div style={{ display: 'flex', gap: '1rem', flexDirection: 'column' }}>
           <div style={{ padding: '1rem', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '10px', border: '1px solid rgba(16, 185, 129, 0.1)' }}>
             <div style={{ color: 'var(--bullish)', fontWeight: '600', marginBottom: '0.25rem' }}>Automated Insights</div>
-            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Viewing historical data. Monthly view is auto-aggregated from daily data.</p>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+              {interval === 'DAY' || interval === 'MONTH' 
+                ? 'Viewing historical data. Monthly view is auto-aggregated from daily data.' 
+                : 'Viewing intraday data. (Note: Intraday data might not be available on market holidays or weekends).'}
+            </p>
           </div>
         </div>
       </div>

@@ -5,7 +5,7 @@ import { AlertCircle, RefreshCw } from 'lucide-react';
 const ChartAnalysis = () => {
   const chartContainerRef = useRef();
   const [symbol, setSymbol] = useState('NIFTY');
-  const [interval, setInterval] = useState('5'); // '1', '5', '15', '60', 'DAY', 'MONTH'
+  const [interval, setInterval] = useState('5'); // '1', '5', '10', '15', '60', 'DAY', 'MONTH'
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const chartRef = useRef(null);
@@ -77,8 +77,13 @@ const ChartAnalysis = () => {
     setError(null);
     try {
       let url = '';
+      let fetchInterval = interval;
+      
       if (interval === 'DAY' || interval === 'MONTH') {
         url = `/api/charts/historical?symbol=${symbol}`;
+      } else if (interval === '10') {
+        // Dhan doesn't support 10m natively, so we fetch 5m and aggregate
+        url = `/api/charts/intraday?symbol=${symbol}&interval=5`;
       } else {
         url = `/api/charts/intraday?symbol=${symbol}&interval=${interval}`;
       }
@@ -90,8 +95,9 @@ const ChartAnalysis = () => {
         let chartData = result.data.sort((a, b) => a.time - b.time);
         
         if (interval === 'MONTH') {
-          // Aggregate daily data to monthly
           chartData = aggregateToMonthly(chartData);
+        } else if (interval === '10') {
+          chartData = aggregateTo10Min(chartData);
         }
         
         seriesRef.current.setData(chartData);
@@ -107,6 +113,29 @@ const ChartAnalysis = () => {
     }
   };
 
+  // Helper to aggregate 5m candles to 10m
+  const aggregateTo10Min = (fiveMinData) => {
+    const tenMinData = [];
+    for (let i = 0; i < fiveMinData.length; i += 2) {
+      const first = fiveMinData[i];
+      const second = fiveMinData[i + 1];
+      
+      if (second) {
+        tenMinData.push({
+          time: first.time,
+          open: first.open,
+          high: Math.max(first.high, second.high),
+          low: Math.min(first.low, second.low),
+          close: second.close
+        });
+      } else {
+        // If it's the last odd candle
+        tenMinData.push(first);
+      }
+    }
+    return tenMinData;
+  };
+
   // Helper to aggregate daily candles to monthly
   const aggregateToMonthly = (dailyData) => {
     const monthlyMap = {};
@@ -119,22 +148,19 @@ const ChartAnalysis = () => {
       
       if (!monthlyMap[key]) {
         monthlyMap[key] = {
-          time: candle.time, // Use the time of the first day of the month as reference
+          time: candle.time,
           open: candle.open,
           high: candle.high,
           low: candle.low,
           close: candle.close,
         };
       } else {
-        // Update high and low
         monthlyMap[key].high = Math.max(monthlyMap[key].high, candle.high);
         monthlyMap[key].low = Math.min(monthlyMap[key].low, candle.low);
-        // Update close to the latest candle in the month
         monthlyMap[key].close = candle.close;
       }
     });
     
-    // Convert map back to array and sort by time
     return Object.values(monthlyMap).sort((a, b) => a.time - b.time).map(item => ({
       time: item.time,
       open: item.open,
@@ -184,6 +210,7 @@ const ChartAnalysis = () => {
           >
             <option value="1">1 Minute</option>
             <option value="5">5 Minutes</option>
+            <option value="10">10 Minutes</option>
             <option value="15">15 Minutes</option>
             <option value="60">1 Hour</option>
             <option value="DAY">1 Day</option>
@@ -254,6 +281,8 @@ const ChartAnalysis = () => {
             <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
               {interval === 'DAY' || interval === 'MONTH' 
                 ? 'Viewing historical data. Monthly view is auto-aggregated from daily data.' 
+                : interval === '10' 
+                ? 'Viewing 10-minute data (Aggregated from 5-minute candles).' 
                 : 'Viewing intraday data. (Note: Intraday data might not be available on market holidays or weekends).'}
             </p>
           </div>

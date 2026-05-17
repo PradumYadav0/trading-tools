@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { RefreshCw, Filter, Zap, ZapOff, BarChart2, Calendar, Clock, Trophy } from 'lucide-react';
+import { RefreshCw, Filter, Zap, ZapOff, BarChart2, Calendar, Clock, Trophy, Database, Play } from 'lucide-react';
 
 const OptionChain = () => {
   const [spotPrice, setSpotPrice] = useState(0);
@@ -16,7 +16,15 @@ const OptionChain = () => {
   const [selectedExpiry, setSelectedExpiry] = useState(''); // Selected expiry
   const [lastUpdated, setLastUpdated] = useState(''); // Last update timestamp
 
+  // History Mode State
+  const [mode, setMode] = useState('live'); // 'live' or 'history'
+  const [historyDate, setHistoryDate] = useState(new Date().toISOString().slice(0, 10));
+  const [historySnapshots, setHistorySnapshots] = useState([]);
+  const [selectedSnapshotIndex, setSelectedSnapshotIndex] = useState(0);
+
   const fetchData = async () => {
+    if (mode === 'history') return; // Don't fetch live data in history mode
+    
     setIsRefreshing(true);
     try {
       const response = await axios.get(`/api/option-chain?symbol=${symbol}&expiry=${selectedExpiry}`);
@@ -41,14 +49,60 @@ const OptionChain = () => {
     }
   };
 
-  useEffect(() => {
-    fetchData();
-  }, [symbol, selectedExpiry]); // Refetch when symbol or expiry changes
+  const fetchHistoryData = async () => {
+    setLoading(true);
+    try {
+      const response = await axios.get(`/api/option-chain/history?symbol=${symbol}&date=${historyDate}`);
+      if (response.data.success) {
+        setHistorySnapshots(response.data.data);
+        if (response.data.data.length > 0) {
+          // Load the latest snapshot of that day by default
+          const latestSnap = response.data.data[0];
+          setStrikes(latestSnap.data);
+          setSpotPrice(latestSnap.spot_price);
+          setExpiry(latestSnap.expiry);
+          setLastUpdated(new Date(latestSnap.timestamp).toLocaleTimeString());
+          setSelectedSnapshotIndex(0);
+          setError(null);
+        } else {
+          setStrikes([]);
+          setSpotPrice(0);
+          setError('No data found for this date in database');
+        }
+      } else {
+        setError(response.data.message || 'Failed to fetch history');
+      }
+    } catch (err) {
+      setError(err.message || 'Server Error');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  // Auto-Refresh Logic (1 Minute interval)
+  useEffect(() => {
+    if (mode === 'live') {
+      fetchData();
+    } else {
+      fetchHistoryData();
+    }
+  }, [symbol, selectedExpiry, mode, historyDate]); // Refetch on mode or date change too
+
+  // Handle snapshot change in history mode
+  const handleSnapshotChange = (index) => {
+    setSelectedSnapshotIndex(index);
+    const snap = historySnapshots[index];
+    if (snap) {
+      setStrikes(snap.data);
+      setSpotPrice(snap.spot_price);
+      setExpiry(snap.expiry);
+      setLastUpdated(new Date(snap.timestamp).toLocaleTimeString());
+    }
+  };
+
+  // Auto-Refresh Logic (1 Minute interval) - Only in Live mode
   useEffect(() => {
     let interval = null;
-    if (autoRefresh) {
+    if (autoRefresh && mode === 'live') {
       interval = setInterval(() => {
         fetchData();
       }, 60000);
@@ -56,7 +110,7 @@ const OptionChain = () => {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [autoRefresh, symbol, selectedExpiry]);
+  }, [autoRefresh, symbol, selectedExpiry, mode]);
 
   // Find ATM Strike
   const atmStrike = strikes.reduce((prev, curr) => {
@@ -82,7 +136,7 @@ const OptionChain = () => {
         }
       }, 500);
     }
-  }, [strikes, visibleStrikesCount, symbol, selectedExpiry]);
+  }, [strikes, visibleStrikesCount, symbol, selectedExpiry, selectedSnapshotIndex]);
 
   // Calculate PCR (Put-Call Ratio)
   const totalCallOi = strikes.reduce((sum, row) => sum + row.callOi, 0);
@@ -96,33 +150,7 @@ const OptionChain = () => {
   const maxPutVol = Math.max(...displayedStrikes.map(s => s.putVolume));
 
   if (loading) {
-    return <div className="container flex-center" style={{ height: '80vh' }}>Loading Option Chain from Dhan API...</div>;
-  }
-
-  if (error) {
-    return (
-      <div className="container flex-center" style={{ height: '80vh', flexDirection: 'column', gap: '1rem' }}>
-        <div style={{ color: 'var(--bearish)', fontSize: '1.2rem' }}>Error: {error}</div>
-        <p style={{ color: 'var(--text-secondary)' }}>Dhan API might be rate limiting or token is invalid.</p>
-        <button 
-          onClick={fetchData} 
-          style={{
-            background: 'var(--accent-primary)',
-            color: 'white',
-            border: 'none',
-            padding: '0.5rem 1rem',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem'
-          }}
-        >
-          <RefreshCw size={16} className={isRefreshing ? 'spin' : ''} />
-          Try Again
-        </button>
-      </div>
-    );
+    return <div className="container flex-center" style={{ height: '80vh' }}>Loading Option Chain data...</div>;
   }
 
   return (
@@ -132,6 +160,46 @@ const OptionChain = () => {
           <h1 style={{ fontSize: '1.75rem', marginBottom: '0.25rem' }}>Option Chain Analysis</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
             
+            {/* Mode Switcher */}
+            <div style={{ display: 'flex', background: 'rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '2px' }}>
+              <button
+                onClick={() => setMode('live')}
+                style={{
+                  background: mode === 'live' ? 'var(--accent-primary)' : 'transparent',
+                  color: mode === 'live' ? '#000' : 'var(--text-secondary)',
+                  border: 'none',
+                  padding: '0.3rem 0.75rem',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  fontWeight: '600',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.25rem'
+                }}
+              >
+                <Zap size={14} /> Live
+              </button>
+              <button
+                onClick={() => setMode('history')}
+                style={{
+                  background: mode === 'history' ? 'var(--accent-primary)' : 'transparent',
+                  color: mode === 'history' ? '#000' : 'var(--text-secondary)',
+                  border: 'none',
+                  padding: '0.3rem 0.75rem',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  fontWeight: '600',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.25rem'
+                }}
+              >
+                <Database size={14} /> History
+              </button>
+            </div>
+
             {/* Symbol Selector */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <BarChart2 size={16} style={{ color: 'var(--text-secondary)' }} />
@@ -157,27 +225,76 @@ const OptionChain = () => {
               </select>
             </div>
 
-            {/* Expiry Selector */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Calendar size={16} style={{ color: 'var(--text-secondary)' }} />
-              <select 
-                value={selectedExpiry || expiry} 
-                onChange={(e) => setSelectedExpiry(e.target.value)}
-                style={{
-                  background: '#1c2128',
-                  color: '#fff',
-                  border: '1px solid var(--border-color)',
-                  padding: '0.4rem 0.6rem',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontSize: '0.9rem'
-                }}
-              >
-                {expiryList.map(exp => (
-                  <option key={exp} value={exp} style={{ background: '#1c2128', color: '#fff' }}>{exp}</option>
-                ))}
-              </select>
-            </div>
+            {/* Expiry Selector (Only in Live Mode, in History it's locked to saved data) */}
+            {mode === 'live' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Calendar size={16} style={{ color: 'var(--text-secondary)' }} />
+                <select 
+                  value={selectedExpiry || expiry} 
+                  onChange={(e) => setSelectedExpiry(e.target.value)}
+                  style={{
+                    background: '#1c2128',
+                    color: '#fff',
+                    border: '1px solid var(--border-color)',
+                    padding: '0.4rem 0.6rem',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '0.9rem'
+                  }}
+                >
+                  {expiryList.map(exp => (
+                    <option key={exp} value={exp} style={{ background: '#1c2128', color: '#fff' }}>{exp}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* History Date Picker (Only in History Mode) */}
+            {mode === 'history' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Calendar size={16} style={{ color: 'var(--text-secondary)' }} />
+                <input 
+                  type="date"
+                  value={historyDate}
+                  onChange={(e) => setHistoryDate(e.target.value)}
+                  style={{
+                    background: '#1c2128',
+                    color: '#fff',
+                    border: '1px solid var(--border-color)',
+                    padding: '0.4rem 0.6rem',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '0.9rem'
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Time Slider (Only in History Mode and if snapshots exist) */}
+            {mode === 'history' && historySnapshots.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Clock size={16} style={{ color: 'var(--text-secondary)' }} />
+                <select 
+                  value={selectedSnapshotIndex} 
+                  onChange={(e) => handleSnapshotChange(Number(e.target.value))}
+                  style={{
+                    background: '#1c2128',
+                    color: '#fff',
+                    border: '1px solid var(--border-color)',
+                    padding: '0.4rem 0.6rem',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '0.9rem'
+                  }}
+                >
+                  {historySnapshots.map((snap, index) => (
+                    <option key={snap.id} value={index}>
+                      {new Date(snap.timestamp).toLocaleTimeString()}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div style={{ 
               background: 'rgba(255, 255, 255, 0.03)', 
@@ -209,32 +326,34 @@ const OptionChain = () => {
               color: 'var(--text-secondary)'
             }}>
               <Clock size={14} />
-              <span>Last Updated: {lastUpdated}</span>
+              <span>{mode === 'live' ? 'Last Updated:' : 'Saved At:'} {lastUpdated}</span>
             </div>
           </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          {/* Auto Refresh Toggle */}
-          <button
-            onClick={() => setAutoRefresh(!autoRefresh)}
-            style={{
-              background: autoRefresh ? 'rgba(0, 200, 5, 0.1)' : 'rgba(255, 255, 255, 0.05)',
-              color: autoRefresh ? '#00c805' : 'var(--text-secondary)',
-              border: `1px solid ${autoRefresh ? '#00c805' : 'var(--border-color)'}`,
-              padding: '0.5rem 1rem',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              fontSize: '0.9rem',
-              transition: 'var(--transition-smooth)'
-            }}
-          >
-            {autoRefresh ? <Zap size={16} /> : <ZapOff size={16} />}
-            {autoRefresh ? 'Live Auto-Refresh (1m)' : 'Auto-Refresh Off'}
-          </button>
+          {/* Auto Refresh Toggle (Only in Live Mode) */}
+          {mode === 'live' && (
+            <button
+              onClick={() => setAutoRefresh(!autoRefresh)}
+              style={{
+                background: autoRefresh ? 'rgba(0, 200, 5, 0.1)' : 'rgba(255, 255, 255, 0.05)',
+                color: autoRefresh ? '#00c805' : 'var(--text-secondary)',
+                border: `1px solid ${autoRefresh ? '#00c805' : 'var(--border-color)'}`,
+                padding: '0.5rem 1rem',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                fontSize: '0.9rem',
+                transition: 'var(--transition-smooth)'
+              }}
+            >
+              {autoRefresh ? <Zap size={16} /> : <ZapOff size={16} />}
+              {autoRefresh ? 'Live Auto-Refresh (1m)' : 'Auto-Refresh Off'}
+            </button>
+          )}
 
           {/* Filter Dropdown */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -259,155 +378,171 @@ const OptionChain = () => {
             </select>
           </div>
 
-          <button 
-            onClick={fetchData} 
-            disabled={isRefreshing}
-            style={{
-              background: 'rgba(255, 255, 255, 0.05)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-color)',
-              padding: '0.5rem 1rem',
-              borderRadius: '10px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              transition: 'var(--transition-smooth)'
-            }}
-          >
-            <RefreshCw size={16} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
-            {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
-          </button>
+          {mode === 'live' && (
+            <button 
+              onClick={fetchData} 
+              disabled={isRefreshing}
+              style={{
+                background: 'rgba(255, 255, 255, 0.05)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-color)',
+                padding: '0.5rem 1rem',
+                borderRadius: '10px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                transition: 'var(--transition-smooth)'
+              }}
+            >
+              <RefreshCw size={16} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
+              {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="glass-panel">
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '0.85rem' }}>
-          <thead style={{ position: 'sticky', top: 0, zIndex: 2, background: '#161B22' }}>
-            <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-              <th colSpan="4" style={{ padding: '0.75rem', color: 'var(--bearish)', borderRight: '1px solid var(--border-color)' }}>CALLS</th>
-              <th style={{ padding: '0.75rem' }}>STRIKE</th>
-              <th colSpan="4" style={{ padding: '0.75rem', color: 'var(--bullish)', borderLeft: '1px solid var(--border-color)' }}>PUTS</th>
-            </tr>
-            <tr style={{ background: 'rgba(255, 255, 255, 0.01)', borderBottom: '1px solid var(--border-color)' }}>
-              <th style={{ padding: '0.5rem' }}>OI</th>
-              <th style={{ padding: '0.5rem' }}>Chg OI</th>
-              <th style={{ padding: '0.5rem' }}>Volume</th>
-              <th style={{ padding: '0.5rem', borderRight: '1px solid var(--border-color)' }}>LTP</th>
-              <th style={{ padding: '0.5rem' }}>Strike Price</th>
-              <th style={{ padding: '0.5rem', borderLeft: '1px solid var(--border-color)' }}>LTP</th>
-              <th style={{ padding: '0.5rem' }}>Volume</th>
-              <th style={{ padding: '0.5rem' }}>Chg OI</th>
-              <th style={{ padding: '0.5rem' }}>OI</th>
-            </tr>
-          </thead>
-          <tbody>
-            {displayedStrikes.flatMap((row, index) => {
-              const isAtm = row.strike === atmStrike;
-              const isMaxCallOi = row.callOi === maxCallOi && maxCallOi > 0;
-              const isMaxPutOi = row.putOi === maxPutOi && maxPutOi > 0;
-              const isMaxCallVol = row.callVolume === maxCallVol && maxCallVol > 0;
-              const isMaxPutVol = row.putVolume === maxPutVol && maxPutVol > 0;
-              
-              const elements = [];
-              
-              elements.push(
-                <tr 
-                  key={row.strike} 
-                  style={{ 
-                    borderBottom: '1px solid var(--border-color)', 
-                    height: '35px'
-                  }}
-                >
-                  {/* CALLS */}
-                  <td style={{ 
-                    color: 'var(--text-secondary)',
-                    background: isMaxCallOi ? 'rgba(255, 165, 0, 0.05)' : 'transparent',
-                    fontWeight: isMaxCallOi ? 'bold' : 'normal'
-                  }}>
-                    {row.callOi.toLocaleString()}
-                    {isMaxCallOi && <Trophy size={12} style={{ color: 'orange', marginLeft: '2px', display: 'inline' }} />}
-                  </td>
-                  <td style={{ color: row.callChgOi > 0 ? 'var(--bearish)' : 'var(--bullish)' }}>
-                    {row.callChgOi > 0 ? `+${row.callChgOi}` : row.callChgOi}
-                  </td>
-                  <td style={{ 
-                    color: 'var(--text-secondary)',
-                    background: isMaxCallVol ? 'rgba(0, 191, 255, 0.05)' : 'transparent'
-                  }}>
-                    {(row.callVolume || 0).toLocaleString()}
-                  </td>
-                  <td style={{ color: 'var(--text-primary)', borderRight: '1px solid var(--border-color)' }}>
-                    {row.callLtp.toFixed(2)}
-                  </td>
+      {error && (
+        <div style={{ color: 'var(--bearish)', marginBottom: '1rem', padding: '0.5rem', background: 'rgba(255, 0, 0, 0.05)', borderRadius: '8px' }}>
+          {error}
+        </div>
+      )}
 
-                  {/* STRIKE */}
-                  <td style={{ fontWeight: '700' }}>
-                    {row.strike}
-                  </td>
+      {strikes.length === 0 && !loading && !error && (
+        <div className="glass-panel flex-center" style={{ height: '50vh', color: 'var(--text-secondary)' }}>
+          No data available for the selected criteria.
+        </div>
+      )}
 
-                  {/* PUTS */}
-                  <td style={{ color: 'var(--text-primary)', borderLeft: '1px solid var(--border-color)' }}>
-                    {row.putLtp.toFixed(2)}
-                  </td>
-                  <td style={{ 
-                    color: 'var(--text-secondary)',
-                    background: isMaxPutVol ? 'rgba(0, 191, 255, 0.05)' : 'transparent'
-                  }}>
-                    {(row.putVolume || 0).toLocaleString()}
-                  </td>
-                  <td style={{ color: row.putChgOi > 0 ? 'var(--bullish)' : 'var(--bearish)' }}>
-                    {row.putChgOi > 0 ? `+${row.putChgOi}` : row.putChgOi}
-                  </td>
-                  <td style={{ 
-                    color: 'var(--text-secondary)',
-                    background: isMaxPutOi ? 'rgba(255, 165, 0, 0.05)' : 'transparent',
-                    fontWeight: isMaxPutOi ? 'bold' : 'normal'
-                  }}>
-                    {row.putOi.toLocaleString()}
-                    {isMaxPutOi && <Trophy size={12} style={{ color: 'orange', marginLeft: '2px', display: 'inline' }} />}
-                  </td>
-                </tr>
-              );
-
-              // Insert Dhan-style Spot Price Line
-              const nextRow = displayedStrikes[index + 1];
-              if (nextRow && row.strike <= spotPrice && nextRow.strike > spotPrice) {
+      {strikes.length > 0 && (
+        <div className="glass-panel">
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '0.85rem' }}>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 2, background: '#161B22' }}>
+              <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                <th colSpan="4" style={{ padding: '0.75rem', color: 'var(--bearish)', borderRight: '1px solid var(--border-color)' }}>CALLS</th>
+                <th style={{ padding: '0.75rem' }}>STRIKE</th>
+                <th colSpan="4" style={{ padding: '0.75rem', color: 'var(--bullish)', borderLeft: '1px solid var(--border-color)' }}>PUTS</th>
+              </tr>
+              <tr style={{ background: 'rgba(255, 255, 255, 0.01)', borderBottom: '1px solid var(--border-color)' }}>
+                <th style={{ padding: '0.5rem' }}>OI</th>
+                <th style={{ padding: '0.5rem' }}>Chg OI</th>
+                <th style={{ padding: '0.5rem' }}>Volume</th>
+                <th style={{ padding: '0.5rem', borderRight: '1px solid var(--border-color)' }}>LTP</th>
+                <th style={{ padding: '0.5rem' }}>Strike Price</th>
+                <th style={{ padding: '0.5rem', borderLeft: '1px solid var(--border-color)' }}>LTP</th>
+                <th style={{ padding: '0.5rem' }}>Volume</th>
+                <th style={{ padding: '0.5rem' }}>Chg OI</th>
+                <th style={{ padding: '0.5rem' }}>OI</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayedStrikes.flatMap((row, index) => {
+                const isAtm = row.strike === atmStrike;
+                const isMaxCallOi = row.callOi === maxCallOi && maxCallOi > 0;
+                const isMaxPutOi = row.putOi === maxPutOi && maxPutOi > 0;
+                const isMaxCallVol = row.callVolume === maxCallVol && maxCallVol > 0;
+                const isMaxPutVol = row.putVolume === maxPutVol && maxPutVol > 0;
+                
+                const elements = [];
+                
                 elements.push(
-                  <tr key="spot-line" id="spot-line" style={{ height: '3px', background: 'transparent' }}>
-                    <td colSpan="9" style={{ padding: '0', position: 'relative' }}>
-                      <div style={{ 
-                        height: '3px', 
-                        background: 'var(--accent-primary)', 
-                        width: '100%',
-                        boxShadow: '0 0 10px var(--accent-primary)'
-                      }}>
-                        <span style={{ 
-                          position: 'absolute', 
-                          top: '-10px', 
-                          left: '50%', 
-                          transform: 'translateX(-50%)',
-                          background: 'var(--accent-primary)',
-                          color: '#000',
-                          padding: '0.1rem 0.5rem',
-                          borderRadius: '4px',
-                          fontSize: '0.75rem',
-                          fontWeight: '700',
-                          zIndex: 3
-                        }}>
-                          SPOT: {spotPrice.toFixed(2)}
-                        </span>
-                      </div>
+                  <tr 
+                    key={row.strike} 
+                    style={{ 
+                      borderBottom: '1px solid var(--border-color)', 
+                      height: '35px'
+                    }}
+                  >
+                    {/* CALLS */}
+                    <td style={{ 
+                      color: 'var(--text-secondary)',
+                      background: isMaxCallOi ? 'rgba(255, 165, 0, 0.05)' : 'transparent',
+                      fontWeight: isMaxCallOi ? 'bold' : 'normal'
+                    }}>
+                      {row.callOi.toLocaleString()}
+                      {isMaxCallOi && <Trophy size={12} style={{ color: 'orange', marginLeft: '2px', display: 'inline' }} />}
+                    </td>
+                    <td style={{ color: row.callChgOi > 0 ? 'var(--bearish)' : 'var(--bullish)' }}>
+                      {row.callChgOi > 0 ? `+${row.callChgOi}` : row.callChgOi}
+                    </td>
+                    <td style={{ 
+                      color: 'var(--text-secondary)',
+                      background: isMaxCallVol ? 'rgba(0, 191, 255, 0.05)' : 'transparent'
+                    }}>
+                      {(row.callVolume || 0).toLocaleString()}
+                    </td>
+                    <td style={{ color: 'var(--text-primary)', borderRight: '1px solid var(--border-color)' }}>
+                      {row.callLtp.toFixed(2)}
+                    </td>
+
+                    {/* STRIKE */}
+                    <td style={{ fontWeight: '700' }}>
+                      {row.strike}
+                    </td>
+
+                    {/* PUTS */}
+                    <td style={{ color: 'var(--text-primary)', borderLeft: '1px solid var(--border-color)' }}>
+                      {row.putLtp.toFixed(2)}
+                    </td>
+                    <td style={{ 
+                      color: 'var(--text-secondary)',
+                      background: isMaxPutVol ? 'rgba(0, 191, 255, 0.05)' : 'transparent'
+                    }}>
+                      {(row.putVolume || 0).toLocaleString()}
+                    </td>
+                    <td style={{ color: row.putChgOi > 0 ? 'var(--bullish)' : 'var(--bearish)' }}>
+                      {row.putChgOi > 0 ? `+${row.putChgOi}` : row.putChgOi}
+                    </td>
+                    <td style={{ 
+                      color: 'var(--text-secondary)',
+                      background: isMaxPutOi ? 'rgba(255, 165, 0, 0.05)' : 'transparent',
+                      fontWeight: isMaxPutOi ? 'bold' : 'normal'
+                    }}>
+                      {row.putOi.toLocaleString()}
+                      {isMaxPutOi && <Trophy size={12} style={{ color: 'orange', marginLeft: '2px', display: 'inline' }} />}
                     </td>
                   </tr>
                 );
-              }
 
-              return elements;
-            })}
-          </tbody>
-        </table>
-      </div>
+                // Insert Dhan-style Spot Price Line
+                const nextRow = displayedStrikes[index + 1];
+                if (nextRow && row.strike <= spotPrice && nextRow.strike > spotPrice) {
+                  elements.push(
+                    <tr key="spot-line" id="spot-line" style={{ height: '3px', background: 'transparent' }}>
+                      <td colSpan="9" style={{ padding: '0', position: 'relative' }}>
+                        <div style={{ 
+                          height: '3px', 
+                          background: 'var(--accent-primary)', 
+                          width: '100%',
+                          boxShadow: '0 0 10px var(--accent-primary)'
+                        }}>
+                          <span style={{ 
+                            position: 'absolute', 
+                            top: '-10px', 
+                            left: '50%', 
+Transform: 'translateX(-50%)',
+                            background: 'var(--accent-primary)',
+                            color: '#000',
+                            padding: '0.1rem 0.5rem',
+                            borderRadius: '4px',
+                            fontSize: '0.75rem',
+                            fontWeight: '700',
+                            zIndex: 3
+                          }}>
+                            SPOT: {spotPrice.toFixed(2)}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                }
+
+                return elements;
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <style>{`
         @keyframes spin {

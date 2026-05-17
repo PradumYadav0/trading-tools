@@ -399,6 +399,118 @@ app.get('/api/charts/historical', async (req, res) => {
   }
 });
 
+// Endpoint for AI Analysis
+app.post('/api/ai-analysis', async (req, res) => {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(400).json({ success: false, message: 'Gemini API Key missing in settings.' });
+    }
+
+    const symbol = req.body.symbol || 'NIFTY';
+    
+    // 1. Fetch Option Chain Data
+    const scripId = scripMap[symbol];
+    if (!scripId) {
+      return res.status(400).json({ success: false, message: 'Invalid symbol requested' });
+    }
+
+    const ocResponse = await axios.post('https://api.dhan.co/v2/optionchain', {
+      UnderlyingScrip: scripId,
+      UnderlyingSeg: 'IDX_I',
+      Expiry: req.body.expiry
+    }, { headers: getDhanHeaders() });
+
+    // 2. Fetch Chart Data (Last 20 candles of 5 min)
+    const toDate = new Date();
+    toDate.setDate(toDate.getDate() + 1);
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - 2); // 2 days to be safe
+
+    const formatDate = (d) => d.toISOString().split('T')[0];
+    
+    const chartResponse = await axios.post('https://api.dhan.co/v2/charts/intraday', {
+      securityId: scripId.toString(),
+      exchangeSegment: 'IDX_I',
+      instrument: 'INDEX',
+      interval: '5',
+      fromDate: formatDate(fromDate),
+      toDate: formatDate(toDate)
+    }, { headers: getDhanHeaders() });
+
+    // Process data for prompt
+    const ocData = ocResponse.data.data;
+    const spotPrice = ocData.last_price;
+    
+    // Calculate PCR
+    let totalCallOi = 0;
+    let totalPutOi = 0;
+    Object.values(ocData.oc).forEach(strike => {
+      totalCallOi += strike.ce?.oi || 0;
+      totalPutOi += strike.pe?.oi || 0;
+    });
+    const pcr = totalCallOi > 0 ? (totalPutOi / totalCallOi).toFixed(2) : 0;
+
+    // Get last 15 candles
+    const chartData = chartResponse.data;
+    const lastCandles = [];
+    if (chartData.timestamp) {
+      const len = chartData.timestamp.length;
+      const startIdx = Math.max(0, len - 15);
+      for (let i = startIdx; i < len; i++) {
+        lastCandles.push({
+          time: new Date(chartData.timestamp[i] * 1000).toLocaleTimeString(),
+          open: chartData.open[i],
+          high: chartData.high[i],
+          low: chartData.low[i],
+          close: chartData.close[i]
+        });
+      }
+    }
+
+    // Construct Prompt
+    const prompt = `You are an expert stock market technical analyst. 
+Analyze the following data for ${symbol} and provide a trading suggestion for a beginner trader in simple Hindi/Hinglish (mix of Hindi and English).
+
+Current Spot Price: ${spotPrice}
+Put Call Ratio (PCR): ${pcr}
+
+Last 15 Candles (5-minute interval):
+${JSON.stringify(lastCandles, null, 2)}
+
+Please provide:
+1. Market Sentiment (Bullish/Bearish/Sideways) and why.
+2. Key Support and Resistance levels based on the data.
+3. Actionable advice: Should the user buy Call, Buy Put, or Wait? Give a reason.
+Format the output with clear headings.`;
+
+    // Call Gemini API
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const geminiResponse = await axios.post(geminiUrl, {
+      contents: [{
+        parts: [{
+          text: prompt
+        }]
+      }]
+    });
+
+    const aiResponse = geminiResponse.data.candidates[0].content.parts[0].text;
+
+    res.json({ success: true, analysis: aiResponse });
+
+  } catch (error) {
+    console.error('AI Analysis Error:', error.message);
+    if (error.response) {
+      console.error('Gemini API Error Details:', error.response.data);
+    }
+    res.status(500).json({ 
+      success: false, 
+      message: error.message,
+      details: error.response?.data
+    });
+  }
+});
+
 // ─── Settings Endpoints ───────────────────────────────────────────────────────
 
 const fs = require('fs');

@@ -42,7 +42,7 @@ const ChartAnalysis = () => {
     });
 
     // Add series
-    seriesRef.current = chartRef.current.addSeries(CandlestickSeries, {
+    seriesRef.current = chartRef.current.addCandlestickSeries({
       upColor: '#10B981',
       downColor: '#EF4444',
       borderVisible: false,

@@ -483,7 +483,7 @@ app.post('/api/ai-analysis', async (req, res) => {
 
     // Construct Prompt
     const prompt = `You are an expert stock market technical analyst. 
-Analyze the following data for ${symbol} and provide a trading suggestion for a beginner trader in simple Hindi/Hinglish (mix of Hindi and English).
+Analyze the following data for ${symbol} and provide a trading suggestion for a beginner trader.
 
 Current Spot Price: ${spotPrice}
 Put Call Ratio (PCR): ${pcr}
@@ -495,7 +495,12 @@ Please provide:
 1. Market Sentiment (Bullish/Bearish/Sideways) and why.
 2. Key Support and Resistance levels based on the data.
 3. Actionable advice: Should the user buy Call, Buy Put, or Wait? Give a reason.
-Format the output with clear headings.`;
+
+IMPORTANT INSTRUCTIONS for the tone and format:
+- Write the response in friendly Hinglish (Hindi + English mix, written in English script like 'Market abhi sideways chal raha hai').
+- Do NOT use Hindi script (like नमस्ते or बाज़ार).
+- Do NOT use markdown formatting like ###, **, or *. Just use simple plain text with line breaks for spacing.
+- Explain it in a simple way, like an expert friend giving advice.`;
 
     // Call Gemini API
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;

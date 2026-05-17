@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { createChart } from 'lightweight-charts';
+import { createChart, ColorType } from 'lightweight-charts';
 
 const ChartAnalysis = () => {
   const chartContainerRef = useRef();
@@ -11,7 +11,7 @@ const ChartAnalysis = () => {
       width: chartContainerRef.current.clientWidth || 800,
       height: 400,
       layout: {
-        background: { color: 'transparent' },
+        background: { type: ColorType.Solid, color: 'transparent' },
         textColor: '#94A3B8',
       },
       grid: {

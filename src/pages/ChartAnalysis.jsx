@@ -105,7 +105,10 @@ const ChartAnalysis = () => {
       const result = await response.json();
       
       if (result.success && result.data) {
-        let chartData = result.data.sort((a, b) => a.time - b.time);
+        // Filter out any invalid candles and sort
+        let chartData = result.data
+          .filter(d => d.close !== undefined && d.close !== null)
+          .sort((a, b) => a.time - b.time);
         
         if (interval === 'MONTH') {
           chartData = aggregateToMonthly(chartData);
@@ -114,7 +117,6 @@ const ChartAnalysis = () => {
         }
         
         // Add IST offset (5 hours 30 mins = 19800 seconds) for intraday charts
-        // This forces the chart to show Indian time regardless of browser timezone
         if (interval !== 'DAY' && interval !== 'MONTH') {
           chartData = chartData.map(item => ({
             ...item,
@@ -124,36 +126,41 @@ const ChartAnalysis = () => {
         
         seriesRef.current.setData(chartData);
         
-        // Calculate and set EMA data
-        let currentEma = 0;
-        if (chartRef.current.emaSeries && chartData.length > 9) {
-          const emaData = calculateEMA(chartData, 9);
-          chartRef.current.emaSeries.setData(emaData);
-          if (emaData.length > 0) {
-            currentEma = emaData[emaData.length - 1].value;
+        // Wrap indicator calculations in try-catch to prevent chart from breaking
+        try {
+          // Calculate and set EMA data
+          let currentEma = 0;
+          if (chartRef.current.emaSeries && chartData.length > 9) {
+            const emaData = calculateEMA(chartData, 9);
+            chartRef.current.emaSeries.setData(emaData);
+            if (emaData.length > 0) {
+              currentEma = emaData[emaData.length - 1].value;
+            }
           }
-        }
-        
-        // Calculate RSI
-        let currentRsi = 0;
-        if (chartData.length > 14) {
-          const rsiData = calculateRSI(chartData, 14);
-          if (rsiData.length > 0) {
-            currentRsi = rsiData[rsiData.length - 1].value;
-          }
-        }
-        
-        // Update Technical Signals state
-        if (chartData.length > 0) {
-          const lastCandle = chartData[chartData.length - 1];
-          const isBullishEma = lastCandle.close > currentEma;
-          const isBullishRsi = currentRsi > 50;
           
-          setTechnicalSignals({
-            ema: isBullishEma ? 'Bullish' : 'Bearish',
-            rsi: currentRsi ? currentRsi.toFixed(2) : 'N/A',
-            status: (isBullishEma && isBullishRsi) ? 'Strong Bullish' : (!isBullishEma && !isBullishRsi) ? 'Strong Bearish' : 'Neutral'
-          });
+          // Calculate RSI
+          let currentRsi = 0;
+          if (chartData.length > 14) {
+            const rsiData = calculateRSI(chartData, 14);
+            if (rsiData.length > 0) {
+              currentRsi = rsiData[rsiData.length - 1].value;
+            }
+          }
+          
+          // Update Technical Signals state
+          if (chartData.length > 0) {
+            const lastCandle = chartData[chartData.length - 1];
+            const isBullishEma = lastCandle.close > currentEma;
+            const isBullishRsi = currentRsi > 50;
+            
+            setTechnicalSignals({
+              ema: isBullishEma ? 'Bullish' : 'Bearish',
+              rsi: currentRsi ? currentRsi.toFixed(2) : 'N/A',
+              status: (isBullishEma && isBullishRsi) ? 'Strong Bullish' : (!isBullishEma && !isBullishRsi) ? 'Strong Bearish' : 'Neutral'
+            });
+          }
+        } catch (indicatorErr) {
+          console.error('Error calculating indicators:', indicatorErr);
         }
         
         chartRef.current.timeScale().fitContent();

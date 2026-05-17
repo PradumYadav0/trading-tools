@@ -35,11 +35,22 @@ const OptionChain = () => {
 
   useEffect(() => {
     fetchData();
-    // Auto-polling disabled to prevent 429 Rate Limit errors
   }, []);
 
+  // Find ATM Strike
+  const atmStrike = strikes.reduce((prev, curr) => {
+    return (Math.abs(curr.strike - spotPrice) < Math.abs(prev.strike - spotPrice) ? curr : prev);
+  }, strikes[0] || { strike: 0 }).strike;
+
+  // Filter to show 30 strikes around ATM (15 above, 15 below)
+  const atmIndex = strikes.findIndex(s => s.strike === atmStrike);
+  const displayedStrikes = atmIndex >= 0 ? strikes.slice(
+    Math.max(0, atmIndex - 15),
+    Math.min(strikes.length, atmIndex + 16) // +16 to get 31 rows (ATM + 15 either side)
+  ) : strikes;
+
   useEffect(() => {
-    if (strikes.length > 0) {
+    if (displayedStrikes.length > 0) {
       setTimeout(() => {
         const atmRow = document.querySelector('.atm-row');
         if (atmRow) {
@@ -47,12 +58,7 @@ const OptionChain = () => {
         }
       }, 500);
     }
-  }, [strikes]);
-
-  // Find ATM Strike
-  const atmStrike = strikes.reduce((prev, curr) => {
-    return (Math.abs(curr.strike - spotPrice) < Math.abs(prev.strike - spotPrice) ? curr : prev);
-  }, strikes[0] || { strike: 0 }).strike;
+  }, [strikes]); // Run when full strikes list updates
 
   if (loading) {
     return <div className="container flex-center" style={{ height: '80vh' }}>Loading Option Chain from Dhan API...</div>;
@@ -90,7 +96,7 @@ const OptionChain = () => {
         <div>
           <h1 style={{ fontSize: '1.75rem', marginBottom: '0.25rem' }}>Option Chain Analysis</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <p style={{ color: 'var(--text-secondary)' }}>Live Data from Dhan API.</p>
+            <p style={{ color: 'var(--text-secondary)' }}>Live Data from Dhan API. Showing ~30 strikes around ATM.</p>
             <div style={{ 
               background: 'rgba(255, 255, 255, 0.03)', 
               padding: '0.25rem 0.75rem', 
@@ -138,22 +144,24 @@ const OptionChain = () => {
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '0.85rem' }}>
           <thead style={{ position: 'sticky', top: 0, zIndex: 2, background: '#161B22' }}>
             <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-              <th colSpan="3" style={{ padding: '0.75rem', color: 'var(--bearish)', borderRight: '1px solid var(--border-color)' }}>CALLS</th>
+              <th colSpan="4" style={{ padding: '0.75rem', color: 'var(--bearish)', borderRight: '1px solid var(--border-color)' }}>CALLS</th>
               <th style={{ padding: '0.75rem' }}>STRIKE</th>
-              <th colSpan="3" style={{ padding: '0.75rem', color: 'var(--bullish)', borderLeft: '1px solid var(--border-color)' }}>PUTS</th>
+              <th colSpan="4" style={{ padding: '0.75rem', color: 'var(--bullish)', borderLeft: '1px solid var(--border-color)' }}>PUTS</th>
             </tr>
             <tr style={{ background: 'rgba(255, 255, 255, 0.01)', borderBottom: '1px solid var(--border-color)' }}>
               <th style={{ padding: '0.5rem' }}>OI</th>
               <th style={{ padding: '0.5rem' }}>Chg OI</th>
+              <th style={{ padding: '0.5rem' }}>Volume</th>
               <th style={{ padding: '0.5rem', borderRight: '1px solid var(--border-color)' }}>LTP</th>
               <th style={{ padding: '0.5rem' }}>Strike Price</th>
               <th style={{ padding: '0.5rem', borderLeft: '1px solid var(--border-color)' }}>LTP</th>
+              <th style={{ padding: '0.5rem' }}>Volume</th>
               <th style={{ padding: '0.5rem' }}>Chg OI</th>
               <th style={{ padding: '0.5rem' }}>OI</th>
             </tr>
           </thead>
           <tbody>
-            {strikes.map((row) => {
+            {displayedStrikes.map((row) => {
               const isAtm = row.strike === atmStrike;
               
               return (
@@ -166,6 +174,7 @@ const OptionChain = () => {
                   <td style={{ color: row.callChgOi > 0 ? 'var(--bearish)' : 'var(--bullish)' }}>
                     {row.callChgOi > 0 ? `+${row.callChgOi}` : row.callChgOi}
                   </td>
+                  <td style={{ color: 'var(--text-secondary)' }}>{(row.callVolume || 0).toLocaleString()}</td>
                   <td style={{ color: 'var(--text-primary)', borderRight: '1px solid var(--border-color)' }}>
                     {row.callLtp.toFixed(2)}
                   </td>
@@ -175,6 +184,7 @@ const OptionChain = () => {
                   <td style={{ color: 'var(--text-primary)', borderLeft: '1px solid var(--border-color)' }}>
                     {row.putLtp.toFixed(2)}
                   </td>
+                  <td style={{ color: 'var(--text-secondary)' }}>{(row.putVolume || 0).toLocaleString()}</td>
                   <td style={{ color: row.putChgOi > 0 ? 'var(--bullish)' : 'var(--bearish)' }}>
                     {row.putChgOi > 0 ? `+${row.putChgOi}` : row.putChgOi}
                   </td>
@@ -186,7 +196,6 @@ const OptionChain = () => {
         </table>
       </div>
 
-      {/* Add spin animation to global styles or inline */}
       <style>{`
         @keyframes spin {
           0% { transform: rotate(0deg); }

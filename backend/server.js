@@ -68,8 +68,10 @@ app.get('/api/option-chain', async (req, res) => {
       return {
         strike,
         callOi: data.ce?.oi || 0,
-        callChgOi: data.ce?.oi - data.ce?.previous_oi || 0, // Mocking change if not direct
+        callChgOi: data.ce?.oi - data.ce?.previous_oi || 0, 
         callLtp: data.ce?.last_price || 0,
+        callVolume: data.ce?.volume || 0,
+        putVolume: data.pe?.volume || 0,
         putLtp: data.pe?.last_price || 0,
         putChgOi: data.pe?.oi - data.pe?.previous_oi || 0,
         putOi: data.pe?.oi || 0,

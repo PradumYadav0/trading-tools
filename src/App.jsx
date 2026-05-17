@@ -1,93 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import axios from 'axios';
-import Header from './components/Header';
 import Sidebar from './components/Sidebar';
+import Header from './components/Header';
 import Dashboard from './pages/Dashboard';
-import Analysis from './pages/Analysis';
-import RiskManagement from './pages/RiskManagement';
-import SignalRoom from './pages/SignalRoom';
-import Settings from './pages/Settings';
+import OptionChain from './pages/OptionChain';
 import ChartAnalysis from './pages/ChartAnalysis';
+import Settings from './pages/Settings';
+import './App.css';
 
 function App() {
-  const [activeSymbol, setActiveSymbol] = useState('BANKNIFTY');
-  const [marketData, setMarketData] = useState(null);
-  const [newsData, setNewsData] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const response = await axios.get(`/api/market-data?symbol=${activeSymbol}`);
-        setMarketData(response.data);
-        
-        // Fetch Live News
-        const newsResponse = await axios.get('/api/news');
-        if (newsResponse.data.success) {
-           setNewsData(newsResponse.data.data);
-        }
-
-        setLoading(false);
-      } catch (error) {
-        console.error('Error fetching data:', error);
-        setLoading(false); // Fix: Prevent infinite loading screen if backend is down
-      }
-    };
-
-    fetchData();
-    const interval = setInterval(fetchData, 2000);
-    return () => clearInterval(interval);
-  }, [activeSymbol]);
-
-  if (loading) {
-    return (
-      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0b0f' }}>
-        <div className="animate-pulse-subtle" style={{ color: 'var(--primary)', fontSize: '20px', fontWeight: 800 }}>
-          INITIALIZING TRADING PRO ENGINE...
-        </div>
-      </div>
-    );
-  }
-
   return (
     <Router>
-      <div className="app-container" style={{ display: 'flex', minHeight: '100vh', background: '#050608', padding: '16px', gap: '16px', paddingBottom: '50px' }}>
+      <div className="app-container">
         <Sidebar />
-        
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <Header activeSymbol={activeSymbol} setActiveSymbol={setActiveSymbol} />
-          
-          <div style={{ flex: 1, overflowY: 'auto' }}>
+        <div className="main-content">
+          <Header />
+          <div className="content-area">
             <Routes>
-              <Route path="/" element={<Dashboard activeSymbol={activeSymbol} marketData={marketData} />} />
-              <Route path="/signal" element={<SignalRoom activeSymbol={activeSymbol} data={marketData} />} />
-              <Route path="/analysis" element={<Analysis activeSymbol={activeSymbol} data={marketData} />} />
-              <Route path="/risk" element={<RiskManagement />} />
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/option-chain" element={<OptionChain />} />
+              <Route path="/charts" element={<ChartAnalysis />} />
               <Route path="/settings" element={<Settings />} />
-              <Route path="/chart" element={<ChartAnalysis activeSymbol={activeSymbol} data={marketData} />} />
             </Routes>
           </div>
-        </div>
-
-        {/* Scrolling News Ticker */}
-        <div style={{ 
-          position: 'fixed', 
-          bottom: 0, 
-          left: 0, 
-          width: '100%', 
-          background: 'rgba(0,0,0,0.8)', 
-          backdropFilter: 'blur(10px)',
-          borderTop: '1px solid var(--border)',
-          padding: '8px 0',
-          zIndex: 1000
-        }}>
-          <marquee scrollamount="5" style={{ color: 'var(--primary)', fontWeight: 600, fontSize: '13px' }}>
-            {newsData.length > 0 
-                  ? newsData.map((news, i) => <span key={i} style={{ marginRight: '50px' }}>🚀 {news.title}</span>)
-                  : "Fetching live market news..."
-            }
-          </marquee>
         </div>
       </div>
     </Router>

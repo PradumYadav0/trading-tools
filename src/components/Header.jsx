@@ -1,87 +1,85 @@
 import React from 'react';
-import { Activity, ShieldCheck, Zap } from 'lucide-react';
+import { Bell, User, Search, Wifi } from 'lucide-react';
 
-const Header = ({ activeSymbol, setActiveSymbol }) => {
-  const [time, setTime] = React.useState(new Date());
-
-  React.useEffect(() => {
-    const timer = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-
+const Header = () => {
   return (
-    <header className="glass-panel header-container" style={{ padding: '12px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-      <div className="header-logo-section" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <div style={{ background: 'var(--primary)', padding: '8px', borderRadius: '8px', display: 'flex' }}>
-          <Activity color="black" size={24} />
-        </div>
-        <div>
-          <h1 style={{ fontSize: '20px', margin: 0 }}>TRADING <span className="text-gradient">PRO AI</span></h1>
-          <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-            {['BANKNIFTY', 'NIFTY'].map(s => (
-              <button 
-                key={s}
-                onClick={() => setActiveSymbol(s)}
-                style={{ 
-                  padding: '4px 12px', 
-                  fontSize: '11px', 
-                  borderRadius: '6px',
-                  border: activeSymbol === s ? '1px solid var(--primary)' : '1px solid var(--border)', 
-                  background: activeSymbol === s ? 'rgba(0, 255, 136, 0.1)' : 'transparent', 
-                  color: activeSymbol === s ? 'white' : 'var(--text-muted)', 
-                  fontWeight: activeSymbol === s ? 800 : 400,
-                  cursor: 'pointer',
-                  boxShadow: activeSymbol === s ? '0 0 10px rgba(0, 255, 136, 0.2)' : 'none',
-                  transition: 'all 0.2s ease'
-                }}
-              >{s}</button>
-            ))}
+    <header className="header">
+      <div className="header-left">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <h2 style={{ fontSize: '1.25rem', color: 'var(--text-primary)' }}>Market Overview</h2>
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '0.5rem', 
+            fontSize: '0.85rem', 
+            color: 'var(--bullish)',
+            background: 'rgba(16, 185, 129, 0.1)',
+            padding: '0.25rem 0.75rem',
+            borderRadius: '20px',
+            fontWeight: '500'
+          }}>
+            <Wifi size={14} />
+            <span>Connected to Dhan</span>
           </div>
         </div>
       </div>
 
-      {/* Center Highlight Badge */}
-      <div style={{ 
-        padding: '8px 40px', 
-        background: 'rgba(0, 255, 136, 0.05)', 
-        border: '1px solid var(--primary)', 
-        borderRadius: '30px',
-        boxShadow: '0 0 20px rgba(0, 255, 136, 0.1)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '12px'
-      }}>
-        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--primary)', boxShadow: '0 0 10px var(--primary)' }}></div>
-        <span style={{ fontSize: '18px', fontWeight: 900, color: 'white', letterSpacing: '2px' }}>{activeSymbol}</span>
-      </div>
-      
-      <div className="header-controls" style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-        {/* Real-time System Clock */}
-        <div style={{ textAlign: 'right', borderRight: '1px solid var(--border)', paddingRight: '15px' }}>
-          <p style={{ fontSize: '10px', color: 'var(--text-muted)' }}>SYSTEM TIME</p>
-          <span style={{ fontSize: '14px', fontWeight: 800, fontFamily: 'monospace' }}>
-            {time.toLocaleTimeString()}
-          </span>
+      <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <Search size={18} style={{ position: 'absolute', left: '12px', color: 'var(--text-muted)' }} />
+          <input 
+            type="text" 
+            placeholder="Search symbol..." 
+            style={{
+              background: 'rgba(255, 255, 255, 0.03)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '10px',
+              padding: '0.5rem 1rem 0.5rem 2.5rem',
+              color: 'var(--text-primary)',
+              width: '240px',
+              fontSize: '0.9rem',
+              outline: 'none',
+              transition: 'var(--transition-smooth)'
+            }}
+            onFocus={(e) => e.target.style.borderColor = 'var(--accent-primary)'}
+            onBlur={(e) => e.target.style.borderColor = 'var(--border-color)'}
+          />
         </div>
 
-        <div style={{ textAlign: 'right' }}>
-          <p style={{ fontSize: '10px', color: 'var(--text-muted)' }}>LAST SYNC</p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success)', boxShadow: '0 0 8px var(--success)' }}></div>
-            <span style={{ fontSize: '13px', fontWeight: 600 }}>{new Date().toLocaleTimeString()}</span>
+        <div style={{ display: 'flex', gap: '1rem' }}>
+          <button style={{ 
+            background: 'none', 
+            border: 'none', 
+            color: 'var(--text-secondary)', 
+            cursor: 'pointer',
+            position: 'relative'
+          }}>
+            <Bell size={20} />
+            <span style={{
+              position: 'absolute',
+              top: '-2px',
+              right: '-2px',
+              width: '8px',
+              height: '8px',
+              background: 'var(--bearish)',
+              borderRadius: '50%'
+            }}></span>
+          </button>
+          
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '0.5rem', 
+            cursor: 'pointer',
+            background: 'rgba(255, 255, 255, 0.03)',
+            padding: '0.35rem 0.75rem',
+            borderRadius: '10px',
+            border: '1px solid var(--border-color)'
+          }}>
+            <User size={18} color="var(--text-secondary)" />
+            <span style={{ fontSize: '0.9rem', fontWeight: '500' }}>Trader</span>
           </div>
         </div>
-        
-        <div className="glass-card" style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-          <ShieldCheck size={16} color="var(--primary)" />
-          <span style={{ fontSize: '13px' }}>Paper Trading Mode</span>
-        </div>
-
-        <button className="glass-card" style={{ padding: '8px 16px', background: 'var(--primary)', color: 'black', fontWeight: 600, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Zap size={16} />
-          GO PRO
-        </button>
       </div>
     </header>
   );

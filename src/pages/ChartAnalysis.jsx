@@ -1,134 +1,87 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Activity, Crosshair, Zap, BarChart2 } from 'lucide-react';
+import React, { useEffect, useRef } from 'react';
+import { createChart } from 'lightweight-charts';
 
-const ChartAnalysis = ({ activeSymbol, data }) => {
-  const [aiInsight, setAiInsight] = useState("AI is scanning the chart for patterns...");
+const ChartAnalysis = () => {
+  const chartContainerRef = useRef();
 
   useEffect(() => {
-    // Simulate Gemini AI chart analysis fetching
-    setTimeout(() => {
-       const isBullish = parseFloat(data?.pcr || 1) > 1;
-       if (activeSymbol === 'BANKNIFTY') {
-         setAiInsight(`[Multi-Timeframe Analysis]\n15-Min: Trend is clearly ${isBullish ? 'Bullish. Strong support at 48200' : 'Bearish. Resistance at 48500'}.\n5-Min: Price is forming a potential ${isBullish ? 'Double Bottom breakout' : 'Head and Shoulders breakdown'}. Smart money is ${isBullish ? 'accumulating' : 'distributing'} here.\n\nVerdict: Wait for 5-min candle confirmation.`);
-       } else {
-         setAiInsight(`[Multi-Timeframe Analysis]\n15-Min: Nifty 50 structure is ${isBullish ? 'Bullish' : 'Bearish'}. Trendline is ${isBullish ? 'holding strong' : 'rejecting prices'}.\n5-Min: Scalping momentum is building up. Wait for the 5-minute candle to close before taking a scalping entry.`);
-       }
-    }, 1500);
-  }, [activeSymbol, data]);
+    if (!chartContainerRef.current) return;
 
-  // Map our symbols to TradingView symbols (Using BSE because NSE index data is often restricted on TV widgets)
-  const tvSymbol = activeSymbol === 'BANKNIFTY' ? 'BSE:BANKNIFTY' : 'BSE:NIFTY';
+    const chart = createChart(chartContainerRef.current, {
+      width: chartContainerRef.current.clientWidth,
+      height: 400,
+      layout: {
+        background: { color: '#161B22' },
+        textColor: '#94A3B8',
+      },
+      grid: {
+        vertLines: { color: 'rgba(255, 255, 255, 0.05)' },
+        horzLines: { color: 'rgba(255, 255, 255, 0.05)' },
+      },
+      crosshair: {
+        mode: 0,
+      },
+      timeScale: {
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+      },
+    });
+
+    const candleSeries = chart.addCandlestickSeries({
+      upColor: '#10B981',
+      downColor: '#EF4444',
+      borderVisible: false,
+      wickUpColor: '#10B981',
+      wickDownColor: '#EF4444',
+    });
+
+    // Mock Data
+    candleSeries.setData([
+      { time: '2026-05-10', open: 22000, high: 22100, low: 21950, close: 22050 },
+      { time: '2026-05-11', open: 22050, high: 22200, low: 22000, close: 22150 },
+      { time: '2026-05-12', open: 22150, high: 22180, low: 22050, close: 22100 },
+      { time: '2026-05-13', open: 22100, high: 22300, low: 22080, close: 22250 },
+      { time: '2026-05-14', open: 22250, high: 22350, low: 22200, close: 22300 },
+      { time: '2026-05-15', open: 22300, high: 22500, low: 22250, close: 22450 },
+    ]);
+
+    const handleResize = () => {
+      chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      chart.remove();
+    };
+  }, []);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', paddingBottom: '40px' }}>
-      <div className="glass-panel" style={{ padding: '24px', borderLeft: '6px solid var(--primary)' }}>
-        <h1 style={{ fontSize: '26px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <BarChart2 size={28} color="var(--primary)" />
-          ADVANCED CHART AI
-        </h1>
-        <p style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>Real-time institutional chart patterns mapped with AI.</p>
+    <div className="container">
+      <div style={{ marginBottom: '2rem' }}>
+        <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>Chart Analysis</h1>
+        <p style={{ color: 'var(--text-secondary)' }}>Technical analysis and automated pattern detection.</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: '20px', height: '600px' }}>
-        {/* Trading View Embed */}
-        <div className="glass-panel" style={{ padding: '0', overflow: 'hidden', position: 'relative' }}>
-           <TradingViewWidget symbol={tvSymbol} />
-        </div>
+      <div className="glass-panel" style={{ padding: '1rem', marginBottom: '2rem' }}>
+        <div ref={chartContainerRef} style={{ width: '100%' }} />
+      </div>
 
-        {/* Right Side Tools */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-          {/* AI Scanner Box */}
-          <div className="glass-panel" style={{ padding: '20px', background: 'linear-gradient(135deg, rgba(0,255,136,0.05) 0%, transparent 100%)', flex: 1 }}>
-             <h3 style={{ fontSize: '14px', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px' }}>
-               <Zap size={16} /> LIVE AI CHART VERDICT
-             </h3>
-             <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.8', whiteSpace: 'pre-line' }}>
-               {aiInsight}
-             </p>
-             <div style={{ marginTop: '20px', padding: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', textAlign: 'center' }}>
-                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>MOMENTUM</span>
-                <div style={{ fontSize: '16px', fontWeight: 900, color: parseFloat(data?.pcr || 1) > 1 ? 'var(--success)' : 'var(--danger)', marginTop: '5px' }}>
-                  {parseFloat(data?.pcr || 1) > 1 ? 'BUY ON DIPS' : 'SELL ON RISE'}
-                </div>
-             </div>
+      <div className="glass-panel" style={{ padding: '1.5rem' }}>
+        <h3 style={{ marginBottom: '1rem' }}>Technical Suggestions</h3>
+        <div style={{ display: 'flex', gap: '1rem', flexDirection: 'column' }}>
+          <div style={{ padding: '1rem', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '10px', border: '1px solid rgba(16, 185, 129, 0.1)' }}>
+            <div style={{ color: 'var(--bullish)', fontWeight: '600', marginBottom: '0.25rem' }}>Bullish Trend Intact</div>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Price is trading above 20 DMA. Suggesting a strong uptrend. Look for buying opportunities on pullbacks.</p>
           </div>
-
-          <div className="glass-panel" style={{ padding: '20px' }}>
-             <h3 style={{ fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px' }}>
-               <Crosshair size={16} color="var(--warning)" /> KEY LEVELS
-             </h3>
-             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>R2 (Breakout)</span>
-                  <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--danger)' }}>{data?.price ? (data.price + 150).toLocaleString() : '---'}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>R1 (Resistance)</span>
-                  <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--warning)' }}>{data?.price ? (data.price + 50).toLocaleString() : '---'}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>CMP (Live)</span>
-                  <span style={{ fontSize: '12px', fontWeight: 800, color: 'white' }}>{data?.price ? (data.price).toLocaleString() : '---'}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>S1 (Support)</span>
-                  <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--success)' }}>{data?.price ? (data.price - 50).toLocaleString() : '---'}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>S2 (Breakdown)</span>
-                  <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--danger)' }}>{data?.price ? (data.price - 150).toLocaleString() : '---'}</span>
-                </div>
-             </div>
+          <div style={{ padding: '1rem', background: 'rgba(245, 158, 11, 0.05)', borderRadius: '10px', border: '1px solid rgba(245, 158, 11, 0.1)' }}>
+            <div style={{ color: 'var(--neutral)', fontWeight: '600', marginBottom: '0.25rem' }}>RSI Divergence Warning</div>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>RSI is making lower highs while price is making higher highs. Possible exhaustion. Avoid aggressive buying at current levels.</p>
           </div>
         </div>
       </div>
     </div>
   );
 };
-
-// Official TradingView Advanced Widget Integration
-let tvScriptLoadingPromise;
-
-function TradingViewWidget({ symbol }) {
-  const onLoadScriptRef = useRef();
-
-  useEffect(() => {
-    onLoadScriptRef.current = createWidget;
-
-    if (!tvScriptLoadingPromise) {
-      tvScriptLoadingPromise = new Promise((resolve) => {
-        const script = document.createElement('script');
-        script.id = 'tradingview-widget-loading-script';
-        script.src = 'https://s3.tradingview.com/tv.js';
-        script.type = 'text/javascript';
-        script.onload = resolve;
-        document.head.appendChild(script);
-      });
-    }
-
-    tvScriptLoadingPromise.then(() => onLoadScriptRef.current && onLoadScriptRef.current());
-
-    return () => onLoadScriptRef.current = null;
-
-    function createWidget() {
-      if (document.getElementById('tradingview_chart_id') && 'TradingView' in window) {
-        new window.TradingView.widget({
-          autosize: true,
-          symbol: symbol,
-          interval: "5",
-          timezone: "Asia/Kolkata",
-          theme: "dark",
-          style: "1",
-          locale: "in",
-          enable_publishing: false,
-          hide_side_toolbar: false,
-          container_id: "tradingview_chart_id"
-        });
-      }
-    }
-  }, [symbol]);
-
-  return <div id='tradingview_chart_id' style={{ height: "100%", width: "100%" }} />;
-}
 
 export default ChartAnalysis;

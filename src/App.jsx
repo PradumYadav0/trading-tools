@@ -5,6 +5,7 @@ import Header from './components/Header';
 import Dashboard from './pages/Dashboard';
 import OptionChain from './pages/OptionChain';
 import ChartAnalysis from './pages/ChartAnalysis';
+import TradingSignals from './pages/TradingSignals';
 import Settings from './pages/Settings';
 import './App.css';
 
@@ -42,6 +43,7 @@ function App() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/option-chain" element={<OptionChain />} />
               <Route path="/charts" element={<ChartAnalysis />} />
+              <Route path="/signals" element={<TradingSignals />} />
               <Route path="/settings" element={<Settings />} />
             </Routes>
           </div>

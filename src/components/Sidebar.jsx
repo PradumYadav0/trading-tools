@@ -46,6 +46,12 @@ const Sidebar = ({ isOpen, closeSidebar }) => {
           </NavLink>
         </li>
         <li className="nav-item">
+          <NavLink to="/signals" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={closeSidebar}>
+            <Zap size={20} />
+            <span>Trading Signals</span>
+          </NavLink>
+        </li>
+        <li className="nav-item">
           <NavLink to="/settings" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={closeSidebar}>
             <Settings size={20} />
             <span>Settings</span>

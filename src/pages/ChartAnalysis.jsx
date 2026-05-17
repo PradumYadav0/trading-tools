@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, CandlestickSeries } from 'lightweight-charts';
+import { createChart } from 'lightweight-charts';
 import { AlertCircle, RefreshCw, Brain, Sparkles, X } from 'lucide-react';
 
 const ChartAnalysis = () => {

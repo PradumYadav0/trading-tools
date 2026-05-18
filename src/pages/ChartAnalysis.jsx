@@ -20,11 +20,17 @@ const ChartAnalysis = () => {
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    // Create chart with basic options
-    chartRef.current = createChart(chartContainerRef.current, {
-      width: 800,
-      height: 500,
-    });
+    // Create chart with basic options and try-catch
+    try {
+      chartRef.current = createChart(chartContainerRef.current, {
+        width: 800,
+        height: 500,
+      });
+    } catch (e) {
+      console.error('Error creating chart:', e);
+      setError('Failed to initialize chart: ' + e.message);
+      return;
+    }
 
     // Add series
     seriesRef.current = chartRef.current.addCandlestickSeries({

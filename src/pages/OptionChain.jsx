@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { RefreshCw, Filter, Zap, ZapOff, BarChart2, Calendar, Clock, Trophy, Database, Eye, EyeOff } from 'lucide-react';
+import { RefreshCw, Filter, Zap, ZapOff, BarChart2, Calendar, Clock, Trophy, Database, Eye, EyeOff, Award } from 'lucide-react';
 
 const OptionChain = () => {
   const [spotPrice, setSpotPrice] = useState(0);
@@ -146,10 +146,24 @@ const OptionChain = () => {
   const totalPutOi = strikes.reduce((sum, row) => sum + row.putOi, 0);
   const pcr = totalCallOi > 0 ? (totalPutOi / totalCallOi).toFixed(2) : '0.00';
 
-  const maxCallOi = Math.max(...displayedStrikes.map(s => s.callOi));
-  const maxPutOi = Math.max(...displayedStrikes.map(s => s.putOi));
-  const maxCallVol = Math.max(...displayedStrikes.map(s => s.callVolume));
-  const maxPutVol = Math.max(...displayedStrikes.map(s => s.putVolume));
+  // Helper to get Top 3 items
+  const getTop3 = (arr, key) => {
+    return [...arr]
+      .filter(item => item[key] > 0)
+      .sort((a, b) => b[key] - a[key])
+      .slice(0, 3)
+      .map(item => ({ strike: item.strike, value: item[key] }));
+  };
+
+  const top3CallOi = getTop3(displayedStrikes, 'callOi');
+  const top3PutOi = getTop3(displayedStrikes, 'putOi');
+  const top3CallVol = getTop3(displayedStrikes, 'callVolume');
+  const top3PutVol = getTop3(displayedStrikes, 'putVolume');
+
+  const getRank = (topArr, value) => {
+    const index = topArr.findIndex(item => item.value === value);
+    return index !== -1 ? index + 1 : 0;
+  };
 
   if (loading) {
     return <div className="container flex-center" style={{ height: '80vh' }}>Loading Option Chain data...</div>;
@@ -425,6 +439,69 @@ const OptionChain = () => {
         </div>
       </div>
 
+      {/* Top Levels Dashboard requested by user */}
+      <div className="glass-panel" style={{ padding: '1rem', marginBottom: '1.5rem' }}>
+        <h3 style={{ marginBottom: '0.75rem', fontSize: '1.1rem' }}>Top Open Interest & Volume Levels</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: '1rem' }}>
+          
+          {/* Top Call OI (Resistance) */}
+          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '8px', borderLeft: '3px solid var(--bearish)' }}>
+            <h4 style={{ color: 'var(--bearish)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>Resistances (Max Call OI)</h4>
+            <div style={{ display: 'grid', gap: '0.25rem', fontSize: '0.8rem' }}>
+              {top3CallOi.map((item, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontWeight: 'bold' }}>{item.strike}</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>{item.value.toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Top Put OI (Support) */}
+          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '8px', borderLeft: '3px solid var(--bullish)' }}>
+            <h4 style={{ color: 'var(--bullish)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>Supports (Max Put OI)</h4>
+            <div style={{ display: 'grid', gap: '0.25rem', fontSize: '0.8rem' }}>
+              {top3PutOi.map((item, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontWeight: 'bold' }}>{item.strike}</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>{item.value.toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Top Call Volume */}
+          {!isMobile && (
+            <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '8px', borderLeft: '3px solid #3B82F6' }}>
+              <h4 style={{ color: '#3B82F6', fontSize: '0.85rem', marginBottom: '0.5rem' }}>High Volume Calls</h4>
+              <div style={{ display: 'grid', gap: '0.25rem', fontSize: '0.8rem' }}>
+                {top3CallVol.map((item, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontWeight: 'bold' }}>{item.strike}</span>
+                    <span style={{ color: 'var(--text-secondary)' }}>{item.value.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Top Put Volume */}
+          {!isMobile && (
+            <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '8px', borderLeft: '3px solid #F59E0B' }}>
+              <h4 style={{ color: '#F59E0B', fontSize: '0.85rem', marginBottom: '0.5rem' }}>High Volume Puts</h4>
+              <div style={{ display: 'grid', gap: '0.25rem', fontSize: '0.8rem' }}>
+                {top3PutVol.map((item, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontWeight: 'bold' }}>{item.strike}</span>
+                    <span style={{ color: 'var(--text-secondary)' }}>{item.value.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       {error && (
         <div style={{ color: 'var(--bearish)', marginBottom: '1rem', padding: '0.5rem', background: 'rgba(255, 0, 0, 0.05)', borderRadius: '8px' }}>
           {error}
@@ -461,10 +538,11 @@ const OptionChain = () => {
             <tbody>
               {displayedStrikes.flatMap((row, index) => {
                 const isAtm = row.strike === atmStrike;
-                const isMaxCallOi = row.callOi === maxCallOi && maxCallOi > 0;
-                const isMaxPutOi = row.putOi === maxPutOi && maxPutOi > 0;
-                const isMaxCallVol = row.callVolume === maxCallVol && maxCallVol > 0;
-                const isMaxPutVol = row.putVolume === maxPutVol && maxPutVol > 0;
+                
+                const callOiRank = getRank(top3CallOi, row.callOi);
+                const putOiRank = getRank(top3PutOi, row.putOi);
+                const callVolRank = getRank(top3CallVol, row.callVolume);
+                const putVolRank = getRank(top3PutVol, row.putVolume);
                 
                 const elements = [];
                 
@@ -473,33 +551,39 @@ const OptionChain = () => {
                     key={row.strike} 
                     style={{ 
                       borderBottom: '1px solid var(--border-color)', 
-                      height: '35px'
+                      height: '35px',
+                      background: isAtm ? 'rgba(255,255,255,0.02)' : 'transparent'
                     }}
                   >
                     {/* CALLS */}
                     <td style={{ 
                       color: 'var(--text-secondary)',
-                      background: isMaxCallOi ? 'rgba(255, 165, 0, 0.05)' : 'transparent',
-                      fontWeight: isMaxCallOi ? 'bold' : 'normal'
+                      background: callOiRank === 1 ? 'rgba(255, 0, 0, 0.15)' : 
+                                  callOiRank === 2 ? 'rgba(255, 0, 0, 0.1)' : 
+                                  callOiRank === 3 ? 'rgba(255, 0, 0, 0.05)' : 'transparent',
+                      fontWeight: callOiRank > 0 ? 'bold' : 'normal'
                     }}>
                       {row.callOi.toLocaleString()}
-                      {isMaxCallOi && <Trophy size={12} style={{ color: 'orange', marginLeft: '2px', display: 'inline' }} />}
+                      {callOiRank > 0 && <span style={{ fontSize: '0.75rem', color: 'var(--bearish)', marginLeft: '2px' }}>#{callOiRank}</span>}
                     </td>
                     <td className={!showAllColumns ? "mobile-hide" : ""} style={{ color: row.callChgOi > 0 ? 'var(--bearish)' : 'var(--bullish)' }}>
                       {row.callChgOi > 0 ? `+${row.callChgOi}` : row.callChgOi}
                     </td>
                     <td className={!showAllColumns ? "mobile-hide" : ""} style={{ 
                       color: 'var(--text-secondary)',
-                      background: isMaxCallVol ? 'rgba(0, 191, 255, 0.05)' : 'transparent'
+                      background: callVolRank === 1 ? 'rgba(59, 130, 246, 0.15)' : 
+                                  callVolRank === 2 ? 'rgba(59, 130, 246, 0.1)' : 
+                                  callVolRank === 3 ? 'rgba(59, 130, 246, 0.05)' : 'transparent'
                     }}>
                       {(row.callVolume || 0).toLocaleString()}
+                      {callVolRank > 0 && <span style={{ fontSize: '0.75rem', color: '#3B82F6', marginLeft: '2px' }}>#{callVolRank}</span>}
                     </td>
                     <td style={{ color: 'var(--text-primary)', borderRight: '1px solid var(--border-color)' }}>
                       {row.callLtp.toFixed(2)}
                     </td>
 
                     {/* STRIKE */}
-                    <td style={{ fontWeight: '700' }}>
+                    <td style={{ fontWeight: '700', background: isAtm ? 'var(--accent-primary)' : 'transparent', color: isAtm ? '#000' : '#fff' }}>
                       {row.strike}
                     </td>
 
@@ -509,20 +593,25 @@ const OptionChain = () => {
                     </td>
                     <td className={!showAllColumns ? "mobile-hide" : ""} style={{ 
                       color: 'var(--text-secondary)',
-                      background: isMaxPutVol ? 'rgba(0, 191, 255, 0.05)' : 'transparent'
+                      background: putVolRank === 1 ? 'rgba(245, 158, 11, 0.15)' : 
+                                  putVolRank === 2 ? 'rgba(245, 158, 11, 0.1)' : 
+                                  putVolRank === 3 ? 'rgba(245, 158, 11, 0.05)' : 'transparent'
                     }}>
                       {(row.putVolume || 0).toLocaleString()}
+                      {putVolRank > 0 && <span style={{ fontSize: '0.75rem', color: '#F59E0B', marginLeft: '2px' }}>#{putVolRank}</span>}
                     </td>
                     <td className={!showAllColumns ? "mobile-hide" : ""} style={{ color: row.putChgOi > 0 ? 'var(--bullish)' : 'var(--bearish)' }}>
                       {row.putChgOi > 0 ? `+${row.putChgOi}` : row.putChgOi}
                     </td>
                     <td style={{ 
                       color: 'var(--text-secondary)',
-                      background: isMaxPutOi ? 'rgba(255, 165, 0, 0.05)' : 'transparent',
-                      fontWeight: isMaxPutOi ? 'bold' : 'normal'
+                      background: putOiRank === 1 ? 'rgba(0, 200, 5, 0.15)' : 
+                                  putOiRank === 2 ? 'rgba(0, 200, 5, 0.1)' : 
+                                  putOiRank === 3 ? 'rgba(0, 200, 5, 0.05)' : 'transparent',
+                      fontWeight: putOiRank > 0 ? 'bold' : 'normal'
                     }}>
                       {row.putOi.toLocaleString()}
-                      {isMaxPutOi && <Trophy size={12} style={{ color: 'orange', marginLeft: '2px', display: 'inline' }} />}
+                      {putOiRank > 0 && <span style={{ fontSize: '0.75rem', color: 'var(--bullish)', marginLeft: '2px' }}>#{putOiRank}</span>}
                     </td>
                   </tr>
                 );

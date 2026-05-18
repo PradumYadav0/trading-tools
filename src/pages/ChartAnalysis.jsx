@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, CandlestickSeries, LineSeries } from 'lightweight-charts';
-import { RefreshCw, AlertCircle, Zap, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { RefreshCw, AlertCircle, Zap, TrendingUp, TrendingDown, Minus, Maximize2 } from 'lucide-react';
 
 const ChartAnalysis = () => {
   const chartContainerRef = useRef();
@@ -39,7 +39,7 @@ const ChartAnalysis = () => {
         const width = chartContainerRef.current.clientWidth || 800;
         const chart = createChart(chartContainerRef.current, {
           width: width,
-          height: 400, // Reduced height to fit the larger info box
+          height: 400,
           layout: {
             background: { color: '#111827' },
             textColor: '#D1D5DB',
@@ -81,19 +81,25 @@ const ChartAnalysis = () => {
         ema9SeriesRef.current = ema9Series;
         ema20SeriesRef.current = ema20Series;
 
-        // Handle resize
+        // Handle resize and fullscreen
         const handleResize = () => {
           if (chartContainerRef.current) {
-            chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+            const isFullScreen = !!document.fullscreenElement;
+            chart.applyOptions({ 
+              width: chartContainerRef.current.clientWidth,
+              height: isFullScreen ? window.innerHeight - 40 : 400
+            });
           }
         };
         window.addEventListener('resize', handleResize);
+        document.addEventListener('fullscreenchange', handleResize);
 
         // Fetch initial data
         fetchData();
 
         return () => {
           window.removeEventListener('resize', handleResize);
+          document.removeEventListener('fullscreenchange', handleResize);
           chart.remove();
         };
       } catch (e) {
@@ -175,7 +181,6 @@ const ChartAnalysis = () => {
     setError(null);
 
     try {
-      // 1. Fetch Chart Data
       const chartUrl = interval === 'D' 
         ? `/api/charts/historical?symbol=${symbol}`
         : `/api/charts/intraday?symbol=${symbol}&interval=${interval}`;
@@ -183,16 +188,13 @@ const ChartAnalysis = () => {
       const chartResponse = await fetch(chartUrl);
       const chartResult = await chartResponse.json();
 
-      // 2. Fetch Option Chain Data
       const ocResponse = await fetch(`/api/option-chain?symbol=${symbol}`);
       const ocResult = await ocResponse.json();
 
       if (chartResult.success && chartResult.data && chartResult.data.length > 0) {
-        // Validate and sort chart data
         const validData = chartResult.data.filter(item => typeof item.time === 'number' && !isNaN(item.time));
         const sortedData = validData.sort((a, b) => a.time - b.time);
         
-        // Remove duplicates
         const uniqueData = [];
         const seenTimes = new Set();
         for (const item of sortedData) {
@@ -202,34 +204,28 @@ const ChartAnalysis = () => {
           }
         }
 
-        // Set Candlestick data
         candlestickSeriesRef.current.setData(uniqueData);
 
         if (uniqueData.length >= 26) {
-          // Calculate EMAs
           const ema9Data = calculateEMA(uniqueData, 9);
           const ema20Data = calculateEMA(uniqueData, 20);
           
           ema9SeriesRef.current.setData(ema9Data);
           ema20SeriesRef.current.setData(ema20Data);
 
-          // Calculate RSI
           const rsiData = calculateRSI(uniqueData, 14);
           
-          // Calculate MACD (Simplified for latest point)
           const ema12Data = calculateEMA(uniqueData, 12);
           const ema26Data = calculateEMA(uniqueData, 26);
           const lastEma12 = ema12Data[ema12Data.length - 1].value;
           const lastEma26 = ema26Data[ema26Data.length - 1].value;
           const macdLine = lastEma12 - lastEma26;
 
-          // Get latest values
           const lastCandle = uniqueData[uniqueData.length - 1];
           const lastEma9 = ema9Data[ema9Data.length - 1].value;
           const lastEma20 = ema20Data[ema20Data.length - 1].value;
           const lastRsi = rsiData.length > 0 ? rsiData[rsiData.length - 1].value : 50;
 
-          // Option Chain Data
           let pcr = 1.0;
           let support = 'N/A';
           let resistance = 'N/A';
@@ -255,7 +251,6 @@ const ChartAnalysis = () => {
             pcr = totalCallOi > 0 ? totalPutOi / totalCallOi : 1.0;
           }
 
-          // Individual Indicator Analysis
           const indStatus = {
             ema9: lastCandle.close > lastEma9 ? { status: 'Bullish (Price Above)', color: 'var(--bullish)' } : { status: 'Bearish (Price Below)', color: 'var(--bearish)' },
             ema20: lastCandle.close > lastEma20 ? { status: 'Bullish (Price Above)', color: 'var(--bullish)' } : { status: 'Bearish (Price Below)', color: 'var(--bearish)' },
@@ -266,14 +261,12 @@ const ChartAnalysis = () => {
           };
           setIndicators(indStatus);
 
-          // Overall Decision
           let action = 'WAIT';
           let reason = 'Market is in neutral zone or conflicting signals.';
           let color = 'var(--text-secondary)';
           let target = 'N/A';
           let stoploss = 'N/A';
 
-          // Scoring system
           let bullishScore = 0;
           let bearishScore = 0;
 
@@ -323,6 +316,17 @@ const ChartAnalysis = () => {
     if (color === 'var(--bullish)') return <TrendingUp size={16} color="var(--bullish)" />;
     if (color === 'var(--bearish)') return <TrendingDown size={16} color="var(--bearish)" />;
     return <Minus size={16} color="var(--text-secondary)" />;
+  };
+
+  const toggleFullScreen = () => {
+    const element = chartContainerRef.current.parentElement;
+    if (!document.fullscreenElement) {
+      element.requestFullscreen().catch(err => {
+        alert(`Error attempting to enable full-screen mode: ${err.message}`);
+      });
+    } else {
+      document.exitFullscreen();
+    }
   };
 
   return (
@@ -389,7 +393,6 @@ const ChartAnalysis = () => {
         </div>
         
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', marginBottom: '1rem' }}>
-          {/* Left Column: Indicator Breakdown */}
           <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px' }}>
             <h4 style={{ marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>Indicator Analysis</h4>
             <div style={{ display: 'grid', gap: '0.5rem', fontSize: '0.9rem' }}>
@@ -432,7 +435,6 @@ const ChartAnalysis = () => {
             </div>
           </div>
 
-          {/* Right Column: Decision & Levels */}
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
             <div>
               <h4 style={{ marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Analysis Result</h4>
@@ -474,7 +476,29 @@ const ChartAnalysis = () => {
         </div>
       )}
 
-      <div className="glass-panel" style={{ padding: '1rem', minHeight: '420px' }}>
+      {/* Chart Panel with Fullscreen button */}
+      <div className="glass-panel" style={{ padding: '1rem', minHeight: '420px', position: 'relative' }}>
+        <button 
+          onClick={toggleFullScreen}
+          style={{ 
+            position: 'absolute', 
+            top: '1.5rem', 
+            right: '1.5rem', 
+            background: 'rgba(30, 41, 59, 0.7)', 
+            border: '1px solid #334155', 
+            color: 'white', 
+            padding: '0.5rem', 
+            borderRadius: '6px', 
+            cursor: 'pointer', 
+            zIndex: 10,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+          title="Toggle Fullscreen"
+        >
+          <Maximize2 size={18} />
+        </button>
         <div ref={chartContainerRef} style={{ width: '100%', height: '400px' }} />
       </div>
     </div>

@@ -149,7 +149,6 @@ const OptionDecoder = () => {
     fetchData();
     // Auto refresh every 1 minute as requested in previous turns
     const intervalId = setInterval(() => {
-      console.log('Auto-refreshing Option Decoder...');
       fetchData();
     }, 60000);
     
@@ -168,6 +167,10 @@ const OptionDecoder = () => {
 
   const buyerSignal = overallScore.score >= 75 ? 'BUY CALL' : overallScore.score <= 25 ? 'BUY PUT' : 'WAIT';
   const buyerColor = overallScore.score >= 75 ? 'var(--bullish)' : overallScore.score <= 25 ? 'var(--bearish)' : '#EAB308';
+  
+  // Dynamic targets based on user request
+  const targetPoints = symbol === 'NIFTY' ? '10 - 20 Pts' : '30 - 50 Pts';
+  const stoplossPoints = symbol === 'NIFTY' ? '7 - 10 Pts' : '20 - 25 Pts';
 
   return (
     <div className="container" style={{ padding: '2rem', color: 'white' }}>
@@ -237,16 +240,26 @@ const OptionDecoder = () => {
               {buyerSignal}
             </div>
           </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Recommended Hold Time</div>
-            <div style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>10 - 30 Mins</div>
+          <div style={{ display: 'flex', gap: '2rem', textAlign: 'right' }}>
+            <div>
+              <div style={{ color: 'var(--bullish)', fontSize: '0.8rem' }}>Target Premium</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--bullish)' }}>{targetPoints}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--bearish)', fontSize: '0.8rem' }}>Stoploss Premium</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--bearish)' }}>{stoplossPoints}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Hold Time</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>10 - 30 Mins</div>
+            </div>
           </div>
         </div>
         <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: 'white', lineHeight: '1.4' }}>
           {overallScore.score >= 75 ? (
-            <span>🎯 **Rule**: Momentum is strong. You can buy ATM Call. Exit quickly if the score drops below 50% or you get a good profit in 10-20 mins.</span>
+            <span>🎯 **Rule**: Momentum is strong. You can buy ATM Call. Exit quickly as soon as you get **{targetPoints}** or if the score drops below 50%.</span>
           ) : overallScore.score <= 25 ? (
-            <span>🎯 **Rule**: Panic is high. You can buy ATM Put. Exit quickly if the score rises above 50% or you get a good profit in 10-20 mins.</span>
+            <span>🎯 **Rule**: Panic is high. You can buy ATM Put. Exit quickly as soon as you get **{targetPoints}** or if the score rises above 50%.</span>
           ) : (
             <span>⌛ **Rule**: No clear momentum. Option buyers lose money in sideways markets due to Theta decay. **Wait** for a better opportunity.</span>
           )}

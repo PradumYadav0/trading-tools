@@ -32,12 +32,9 @@ const ChartAnalysis = () => {
         },
       });
 
-      seriesRef.current = chartRef.current.addCandlestickSeries({
-        upColor: '#10B981',
-        downColor: '#EF4444',
-        borderVisible: false,
-        wickUpColor: '#10B981',
-        wickDownColor: '#EF4444',
+      seriesRef.current = chartRef.current.addLineSeries({
+        color: '#10B981',
+        lineWidth: 2,
       });
 
       // Handle resize

@@ -84,7 +84,11 @@ const ChartAnalysis = () => {
     setError(null);
 
     try {
-      const response = await fetch(`/api/charts/intraday?symbol=${symbol}&interval=${interval}`);
+      const url = interval === 'D' 
+        ? `/api/charts/historical?symbol=${symbol}`
+        : `/api/charts/intraday?symbol=${symbol}&interval=${interval}`;
+        
+      const response = await fetch(url);
       const result = await response.json();
 
       if (result.success && result.data) {
@@ -111,14 +115,8 @@ const ChartAnalysis = () => {
           }
         }
 
-        // Adjust timestamps by adding 5.5 hours (19800 seconds) for IST display
-        const adjustedData = uniqueData.map(item => ({
-          ...item,
-          time: item.time + (5.5 * 60 * 60)
-        }));
-
         try {
-          candlestickSeriesRef.current.setData(adjustedData);
+          candlestickSeriesRef.current.setData(uniqueData);
           chartRef.current.timeScale().fitContent();
         } catch (chartError) {
           console.error('Lightweight charts error:', chartError);
@@ -158,10 +156,12 @@ const ChartAnalysis = () => {
             onChange={(e) => setInterval(e.target.value)}
             style={{ padding: '0.5rem', background: '#1E293B', color: 'white', border: '1px solid #334155', borderRadius: '6px' }}
           >
-            <option value="1">1 Min</option>
             <option value="5">5 Min</option>
+            <option value="10">10 Min</option>
             <option value="15">15 Min</option>
             <option value="60">1 Hour</option>
+            <option value="D">1 Day</option>
+            <option value="M">1 Month</option>
           </select>
 
           <button 

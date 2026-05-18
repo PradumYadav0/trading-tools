@@ -20,25 +20,10 @@ const ChartAnalysis = () => {
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    // Create chart
+    // Create chart with basic options
     chartRef.current = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth || 800,
+      width: 800,
       height: 500,
-      layout: {
-        background: { type: 'solid', color: 'transparent' },
-        textColor: '#94A3B8',
-      },
-      grid: {
-        vertLines: { color: 'rgba(255, 255, 255, 0.05)' },
-        horzLines: { color: 'rgba(255, 255, 255, 0.05)' },
-      },
-      crosshair: {
-        mode: 0,
-      },
-      timeScale: {
-        borderColor: 'rgba(255, 255, 255, 0.1)',
-        timeVisible: true,
-      },
     });
 
     // Add series

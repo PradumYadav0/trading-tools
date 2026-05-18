@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { RefreshCw, Zap, TrendingUp, TrendingDown, Minus, Activity, Cpu, Brain, Target } from 'lucide-react';
+import { RefreshCw, Zap, TrendingUp, TrendingDown, Minus, Activity, Cpu, Brain, Target, ShieldAlert } from 'lucide-react';
 
 const OptionDecoder = () => {
   const [symbol, setSymbol] = useState('NIFTY');
@@ -149,6 +149,7 @@ const OptionDecoder = () => {
     fetchData();
     // Auto refresh every 1 minute as requested in previous turns
     const intervalId = setInterval(() => {
+      console.log('Auto-refreshing Option Decoder...');
       fetchData();
     }, 60000);
     
@@ -164,6 +165,9 @@ const OptionDecoder = () => {
   if (loading) {
     return <div className="container flex-center" style={{ height: '80vh' }}>Loading Option Decoder Math...</div>;
   }
+
+  const buyerSignal = overallScore.score >= 75 ? 'BUY CALL' : overallScore.score <= 25 ? 'BUY PUT' : 'WAIT';
+  const buyerColor = overallScore.score >= 75 ? 'var(--bullish)' : overallScore.score <= 25 ? 'var(--bearish)' : '#EAB308';
 
   return (
     <div className="container" style={{ padding: '2rem', color: 'white' }}>
@@ -205,19 +209,47 @@ const OptionDecoder = () => {
       </div>
 
       {/* 1. Overall Mood Score Card */}
-      <div className="glass-panel" style={{ padding: '2rem', marginBottom: '2rem', border: `2px solid ${overallScore.color}`, textAlign: 'center' }}>
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
-          <Brain size={32} color={overallScore.color} />
-          <h2 style={{ fontSize: '2rem', margin: 0, color: overallScore.color }}>{overallScore.signal}</h2>
+      <div className="glass-panel" style={{ padding: '1.5rem', marginBottom: '1.5rem', border: `2px solid ${overallScore.color}`, textAlign: 'center' }}>
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
+          <Brain size={28} color={overallScore.color} />
+          <h2 style={{ fontSize: '1.75rem', margin: 0, color: overallScore.color }}>{overallScore.signal}</h2>
         </div>
-        <p style={{ fontSize: '1.2rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
+        <p style={{ fontSize: '1rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
           Mathematical Confidence Score
         </p>
-        <div style={{ fontSize: '3rem', fontWeight: 'bold', color: 'white' }}>
+        <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: 'white' }}>
           {overallScore.score}%
         </div>
-        <div style={{ marginTop: '1rem', fontSize: '1rem', color: 'var(--text-secondary)' }}>
+        <div style={{ marginTop: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
           Spot Price: <span style={{ color: 'white', fontWeight: 'bold' }}>{spotPrice.toFixed(2)}</span>
+        </div>
+      </div>
+
+      {/* Option Buyer's Signal Box - Tailored for user */}
+      <div className="glass-panel" style={{ padding: '1.5rem', marginBottom: '1.5rem', border: `2px solid ${buyerColor}`, background: 'rgba(255,255,255,0.01)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.25rem' }}>
+              <ShieldAlert size={16} color={buyerColor} />
+              <span>Option Buyer's Signal (Scalping)</span>
+            </div>
+            <div style={{ fontSize: '2rem', fontWeight: 'bold', color: buyerColor }}>
+              {buyerSignal}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Recommended Hold Time</div>
+            <div style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>10 - 30 Mins</div>
+          </div>
+        </div>
+        <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: 'white', lineHeight: '1.4' }}>
+          {overallScore.score >= 75 ? (
+            <span>🎯 **Rule**: Momentum is strong. You can buy ATM Call. Exit quickly if the score drops below 50% or you get a good profit in 10-20 mins.</span>
+          ) : overallScore.score <= 25 ? (
+            <span>🎯 **Rule**: Panic is high. You can buy ATM Put. Exit quickly if the score rises above 50% or you get a good profit in 10-20 mins.</span>
+          ) : (
+            <span>⌛ **Rule**: No clear momentum. Option buyers lose money in sideways markets due to Theta decay. **Wait** for a better opportunity.</span>
+          )}
         </div>
       </div>
 
@@ -270,8 +302,8 @@ const OptionDecoder = () => {
           <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
             The strike where option buyers will lose the most money.
           </p>
-          <div style={{ textAlign: 'center', padding: '1rem 0' }}>
-            <div style={{ fontSize: '1.2rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>Target Expiry Strike</div>
+          <div style={{ textAlign: 'center', padding: '0.5rem 0' }}>
+            <div style={{ fontSize: '1rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Target Expiry Strike</div>
             <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: 'var(--accent-primary)' }}>{maxPain}</div>
           </div>
           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textAlign: 'center' }}>

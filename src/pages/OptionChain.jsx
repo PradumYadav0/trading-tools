@@ -155,10 +155,16 @@ const OptionChain = () => {
       .map(item => ({ strike: item.strike, value: item[key] }));
   };
 
-  const top3CallOi = getTop3(displayedStrikes, 'callOi');
-  const top3PutOi = getTop3(displayedStrikes, 'putOi');
-  const top3CallVol = getTop3(displayedStrikes, 'callVolume');
-  const top3PutVol = getTop3(displayedStrikes, 'putVolume');
+  // Filter for OTM (Out of The Money) strikes for accurate Support/Resistance
+  // For Calls, we look at strikes ABOVE the spot price
+  // For Puts, we look at strikes BELOW the spot price
+  const otmCalls = displayedStrikes.filter(s => s.strike >= spotPrice);
+  const otmPuts = displayedStrikes.filter(s => s.strike <= spotPrice);
+
+  const top3CallOi = getTop3(otmCalls, 'callOi');
+  const top3PutOi = getTop3(otmPuts, 'putOi');
+  const top3CallVol = getTop3(otmCalls, 'callVolume');
+  const top3PutVol = getTop3(otmPuts, 'putVolume');
 
   const getRank = (topArr, value) => {
     const index = topArr.findIndex(item => item.value === value);

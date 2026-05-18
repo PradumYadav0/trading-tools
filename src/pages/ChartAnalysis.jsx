@@ -18,9 +18,6 @@ const ChartAnalysis = () => {
   const [technicalSignals, setTechnicalSignals] = useState({ ema: 'N/A', rsi: 'N/A', status: 'N/A' });
 
   useEffect(() => {
-    console.log('ChartAnalysis mounted');
-    // Commented out to debug crash
-    /*
     if (!chartContainerRef.current) return;
 
     // Create chart
@@ -73,7 +70,7 @@ const ChartAnalysis = () => {
     resizeObserver.observe(chartContainerRef.current);
 
     // Fetch initial data
-    fetchData();
+    // fetchData();
 
     return () => {
       resizeObserver.disconnect();
@@ -82,7 +79,6 @@ const ChartAnalysis = () => {
         chartRef.current = null;
       }
     };
-    */
   }, []);
 
   // Fetch data when symbol or interval changes

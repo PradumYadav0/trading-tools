@@ -79,8 +79,18 @@ const ChartAnalysis = () => {
       const result = await response.json();
 
       if (result.success && result.data) {
+        // Filter and validate data
+        const validData = result.data.filter(item => {
+          return item && typeof item.time === 'number' && !isNaN(item.time) && item.time > 0;
+        });
+
+        if (validData.length === 0) {
+          setError('No valid chart data received from server');
+          return;
+        }
+
         // Sort data by time ascending (required by lightweight-charts)
-        const sortedData = result.data.sort((a, b) => a.time - b.time);
+        const sortedData = validData.sort((a, b) => a.time - b.time);
         
         // Remove duplicates if any
         const uniqueData = [];
@@ -92,8 +102,13 @@ const ChartAnalysis = () => {
           }
         }
 
-        candlestickSeriesRef.current.setData(uniqueData);
-        chartRef.current.timeScale().fitContent();
+        try {
+          candlestickSeriesRef.current.setData(uniqueData);
+          chartRef.current.timeScale().fitContent();
+        } catch (chartError) {
+          console.error('Lightweight charts error:', chartError);
+          setError('Error rendering chart data: ' + chartError.message);
+        }
       } else {
         setError(result.message || 'Failed to fetch chart data');
       }

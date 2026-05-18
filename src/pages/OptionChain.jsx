@@ -589,7 +589,7 @@ const OptionChain = () => {
                     </td>
 
                     {/* STRIKE */}
-                    <td style={{ fontWeight: '700', background: isAtm ? 'var(--accent-primary)' : 'transparent', color: isAtm ? '#000' : '#fff' }}>
+                    <td style={{ fontWeight: '700', color: '#fff' }}>
                       {row.strike}
                     </td>
 

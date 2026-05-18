@@ -99,6 +99,14 @@ const ChartAnalysis = () => {
 
       setDebugStatus(`Calling URL: ${url}`);
       const response = await fetch(url);
+      
+      if (response.status === 429) {
+        setDebugStatus('Error: Dhan API Limit reached. Please wait 1-2 minutes without refreshing.');
+        setError('Dhan API rate limit reached. Please wait a moment before refreshing again.');
+        setLoading(false);
+        return;
+      }
+
       setDebugStatus('Response received, parsing JSON...');
       const result = await response.json();
       

@@ -42,6 +42,11 @@ const ChartAnalysis = () => {
       wickDownColor: '#EF4444',
     });
 
+    // Add a dummy candle to test rendering
+    seriesRef.current.setData([
+      { time: Math.floor(Date.now() / 1000), open: 22000, high: 22100, low: 21900, close: 22050 }
+    ]);
+
     // Add EMA Line Series
     const emaSeries = chartRef.current.addLineSeries({
       color: '#F59E0B', // Amber color for EMA

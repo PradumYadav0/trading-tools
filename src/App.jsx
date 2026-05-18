@@ -9,6 +9,7 @@ import TradingSignals from './pages/TradingSignals';
 import AiAnalysis from './pages/AiAnalysis';
 import AiTesting from './pages/AiTesting';
 import Settings from './pages/Settings';
+import OptionDecoder from './pages/OptionDecoder';
 import './App.css';
 
 function App() {
@@ -48,6 +49,7 @@ function App() {
               <Route path="/signals" element={<TradingSignals />} />
               <Route path="/ai-analysis" element={<AiAnalysis />} />
               <Route path="/ai-testing" element={<AiTesting />} />
+              <Route path="/option-decoder" element={<OptionDecoder />} />
               <Route path="/settings" element={<Settings />} />
             </Routes>
           </div>

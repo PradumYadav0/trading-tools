@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, BarChart2, LineChart, Settings, Zap, X, Brain, TrendingUp } from 'lucide-react';
+import { LayoutDashboard, BarChart2, LineChart, Settings, Zap, X, Brain, TrendingUp, Cpu } from 'lucide-react';
 
 const Sidebar = ({ isOpen, closeSidebar }) => {
   return (
@@ -37,6 +37,12 @@ const Sidebar = ({ isOpen, closeSidebar }) => {
           <NavLink to="/option-chain" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={closeSidebar}>
             <BarChart2 size={20} />
             <span>Option Chain</span>
+          </NavLink>
+        </li>
+        <li className="nav-item">
+          <NavLink to="/option-decoder" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={closeSidebar}>
+            <Cpu size={20} />
+            <span>Option Decoder</span>
           </NavLink>
         </li>
         <li className="nav-item">

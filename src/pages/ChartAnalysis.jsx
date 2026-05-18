@@ -281,14 +281,20 @@ const ChartAnalysis = () => {
             action = 'BUY CALL';
             reason = `Strong Bullish consensus (${bullishScore}/6 indicators). Price is in upward momentum.`;
             color = 'var(--bullish)';
-            target = resistance;
-            stoploss = support !== 'N/A' ? support : lastEma20.toFixed(2);
+            // Dynamic Target: Next Resistance or 50/150 points if resistance is far
+            const defaultTarget = symbol === 'NIFTY' ? 50 : 150;
+            target = resistance !== 'N/A' ? resistance : (lastCandle.close + defaultTarget).toFixed(2);
+            // Dynamic Stoploss: 20 EMA (moves with price)
+            stoploss = lastEma20.toFixed(2);
           } else if (bearishScore >= 4 && lastCandle.close < lastEma9) {
             action = 'BUY PUT';
             reason = `Strong Bearish consensus (${bearishScore}/6 indicators). Trend is clearly downward.`;
             color = 'var(--bearish)';
-            target = support;
-            stoploss = resistance !== 'N/A' ? resistance : lastEma20.toFixed(2);
+            // Dynamic Target: Next Support or 50/150 points
+            const defaultTarget = symbol === 'NIFTY' ? 50 : 150;
+            target = support !== 'N/A' ? support : (lastCandle.close - defaultTarget).toFixed(2);
+            // Dynamic Stoploss: 20 EMA (moves with price)
+            stoploss = lastEma20.toFixed(2);
           } else {
             action = 'WAIT';
             reason = `No clear consensus (Bullish: ${bullishScore}, Bearish: ${bearishScore}). High risk of whipsaws.`;

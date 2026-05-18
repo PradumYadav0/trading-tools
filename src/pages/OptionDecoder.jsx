@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { RefreshCw, Zap, TrendingUp, TrendingDown, Minus, Activity, Cpu, Brain, Target, ShieldAlert } from 'lucide-react';
+import { RefreshCw, Zap, TrendingUp, TrendingDown, Minus, Activity, Cpu, Brain, Target, ShieldAlert, Flame, Percent } from 'lucide-react';
 
 const OptionDecoder = () => {
   const [symbol, setSymbol] = useState('NIFTY');
@@ -15,6 +15,10 @@ const OptionDecoder = () => {
   const [maxPain, setMaxPain] = useState('N/A');
   const [concentration, setConcentration] = useState({ callConc: 0, putConc: 0, signal: 'Neutral' });
   const [overallScore, setOverallScore] = useState({ score: 50, signal: 'Neutral', color: 'var(--text-secondary)' });
+  
+  // New States for Advanced Features
+  const [straddleValue, setStraddleValue] = useState(0);
+  const [trapAlert, setTrapAlert] = useState({ active: false, type: '', message: '', color: '' });
   
   // For PCR Velocity
   const prevPcrRef = useRef(1.0);
@@ -88,9 +92,10 @@ const OptionDecoder = () => {
         setMaxPain(painPoint);
 
         // 4. Strike Concentration (ATM +- 5 strikes)
-        const atmStrike = strikes.reduce((prev, curr) => {
+        const atmStrikeObj = strikes.reduce((prev, curr) => {
           return (Math.abs(curr.strike - spot) < Math.abs(prev.strike - spot) ? curr : prev);
-        }, strikes[0] || { strike: 0 }).strike;
+        }, strikes[0] || { strike: 0 });
+        const atmStrike = atmStrikeObj.strike;
 
         const atmIndex = strikes.findIndex(s => s.strike === atmStrike);
         const nearStrikes = strikes.slice(Math.max(0, atmIndex - 5), Math.min(strikes.length, atmIndex + 6));
@@ -104,7 +109,33 @@ const OptionDecoder = () => {
           signal: nearPutOi > nearCallOi ? 'Bullish' : nearPutOi < nearCallOi ? 'Bearish' : 'Neutral'
         });
 
-        // 5. Overall Score Calculation
+        // 5. Straddle Value (ATM Call LTP + ATM Put LTP)
+        const straddle = (atmStrikeObj.callLtp || 0) + (atmStrikeObj.putLtp || 0);
+        setStraddleValue(straddle);
+
+        // 6. Operator Trap Alert (Short Covering / Long Unwinding)
+        const maxCallOiRow = strikes.reduce((prev, curr) => (curr.callOi > prev.callOi ? curr : prev), strikes[0]);
+        const maxPutOiRow = strikes.reduce((prev, curr) => (curr.putOi > prev.putOi ? curr : prev), strikes[0]);
+
+        if (spot > maxCallOiRow.strike && maxCallOiRow.callChgOi < 0) {
+          setTrapAlert({
+            active: true,
+            type: 'Short Covering',
+            message: `🔥 Call Writers are TRAPPED at ${maxCallOiRow.strike}! Expect a fast upward blast.`,
+            color: 'var(--bullish)'
+          });
+        } else if (spot < maxPutOiRow.strike && maxPutOiRow.putChgOi < 0) {
+          setTrapAlert({
+            active: true,
+            type: 'Long Unwinding',
+            message: `❄️ Put Writers are TRAPPED at ${maxPutOiRow.strike}! Expect a fast downward fall.`,
+            color: 'var(--bearish)'
+          });
+        } else {
+          setTrapAlert({ active: false, type: '', message: '', color: '' });
+        }
+
+        // 7. Overall Score Calculation
         let bullishPoints = 0;
         let totalPoints = 4;
 
@@ -147,7 +178,6 @@ const OptionDecoder = () => {
 
   useEffect(() => {
     fetchData();
-    // Auto refresh every 1 minute as requested in previous turns
     const intervalId = setInterval(() => {
       fetchData();
     }, 60000);
@@ -168,13 +198,9 @@ const OptionDecoder = () => {
   const buyerSignal = overallScore.score >= 75 ? 'BUY CALL' : overallScore.score <= 25 ? 'BUY PUT' : 'WAIT';
   const buyerColor = overallScore.score >= 75 ? 'var(--bullish)' : overallScore.score <= 25 ? 'var(--bearish)' : '#EAB308';
   
-  // DYNAMIC TARGET LOGIC requested by user
-  // Calculate distance between Spot and Max Pain
   const distanceToPain = Math.abs(spotPrice - maxPain);
-  // Assume ATM option moves 0.5 points for every 1 point move in spot (Delta = 0.5)
   let dynamicTarget = distanceToPain * 0.5; 
   
-  // Cap and Floor for safety based on symbol
   if (symbol === 'NIFTY') {
     dynamicTarget = Math.max(10, Math.min(30, dynamicTarget));
   } else {
@@ -189,7 +215,7 @@ const OptionDecoder = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
         <div>
           <h1 style={{ fontSize: '2rem', marginBottom: '0.25rem' }}>Option Decoder (Quant Lab)</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Pure Mathematical Analysis of Live Option Chain</p>
+          <p style={{ color: 'var(--text-secondary)' }}>Advanced Mathematical Analysis for Option Buyers</p>
         </div>
         
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
@@ -223,30 +249,61 @@ const OptionDecoder = () => {
         </div>
       </div>
 
-      {/* 1. Overall Mood Score Card */}
-      <div className="glass-panel" style={{ padding: '1.5rem', marginBottom: '1.5rem', border: `2px solid ${overallScore.color}`, textAlign: 'center' }}>
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
-          <Brain size={28} color={overallScore.color} />
-          <h2 style={{ fontSize: '1.75rem', margin: 0, color: overallScore.color }}>{overallScore.signal}</h2>
+      {/* Operator Trap Alert Box requested by user */}
+      {trapAlert.active && (
+        <div className="glass-panel" style={{ padding: '1rem', marginBottom: '1.5rem', border: `2px solid ${trapAlert.color}`, background: 'rgba(255, 0, 0, 0.05)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Flame size={24} color={trapAlert.color} />
+            <h3 style={{ margin: 0, color: trapAlert.color }}>{trapAlert.type} Alert!</h3>
+          </div>
+          <p style={{ marginTop: '0.5rem', fontSize: '1.1rem', fontWeight: 'bold' }}>{trapAlert.message}</p>
         </div>
-        <p style={{ fontSize: '1rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
-          Mathematical Confidence Score
-        </p>
-        <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: 'white' }}>
-          {overallScore.score}%
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
+        
+        {/* Overall Mood Score Card */}
+        <div className="glass-panel" style={{ padding: '1.5rem', border: `2px solid ${overallScore.color}`, textAlign: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
+            <Brain size={28} color={overallScore.color} />
+            <h2 style={{ fontSize: '1.75rem', margin: 0, color: overallScore.color }}>{overallScore.signal}</h2>
+          </div>
+          <p style={{ fontSize: '1rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
+            Mathematical Confidence Score
+          </p>
+          <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: 'white' }}>
+            {overallScore.score}%
+          </div>
+          <div style={{ marginTop: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+            Spot Price: <span style={{ color: 'white', fontWeight: 'bold' }}>{spotPrice.toFixed(2)}</span>
+          </div>
         </div>
-        <div style={{ marginTop: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-          Spot Price: <span style={{ color: 'white', fontWeight: 'bold' }}>{spotPrice.toFixed(2)}</span>
+
+        {/* Straddle Value Card */}
+        <div className="glass-panel" style={{ padding: '1.5rem', textAlign: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', color: 'var(--accent-primary)' }}>
+            <Percent size={20} />
+            <h3 style={{ margin: 0 }}>ATM Straddle</h3>
+          </div>
+          <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
+            Combined Premium (CE + PE)
+          </p>
+          <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'white' }}>
+            {straddleValue.toFixed(2)}
+          </div>
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+            Shrinking = Rangebound<br />Expanding = Big Move Coming
+          </p>
         </div>
       </div>
 
-      {/* Option Buyer's Signal Box - Tailored for user */}
+      {/* Option Buyer's Signal Box */}
       <div className="glass-panel" style={{ padding: '1.5rem', marginBottom: '1.5rem', border: `2px solid ${buyerColor}`, background: 'rgba(255,255,255,0.01)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.25rem' }}>
               <ShieldAlert size={16} color={buyerColor} />
-              <span>Live Dynamic Target (लाइव मार्केट के हिसाब से)</span>
+              <span>Live Dynamic Target (लाईव मार्केट के हिसाब से)</span>
             </div>
             <div style={{ fontSize: '2rem', fontWeight: 'bold', color: buyerColor }}>
               {buyerSignal}
@@ -284,7 +341,7 @@ const OptionDecoder = () => {
         </div>
       )}
 
-      {/* 2. Grid of 4 Mathematical Models */}
+      {/* 3. Grid of 4 Mathematical Models */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
         
         {/* Model 1: OI Decode */}

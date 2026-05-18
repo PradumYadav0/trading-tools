@@ -115,8 +115,14 @@ const ChartAnalysis = () => {
           }
         }
 
+        // Adjust timestamps by adding 5.5 hours (19800 seconds) for IST display
+        const adjustedData = uniqueData.map(item => ({
+          ...item,
+          time: item.time + (5.5 * 60 * 60)
+        }));
+
         try {
-          candlestickSeriesRef.current.setData(uniqueData);
+          candlestickSeriesRef.current.setData(adjustedData);
           chartRef.current.timeScale().fitContent();
         } catch (chartError) {
           console.error('Lightweight charts error:', chartError);

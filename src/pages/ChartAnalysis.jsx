@@ -103,9 +103,16 @@ const ChartAnalysis = () => {
     }
   }, []);
 
-  // Fetch data when symbol or interval changes
+  // Fetch data when symbol or interval changes, and set up auto-refresh every 1 min
   useEffect(() => {
     fetchData();
+    
+    const intervalId = setInterval(() => {
+      console.log('Auto-refreshing data...');
+      fetchData();
+    }, 60000);
+    
+    return () => clearInterval(intervalId);
   }, [symbol, interval]);
 
   // Helper function to calculate EMA

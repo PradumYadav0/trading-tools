@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, RefreshCw, CheckCircle, XCircle, Clock, TrendingUp } from 'lucide-react';
+import { AlertCircle, RefreshCw, CheckCircle, XCircle, Clock, TrendingUp, DollarSign } from 'lucide-react';
 
 const AiTesting = () => {
   const [signals, setSignals] = useState([]);
@@ -29,7 +29,7 @@ const AiTesting = () => {
     }
   };
 
-  // Calculate stats
+  // Calculate stats for All Time
   const totalTrades = signals.length;
   const successTrades = signals.filter(s => s.status === 'SUCCESS').length;
   const failedTrades = signals.filter(s => s.status === 'FAILED').length;
@@ -37,12 +37,55 @@ const AiTesting = () => {
   
   const winRate = totalTrades > 0 ? ((successTrades / (successTrades + failedTrades || 1)) * 100).toFixed(1) : 0;
 
+  // Calculate Net Points (Profit/Loss)
+  let netPoints = 0;
+  signals.forEach(signal => {
+    if (signal.status === 'SUCCESS') {
+      if (signal.type === 'CALL') {
+        netPoints += (signal.target_price - signal.entry_price);
+      } else if (signal.type === 'PUT') {
+        netPoints += (signal.entry_price - signal.target_price);
+      }
+    } else if (signal.status === 'FAILED') {
+      if (signal.type === 'CALL') {
+        netPoints += (signal.stoploss_price - signal.entry_price); // Will be negative
+      } else if (signal.type === 'PUT') {
+        netPoints += (signal.entry_price - signal.stoploss_price); // Will be negative
+      }
+    }
+  });
+
+  // Calculate stats for TODAY
+  const today = new Date().toISOString().slice(0, 10);
+  const todaySignals = signals.filter(s => new Date(s.created_at).toISOString().slice(0, 10) === today);
+  
+  const todayTotal = todaySignals.length;
+  const todaySuccess = todaySignals.filter(s => s.status === 'SUCCESS').length;
+  const todayFailed = todaySignals.filter(s => s.status === 'FAILED').length;
+  
+  let todayNetPoints = 0;
+  todaySignals.forEach(signal => {
+    if (signal.status === 'SUCCESS') {
+      if (signal.type === 'CALL') {
+        todayNetPoints += (signal.target_price - signal.entry_price);
+      } else if (signal.type === 'PUT') {
+        todayNetPoints += (signal.entry_price - signal.target_price);
+      }
+    } else if (signal.status === 'FAILED') {
+      if (signal.type === 'CALL') {
+        todayNetPoints += (signal.stoploss_price - signal.entry_price);
+      } else if (signal.type === 'PUT') {
+        todayNetPoints += (signal.entry_price - signal.stoploss_price);
+      }
+    }
+  });
+
   return (
-    <div className="container">
+    <div className="container" style={{ padding: '2rem', color: 'white' }}>
       <div style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>AI Performance Testing</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Track how accurate the AI and System signals are.</p>
+          <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>AI & System Backtesting</h1>
+          <p style={{ color: 'var(--text-secondary)' }}>Track how accurate the entries were and calculate Profit/Loss.</p>
         </div>
 
         <button 
@@ -65,7 +108,33 @@ const AiTesting = () => {
         </button>
       </div>
 
-      {/* Stats Grid */}
+      {/* Today's Performance Summary requested by user */}
+      <div className="glass-panel" style={{ padding: '1.5rem', marginBottom: '2rem', border: '1px solid rgba(255,255,255,0.05)' }}>
+        <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem', color: 'var(--accent-primary)' }}>Today's Performance (कितना दूध कितना पानी)</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
+          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '0.25rem' }}>Trades Today</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{todayTotal}</div>
+          </div>
+          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
+            <div style={{ color: 'var(--bullish)', fontSize: '0.8rem', marginBottom: '0.25rem' }}>Success</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'var(--bullish)' }}>{todaySuccess}</div>
+          </div>
+          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
+            <div style={{ color: 'var(--bearish)', fontSize: '0.8rem', marginBottom: '0.25rem' }}>Failed</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'var(--bearish)' }}>{todayFailed}</div>
+          </div>
+          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '0.25rem' }}>Net Points</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: todayNetPoints >= 0 ? 'var(--bullish)' : 'var(--bearish)' }}>
+              {todayNetPoints >= 0 ? `+${todayNetPoints.toFixed(1)}` : todayNetPoints.toFixed(1)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Stats Grid - All Time */}
+      <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>All-Time Performance</h2>
       <div style={{ 
         display: 'grid', 
         gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
@@ -91,6 +160,13 @@ const AiTesting = () => {
           <div style={{ color: '#A855F7', fontSize: '0.9rem', marginBottom: '0.5rem' }}>Win Rate</div>
           <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#A855F7' }}>{winRate}%</div>
         </div>
+
+        <div className="glass-panel" style={{ padding: '1.5rem', textAlign: 'center' }}>
+          <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>Net Points (P&L)</div>
+          <div style={{ fontSize: '2rem', fontWeight: 'bold', color: netPoints >= 0 ? 'var(--bullish)' : 'var(--bearish)' }}>
+            {netPoints >= 0 ? `+${netPoints.toFixed(1)}` : netPoints.toFixed(1)}
+          </div>
+        </div>
       </div>
 
       {error && (
@@ -112,7 +188,7 @@ const AiTesting = () => {
 
       {/* Signals Table */}
       <div className="glass-panel" style={{ padding: '1.5rem', overflowX: 'auto' }}>
-        <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Past Signals</h2>
+        <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Past Signals Log</h2>
         
         {signals.length === 0 && !loading ? (
           <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
@@ -132,7 +208,7 @@ const AiTesting = () => {
               </tr>
             </thead>
             <tbody>
-              {signals.map(signal => (
+              {[...signals].reverse().map(signal => (
                 <tr key={signal.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                   <td style={{ padding: '0.75rem', fontSize: '0.9rem' }}>
                     {new Date(signal.created_at).toLocaleString()}

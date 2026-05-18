@@ -168,9 +168,21 @@ const OptionDecoder = () => {
   const buyerSignal = overallScore.score >= 75 ? 'BUY CALL' : overallScore.score <= 25 ? 'BUY PUT' : 'WAIT';
   const buyerColor = overallScore.score >= 75 ? 'var(--bullish)' : overallScore.score <= 25 ? 'var(--bearish)' : '#EAB308';
   
-  // Dynamic targets based on user request
-  const targetPoints = symbol === 'NIFTY' ? '10 - 20 Pts' : '30 - 50 Pts';
-  const stoplossPoints = symbol === 'NIFTY' ? '7 - 10 Pts' : '20 - 25 Pts';
+  // DYNAMIC TARGET LOGIC requested by user
+  // Calculate distance between Spot and Max Pain
+  const distanceToPain = Math.abs(spotPrice - maxPain);
+  // Assume ATM option moves 0.5 points for every 1 point move in spot (Delta = 0.5)
+  let dynamicTarget = distanceToPain * 0.5; 
+  
+  // Cap and Floor for safety based on symbol
+  if (symbol === 'NIFTY') {
+    dynamicTarget = Math.max(10, Math.min(30, dynamicTarget));
+  } else {
+    dynamicTarget = Math.max(20, Math.min(60, dynamicTarget));
+  }
+  
+  const targetPoints = `${dynamicTarget.toFixed(0)} Points`;
+  const stoplossPoints = symbol === 'NIFTY' ? '10 Points' : '25 Points';
 
   return (
     <div className="container" style={{ padding: '2rem', color: 'white' }}>
@@ -234,7 +246,7 @@ const OptionDecoder = () => {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.25rem' }}>
               <ShieldAlert size={16} color={buyerColor} />
-              <span>Option Buyer's Signal (Scalping)</span>
+              <span>Live Dynamic Target (लाइव मार्केट के हिसाब से)</span>
             </div>
             <div style={{ fontSize: '2rem', fontWeight: 'bold', color: buyerColor }}>
               {buyerSignal}
@@ -242,11 +254,11 @@ const OptionDecoder = () => {
           </div>
           <div style={{ display: 'flex', gap: '2rem', textAlign: 'right' }}>
             <div>
-              <div style={{ color: 'var(--bullish)', fontSize: '0.8rem' }}>Target Premium</div>
+              <div style={{ color: 'var(--bullish)', fontSize: '0.8rem' }}>Live Target</div>
               <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--bullish)' }}>{targetPoints}</div>
             </div>
             <div>
-              <div style={{ color: 'var(--bearish)', fontSize: '0.8rem' }}>Stoploss Premium</div>
+              <div style={{ color: 'var(--bearish)', fontSize: '0.8rem' }}>Stoploss</div>
               <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--bearish)' }}>{stoplossPoints}</div>
             </div>
             <div>
@@ -257,9 +269,9 @@ const OptionDecoder = () => {
         </div>
         <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: 'white', lineHeight: '1.4' }}>
           {overallScore.score >= 75 ? (
-            <span>🎯 **Rule**: Momentum is strong. You can buy ATM Call. Exit quickly as soon as you get **{targetPoints}** or if the score drops below 50%.</span>
+            <span>🎯 **Rule**: Momentum is strong. Target is calculated based on distance to Max Pain. Exit as soon as you get **{targetPoints}** or if score drops.</span>
           ) : overallScore.score <= 25 ? (
-            <span>🎯 **Rule**: Panic is high. You can buy ATM Put. Exit quickly as soon as you get **{targetPoints}** or if the score rises above 50%.</span>
+            <span>🎯 **Rule**: Panic is high. Target is calculated based on distance to Max Pain. Exit as soon as you get **{targetPoints}** or if score rises.</span>
           ) : (
             <span>⌛ **Rule**: No clear momentum. Option buyers lose money in sideways markets due to Theta decay. **Wait** for a better opportunity.</span>
           )}

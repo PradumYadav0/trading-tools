@@ -19,7 +19,8 @@ const ChartAnalysis = () => {
     reason: 'Loading data...',
     target: 'N/A',
     stoploss: 'N/A',
-    color: 'var(--text-secondary)'
+    color: 'var(--text-secondary)',
+    spotPrice: 'N/A'
   });
 
   useEffect(() => {
@@ -223,9 +224,9 @@ const ChartAnalysis = () => {
             color = '#EAB308';
           }
 
-          setDecision({ action, reason, target, stoploss, color });
+          setDecision({ action, reason, target, stoploss, color, spotPrice: lastCandle.close });
         } else {
-          setDecision({ action: 'WAIT', reason: 'Not enough data points to calculate indicators (min 20 required).', color: '#EAB308', target: 'N/A', stoploss: 'N/A' });
+          setDecision({ action: 'WAIT', reason: 'Not enough data points to calculate indicators (min 20 required).', color: '#EAB308', target: 'N/A', stoploss: 'N/A', spotPrice: 'N/A' });
         }
 
         chartRef.current.timeScale().fitContent();
@@ -305,7 +306,11 @@ const ChartAnalysis = () => {
         
         <p style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'white' }}>{decision.reason}</p>
         
-        <div style={{ display: 'flex', gap: '2rem' }}>
+        <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
+          <div>
+            <span style={{ color: 'var(--text-secondary)' }}>Spot Price: </span>
+            <span style={{ fontWeight: 'bold', color: 'white' }}>{decision.spotPrice}</span>
+          </div>
           <div>
             <span style={{ color: 'var(--text-secondary)' }}>Expected Target: </span>
             <span style={{ fontWeight: 'bold', color: 'var(--bullish)' }}>{decision.target}</span>

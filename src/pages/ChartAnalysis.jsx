@@ -16,6 +16,7 @@ const ChartAnalysis = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [aiCooldown, setAiCooldown] = useState(false);
   const [technicalSignals, setTechnicalSignals] = useState({ ema: 'N/A', rsi: 'N/A', status: 'N/A' });
+  const [debugStatus, setDebugStatus] = useState('Idle');
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -74,14 +75,18 @@ const ChartAnalysis = () => {
 
   // Fetch data when symbol or interval changes
   useEffect(() => {
-    // fetchData();
+    fetchData();
   }, [symbol, interval]);
 
   const fetchData = async () => {
-    if (!seriesRef.current) return;
+    if (!seriesRef.current) {
+      setDebugStatus('Error: seriesRef.current is null');
+      return;
+    }
     
     setLoading(true);
     setError(null);
+    setDebugStatus('Fetching data from API...');
     try {
       let url = '';
       if (interval === 'DAY' || interval === 'MONTH') {
@@ -92,10 +97,13 @@ const ChartAnalysis = () => {
         url = `/api/charts/intraday?symbol=${symbol}&interval=${interval}`;
       }
 
+      setDebugStatus(`Calling URL: ${url}`);
       const response = await fetch(url);
+      setDebugStatus('Response received, parsing JSON...');
       const result = await response.json();
       
       if (result.success && result.data) {
+        setDebugStatus(`Success! Data length: ${result.data.length}. Processing...`);
         // Filter out any invalid candles and sort
         let chartData = result.data
           .filter(d => d.close !== undefined && d.close !== null)
@@ -127,6 +135,7 @@ const ChartAnalysis = () => {
         }
         
         seriesRef.current.setData(chartData);
+        setDebugStatus(`Chart updated with ${chartData.length} candles.`);
         
         // Wrap indicator calculations in try-catch to prevent chart from breaking
         try {
@@ -172,6 +181,7 @@ const ChartAnalysis = () => {
       }
     } catch (err) {
       setError('Error connecting to server');
+      setDebugStatus('Error: ' + err.message);
       console.error(err);
     } finally {
       setLoading(false);
@@ -435,6 +445,9 @@ const ChartAnalysis = () => {
       )}
 
       <div className="glass-panel" style={{ padding: '1rem', marginBottom: '2rem', minHeight: '520px', position: 'relative' }}>
+        <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.5rem', background: 'rgba(255,255,255,0.05)', padding: '0.5rem', borderRadius: '4px' }}>
+          Debug Status: <span style={{ color: 'var(--primary-color)', fontWeight: 'bold' }}>{debugStatus}</span>
+        </div>
         {loading && !error && (
           <div style={{ 
             position: 'absolute', 

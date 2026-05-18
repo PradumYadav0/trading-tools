@@ -74,8 +74,8 @@ const refreshDhanToken = async () => {
 // Refresh on startup (Commented out to avoid rate limit on restarts)
 // refreshDhanToken();
 
-// Refresh every 23 hours to be safe
-setInterval(refreshDhanToken, 23 * 60 * 60 * 1000);
+// Refresh every 20 hours to be safe
+setInterval(refreshDhanToken, 20 * 60 * 60 * 1000);
 
 // Initialize SQLite Database
 const db = new sqlite3.Database('./option_chain.db', (err) => {
@@ -532,12 +532,12 @@ app.post('/api/ai-analysis', async (req, res) => {
     });
     const pcr = totalCallOi > 0 ? (totalPutOi / totalCallOi).toFixed(2) : 0;
 
-    // Get last 15 candles
+    // Get last 30 candles
     const chartData = chartResponse.data;
     const lastCandles = [];
     if (chartData.timestamp) {
       const len = chartData.timestamp.length;
-      const startIdx = Math.max(0, len - 15);
+      const startIdx = Math.max(0, len - 30);
       for (let i = startIdx; i < len; i++) {
         lastCandles.push({
           time: new Date(chartData.timestamp[i] * 1000).toLocaleTimeString(),
@@ -549,14 +549,13 @@ app.post('/api/ai-analysis', async (req, res) => {
       }
     }
 
-    // Construct Prompt
     const prompt = `You are an expert stock market technical analyst. 
 Analyze the following data for ${symbol} and provide a trading suggestion for a beginner trader.
 
 Current Spot Price: ${spotPrice}
 Put Call Ratio (PCR): ${pcr}
 
-Last 15 Candles (5-minute interval):
+Last 30 Candles (5-minute interval):
 ${JSON.stringify(lastCandles, null, 2)}
 
 Please provide:

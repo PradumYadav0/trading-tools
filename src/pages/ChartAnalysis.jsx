@@ -22,20 +22,21 @@ const ChartAnalysis = () => {
           background: { type: 'solid', color: '#0B0F19' },
           textColor: '#94A3B8',
         },
-        grid: {
-          vertLines: { color: 'rgba(255, 255, 255, 0.05)' },
-          horzLines: { color: 'rgba(255, 255, 255, 0.05)' },
-        },
-        timeScale: {
-          borderColor: 'rgba(255, 255, 255, 0.1)',
-          timeVisible: true,
-        },
       });
 
-      seriesRef.current = chartRef.current.addLineSeries({
-        color: '#10B981',
-        lineWidth: 2,
-      });
+      const keys = Object.keys(chartRef.current);
+      setDebugStatus(`Chart created. Methods: ${keys.length > 0 ? keys.join(', ') : 'None'}`);
+
+      // Try to add series safely
+      if (typeof chartRef.current.addLineSeries === 'function') {
+        seriesRef.current = chartRef.current.addLineSeries({
+          color: '#10B981',
+          lineWidth: 2,
+        });
+      } else {
+        setDebugStatus(`Error: addLineSeries is not a function. Available methods: ${keys.join(', ')}`);
+        return;
+      }
 
       // Handle resize
       const resizeObserver = new ResizeObserver(entries => {

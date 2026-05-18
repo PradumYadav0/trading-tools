@@ -808,6 +808,148 @@ app.post('/api/settings/refresh-token', async (req, res) => {
   }
 });
 
+// Background Signal Generator based on Option Decoder Math
+async function runBackgroundDecoder() {
+  const symbols = ['NIFTY', 'BANKNIFTY'];
+  
+  for (const symbol of symbols) {
+    try {
+      const token = dhanAccessToken;
+      const clientId = process.env.DHAN_CLIENT_ID;
+      
+      if (!token || !clientId) continue;
+      
+      const scripId = scripMap[symbol];
+      if (!scripId) continue;
+      
+      // Get Expiry List
+      const expiryResponse = await axios.post('https://api.dhan.co/v2/optionchain/expirylist', {
+        UnderlyingScrip: scripId,
+        UnderlyingSeg: 'IDX_I'
+      }, { headers: getDhanHeaders() });
+      
+      if (expiryResponse.data.status !== 'success' || !expiryResponse.data.data.length) continue;
+      
+      const expiry = expiryResponse.data.data[0];
+      
+      // Get Option Chain
+      const ocResponse = await axios.post('https://api.dhan.co/v2/optionchain', {
+        UnderlyingScrip: scripId,
+        UnderlyingSeg: 'IDX_I',
+        Expiry: expiry
+      }, { headers: getDhanHeaders() });
+      
+      if (ocResponse.data.status !== 'success') continue;
+      
+      const rawData = ocResponse.data.data;
+      const ocData = rawData.oc;
+      const spotPrice = rawData.last_price;
+      
+      // Transform to strikes array
+      const strikesArray = Object.keys(ocData).map(strikeStr => {
+        const strike = parseFloat(strikeStr);
+        const data = ocData[strikeStr];
+        return {
+          strike,
+          callOi: data.ce?.oi || 0,
+          callChgOi: data.ce?.oi - data.ce?.previous_oi || 0, 
+          putChgOi: data.pe?.oi - data.pe?.previous_oi || 0,
+          putOi: data.pe?.oi || 0
+        };
+      }).sort((a, b) => a.strike - b.strike);
+      
+      // Now apply Option Decoder Math
+      // 1. PCR
+      const totalCallOi = strikesArray.reduce((sum, row) => sum + row.callOi, 0);
+      const totalPutOi = strikesArray.reduce((sum, row) => sum + row.putOi, 0);
+      const pcr = totalCallOi > 0 ? totalPutOi / totalCallOi : 1.0;
+      
+      // 2. OI Decode
+      const totalCallChg = strikesArray.reduce((sum, row) => sum + row.callChgOi, 0);
+      const totalPutChg = strikesArray.reduce((sum, row) => sum + row.putChgOi, 0);
+      
+      // 3. Max Pain
+      let minLoss = Infinity;
+      let maxPainStrike = spotPrice;
+      strikesArray.forEach(targetStrike => {
+        let totalLoss = 0;
+        strikesArray.forEach(strikeRow => {
+          if (targetStrike.strike > strikeRow.strike) {
+            totalLoss += strikeRow.callOi * (targetStrike.strike - strikeRow.strike);
+          }
+          if (targetStrike.strike < strikeRow.strike) {
+            totalLoss += strikeRow.putOi * (strikeRow.strike - targetStrike.strike);
+          }
+        });
+        if (totalLoss < minLoss) {
+          minLoss = totalLoss;
+          maxPainStrike = targetStrike.strike;
+        }
+      });
+      
+      // 4. Strike Concentration
+      const atmStrike = strikesArray.reduce((prev, curr) => {
+        return (Math.abs(curr.strike - spotPrice) < Math.abs(prev.strike - spotPrice) ? curr : prev);
+      }, strikesArray[0] || { strike: 0 }).strike;
+      
+      const atmIndex = strikesArray.findIndex(s => s.strike === atmStrike);
+      const nearStrikes = strikesArray.slice(Math.max(0, atmIndex - 5), Math.min(strikesArray.length, atmIndex + 6));
+      const nearCallOi = nearStrikes.reduce((sum, row) => sum + row.callOi, 0);
+      const nearPutOi = nearStrikes.reduce((sum, row) => sum + row.putOi, 0);
+      
+      // 5. Score
+      let bullishPoints = 0;
+      let totalPoints = 4;
+      
+      if (pcr > 1.0) bullishPoints++;
+      if (totalPutChg > totalCallChg) bullishPoints++;
+      if (maxPainStrike > spotPrice) bullishPoints++;
+      if (nearPutOi > nearCallOi) bullishPoints++;
+      
+      const percentage = (bullishPoints / totalPoints) * 100;
+      
+      let type = null;
+      if (percentage >= 75) type = 'CALL';
+      if (percentage <= 25) type = 'PUT';
+      
+      if (type) {
+        // Calculate Dynamic Target based on Max Pain
+        const distanceToPain = Math.abs(spotPrice - maxPainStrike);
+        let dynamicTarget = distanceToPain * 0.5;
+        if (symbol === 'NIFTY') {
+          dynamicTarget = Math.max(10, Math.min(30, dynamicTarget));
+        } else {
+          dynamicTarget = Math.max(20, Math.min(60, dynamicTarget));
+        }
+        
+        const target_price = type === 'CALL' ? spotPrice + dynamicTarget : spotPrice - dynamicTarget;
+        const stoploss_price = type === 'CALL' ? spotPrice - (symbol === 'NIFTY' ? 10 : 25) : spotPrice + (symbol === 'NIFTY' ? 10 : 25);
+        
+        // Check if pending signal exists
+        db.get(`SELECT id FROM ai_signals WHERE symbol = ? AND status = 'PENDING'`, [symbol], (err, row) => {
+          if (!err && !row) {
+            // Save new signal
+            db.run(
+              `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price) VALUES (?, ?, ?, ?, ?)`,
+              [symbol, type, spotPrice, target_price, stoploss_price],
+              function(err) {
+                if (err) console.error(`Background signal save failed for ${symbol}:`, err.message);
+                else console.log(`Background auto-saved signal for ${symbol} with ID: ${this.lastID}`);
+              }
+            );
+          }
+        });
+      }
+      
+    } catch (err) {
+      console.error(`Background decoding failed for ${symbol}:`, err.message);
+    }
+  }
+}
+
+// Run every 1 minute
+setInterval(runBackgroundDecoder, 60000);
+
 app.listen(PORT, () => {
   console.log(`Backend server running on port ${PORT}`);
 });

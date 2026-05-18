@@ -1,125 +1,51 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart } from 'lightweight-charts';
 
 const ChartAnalysis = () => {
-  const chartContainerRef = useRef();
-  const chartRef = useRef();
-  const seriesRef = useRef();
-  const [symbol, setSymbol] = useState('NIFTY');
-  const [interval, setInterval] = useState('5');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [debugStatus, setDebugStatus] = useState('Idle');
+  const containerRef = useRef();
+  const [symbol, setSymbol] = useState('NSE:NIFTY');
 
   useEffect(() => {
-    if (!chartContainerRef.current) return;
+    // Load TradingView script
+    const script = document.createElement('script');
+    script.src = 'https://s3.tradingview.com/tv.js';
+    script.async = true;
+    script.onload = () => {
+      createWidget(symbol);
+    };
+    document.head.appendChild(script);
 
-    try {
-      chartRef.current = createChart(chartContainerRef.current, {
-        width: chartContainerRef.current.clientWidth || 800,
-        height: 500,
-        layout: {
-          background: { type: 'solid', color: '#0B0F19' },
-          textColor: '#94A3B8',
-        },
-      });
-
-      const keys = Object.keys(chartRef.current);
-      setDebugStatus(`Chart created. Methods: ${keys.length > 0 ? keys.join(', ') : 'None'}`);
-
-      // Try to add series safely
-      if (typeof chartRef.current.addLineSeries === 'function') {
-        seriesRef.current = chartRef.current.addLineSeries({
-          color: '#10B981',
-          lineWidth: 2,
-        });
-      } else {
-        setDebugStatus(`Error: addLineSeries is not a function. Available methods: ${keys.join(', ')}`);
-        return;
-      }
-
-      // Handle resize
-      const resizeObserver = new ResizeObserver(entries => {
-        if (entries.length === 0 || entries[0].target !== chartContainerRef.current) return;
-        const newRect = entries[0].contentRect;
-        chartRef.current.applyOptions({ width: newRect.width });
-      });
-
-      resizeObserver.observe(chartContainerRef.current);
-
-      fetchData();
-
-      return () => {
-        resizeObserver.disconnect();
-        if (chartRef.current) {
-          chartRef.current.remove();
-          chartRef.current = null;
-        }
-      };
-    } catch (e) {
-      console.error('Chart Error:', e);
-      setDebugStatus('Error creating chart: ' + e.message);
-    }
+    return () => {
+      // Cleanup if needed
+    };
   }, []);
 
-  // Fetch data when symbol or interval changes
+  // Re-create widget when symbol changes
   useEffect(() => {
-    if (seriesRef.current) {
-      fetchData();
+    if (typeof TradingView !== 'undefined') {
+      createWidget(symbol);
     }
-  }, [symbol, interval]);
+  }, [symbol]);
 
-  const fetchData = async () => {
-    setLoading(true);
-    setError(null);
-    setDebugStatus('Fetching data...');
-    try {
-      let url = '';
-      if (interval === 'DAY' || interval === 'MONTH') {
-        url = `/api/charts/historical?symbol=${symbol}`;
-      } else {
-        url = `/api/charts/intraday?symbol=${symbol}&interval=${interval}`;
-      }
-
-      const response = await fetch(url);
-      
-      if (response.status === 429) {
-        setDebugStatus('Error: Rate limit reached. Wait 1 min.');
-        setError('Dhan API rate limit reached.');
-        setLoading(false);
-        return;
-      }
-
-      const result = await response.json();
-      
-      if (result.success && result.data) {
-        let chartData = result.data
-          .filter(d => d.close !== undefined && d.close !== null)
-          .sort((a, b) => a.time - b.time);
-
-        // Deduplicate
-        const uniqueChartData = [];
-        const seenTimes = new Set();
-        for (const candle of chartData) {
-          if (!seenTimes.has(candle.time)) {
-            seenTimes.add(candle.time);
-            uniqueChartData.push(candle);
-          }
-        }
-
-        seriesRef.current.setData(uniqueChartData);
-        setDebugStatus(`Loaded ${uniqueChartData.length} candles.`);
-        chartRef.current.timeScale().fitContent();
-      } else {
-        setError(result.message || 'Failed to fetch data');
-        setDebugStatus('Error: ' + (result.message || 'Failed to fetch'));
-      }
-    } catch (err) {
-      setError('Error connecting to server');
-      setDebugStatus('Error: ' + err.message);
-    } finally {
-      setLoading(false);
-    }
+  const createWidget = (sym) => {
+    new TradingView.widget({
+      width: '100%',
+      height: 600,
+      symbol: sym,
+      interval: '5',
+      timezone: 'Asia/Kolkata',
+      theme: 'dark',
+      style: '1',
+      locale: 'en',
+      toolbar_bg: '#111827',
+      enable_publishing: false,
+      hide_side_toolbar: false,
+      allow_symbol_change: true,
+      container_id: 'tv_chart_container',
+      studies: [
+        'RSI@tv-basicstudies',
+        'MASimple@tv-basicstudies'
+      ],
+    });
   };
 
   return (
@@ -133,32 +59,22 @@ const ChartAnalysis = () => {
             onChange={(e) => setSymbol(e.target.value)}
             style={{ padding: '0.5rem', background: '#1E293B', color: 'white', border: '1px solid #334155', borderRadius: '6px' }}
           >
-            <option value="NIFTY">NIFTY</option>
-            <option value="BANKNIFTY">BANKNIFTY</option>
-          </select>
-
-          <select 
-            value={interval} 
-            onChange={(e) => setInterval(e.target.value)}
-            style={{ padding: '0.5rem', background: '#1E293B', color: 'white', border: '1px solid #334155', borderRadius: '6px' }}
-          >
-            <option value="1">1 Min</option>
-            <option value="5">5 Min</option>
-            <option value="15">15 Min</option>
-            <option value="DAY">Daily</option>
+            <option value="NSE:NIFTY">NIFTY</option>
+            <option value="NSE:BANKNIFTY">BANKNIFTY</option>
+            <option value="NSE:CNXFINANCE">FINNIFTY</option>
           </select>
         </div>
       </div>
 
-      <div className="glass-panel" style={{ padding: '1rem', marginBottom: '2rem', minHeight: '520px' }}>
-        <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
-          Debug Status: <span style={{ color: 'var(--primary-color)', fontWeight: 'bold' }}>{debugStatus}</span>
-        </div>
-        
-        {loading && <p>Loading data...</p>}
-        {error && <p style={{ color: 'var(--bearish)' }}>{error}</p>}
-        
-        <div ref={chartContainerRef} style={{ width: '100%', height: '500px' }} />
+      <div className="glass-panel" style={{ padding: '1rem', minHeight: '620px' }}>
+        <div id="tv_chart_container" style={{ height: '600px' }} />
+      </div>
+
+      <div className="glass-panel" style={{ padding: '1.5rem', marginTop: '2rem' }}>
+        <h3 style={{ marginBottom: '1rem' }}>Note for AI Analysis</h3>
+        <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+          This chart is powered by TradingView. For **AI Analysis**, the system directly fetches data from Dhan API in the backend, so you don't need to worry about missing data for AI analysis!
+        </p>
       </div>
     </div>
   );

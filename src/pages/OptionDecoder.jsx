@@ -191,11 +191,48 @@ const OptionDecoder = () => {
     return <Minus size={20} color="var(--text-secondary)" />;
   };
 
+  const buyerSignal = overallScore.score >= 75 ? 'BUY CALL' : overallScore.score <= 25 ? 'BUY PUT' : 'WAIT';
+
+  useEffect(() => {
+    if (buyerSignal === 'WAIT' || !spotPrice || loading) return;
+
+    const dynamicTargetVal = (() => {
+      const distanceToPain = Math.abs(spotPrice - maxPain);
+      let targetDist = distanceToPain * 0.5;
+      if (symbol === 'NIFTY') {
+        return Math.max(10, Math.min(30, targetDist));
+      } else {
+        return Math.max(20, Math.min(60, targetDist));
+      }
+    })();
+
+    const targetVal = buyerSignal === 'BUY CALL' ? spotPrice + dynamicTargetVal : spotPrice - dynamicTargetVal;
+    const stoplossVal = buyerSignal === 'BUY CALL' 
+      ? spotPrice - (symbol === 'NIFTY' ? 10 : 25) 
+      : spotPrice + (symbol === 'NIFTY' ? 10 : 25);
+
+    const saveOptionSignal = async () => {
+      try {
+        await axios.post('/api/signals', {
+          symbol,
+          type: buyerSignal === 'BUY CALL' ? 'CALL' : 'PUT',
+          entry_price: parseFloat(spotPrice),
+          target_price: parseFloat(targetVal),
+          stoploss_price: parseFloat(stoplossVal),
+          source: 'OPTION_CHAIN'
+        });
+      } catch (e) {
+        console.error("Error auto-saving option chain signal:", e);
+      }
+    };
+
+    saveOptionSignal();
+  }, [buyerSignal, spotPrice, maxPain, symbol, loading]);
+
   if (loading) {
     return <div className="container flex-center" style={{ height: '80vh' }}>Loading Option Decoder Math...</div>;
   }
 
-  const buyerSignal = overallScore.score >= 75 ? 'BUY CALL' : overallScore.score <= 25 ? 'BUY PUT' : 'WAIT';
   const buyerColor = overallScore.score >= 75 ? 'var(--bullish)' : overallScore.score <= 25 ? 'var(--bearish)' : '#EAB308';
   
   const distanceToPain = Math.abs(spotPrice - maxPain);

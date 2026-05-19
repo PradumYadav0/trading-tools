@@ -99,10 +99,20 @@ const db = new sqlite3.Database('./option_chain.db', (err) => {
       entry_price REAL,
       target_price REAL,
       stoploss_price REAL,
+      source TEXT DEFAULT 'OPTION_CHAIN',
       status TEXT DEFAULT 'PENDING',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
+    )`, () => {
+      // Safe migration check for existing databases
+      db.run(`ALTER TABLE ai_signals ADD COLUMN source TEXT DEFAULT 'OPTION_CHAIN'`, (alterErr) => {
+        if (alterErr) {
+          // Column probably already exists, which is expected
+        } else {
+          console.log("Successfully migrated database: added 'source' column to ai_signals.");
+        }
+      });
+    });
   }
 });
 
@@ -227,16 +237,16 @@ app.get('/api/option-chain', async (req, res) => {
     }
 
     if (type) {
-      // Check if we already have a pending signal for this symbol
-      db.get(`SELECT id FROM ai_signals WHERE symbol = ? AND status = 'PENDING'`, [symbol], (err, row) => {
+      // Check if we already have a pending signal for this symbol and source
+      db.get(`SELECT id FROM ai_signals WHERE symbol = ? AND source = 'OPTION_CHAIN' AND status = 'PENDING'`, [symbol], (err, row) => {
         if (!err && !row) {
           // No pending signal, save new one
           db.run(
-            `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price) VALUES (?, ?, ?, ?, ?)`,
+            `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price, source) VALUES (?, ?, ?, ?, ?, 'OPTION_CHAIN')`,
             [symbol, type, spotPrice, target_price, stoploss_price],
             function(err) {
-              if (err) console.error('Error auto-saving signal:', err.message);
-              else console.log(`Auto-saved signal for ${symbol} with ID: ${this.lastID}`);
+              if (err) console.error('Error auto-saving Option Chain signal:', err.message);
+              else console.log(`Auto-saved Option Chain signal for ${symbol} with ID: ${this.lastID}`);
             }
           );
         }
@@ -611,16 +621,18 @@ IMPORTANT INSTRUCTIONS for the tone and format:
 
 // Endpoint to save a new AI signal
 app.post('/api/signals', (req, res) => {
-  const { symbol, type, entry_price, target_price, stoploss_price } = req.body;
+  const { symbol, type, entry_price, target_price, stoploss_price, source } = req.body;
   
   if (!symbol || !type || !entry_price) {
     return res.status(400).json({ success: false, message: 'Missing required fields' });
   }
 
-  const query = `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price) 
-                 VALUES (?, ?, ?, ?, ?)`;
+  const signalSource = source || 'OPTION_CHAIN';
+
+  const query = `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price, source) 
+                 VALUES (?, ?, ?, ?, ?, ?)`;
   
-  db.run(query, [symbol, type, entry_price, target_price, stoploss_price], function(err) {
+  db.run(query, [symbol, type, entry_price, target_price, stoploss_price, signalSource], function(err) {
     if (err) {
       console.error('Error saving signal:', err.message);
       return res.status(500).json({ success: false, message: err.message });
@@ -926,15 +938,15 @@ async function runBackgroundDecoder() {
         const stoploss_price = type === 'CALL' ? spotPrice - (symbol === 'NIFTY' ? 10 : 25) : spotPrice + (symbol === 'NIFTY' ? 10 : 25);
         
         // Check if pending signal exists
-        db.get(`SELECT id FROM ai_signals WHERE symbol = ? AND status = 'PENDING'`, [symbol], (err, row) => {
+        db.get(`SELECT id FROM ai_signals WHERE symbol = ? AND source = 'OPTION_CHAIN' AND status = 'PENDING'`, [symbol], (err, row) => {
           if (!err && !row) {
             // Save new signal
             db.run(
-              `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price) VALUES (?, ?, ?, ?, ?)`,
+              `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price, source) VALUES (?, ?, ?, ?, ?, 'OPTION_CHAIN')`,
               [symbol, type, spotPrice, target_price, stoploss_price],
               function(err) {
                 if (err) console.error(`Background signal save failed for ${symbol}:`, err.message);
-                else console.log(`Background auto-saved signal for ${symbol} with ID: ${this.lastID}`);
+                else console.log(`Background auto-saved Option Chain signal for ${symbol} with ID: ${this.lastID}`);
               }
             );
           }
@@ -947,8 +959,133 @@ async function runBackgroundDecoder() {
   }
 }
 
-// Run every 1 minute
+// Background Signal Generator based on Chart Technical indicators (EMA 9 & 21 Crossovers)
+async function runBackgroundChartDecoder() {
+  const symbols = ['NIFTY', 'BANKNIFTY'];
+  
+  for (const symbol of symbols) {
+    try {
+      const token = dhanAccessToken;
+      const clientId = process.env.DHAN_CLIENT_ID;
+      
+      if (!token || !clientId) continue;
+      
+      const scripId = scripMap[symbol];
+      if (!scripId) continue;
+      
+      // Fetch 5m intraday chart data (last 3 days to have plenty of candles for EMA initialization)
+      const toDate = new Date();
+      toDate.setDate(toDate.getDate() + 1);
+      const fromDate = new Date();
+      fromDate.setDate(fromDate.getDate() - 3); 
+      
+      const formatDate = (d) => d.toISOString().split('T')[0];
+      
+      const payload = {
+        securityId: scripId.toString(),
+        exchangeSegment: 'IDX_I',
+        instrument: 'INDEX',
+        interval: '5',
+        fromDate: formatDate(fromDate),
+        toDate: formatDate(toDate)
+      };
+      
+      const response = await axios.post('https://api.dhan.co/v2/charts/intraday', payload, {
+        headers: getDhanHeaders()
+      });
+      
+      if (response.data.status !== 'success' && !response.data.open) continue;
+      
+      const data = response.data.data || response.data;
+      if (!data.timestamp || data.timestamp.length < 22) continue;
+      
+      const candles = [];
+      for (let i = 0; i < data.timestamp.length; i++) {
+        candles.push({
+          close: data.close[i],
+          high: data.high[i],
+          low: data.low[i],
+          open: data.open[i]
+        });
+      }
+      
+      // Calculate EMA 9 and EMA 21
+      const ema9List = [];
+      const ema21List = [];
+      
+      const k9 = 2 / (9 + 1);
+      const k21 = 2 / (21 + 1);
+      
+      let ema9 = candles[0].close;
+      let ema21 = candles[0].close;
+      
+      for (let i = 0; i < candles.length; i++) {
+        ema9 = (candles[i].close * k9) + (ema9 * (1 - k9));
+        ema21 = (candles[i].close * k21) + (ema21 * (1 - k21));
+        ema9List.push(ema9);
+        ema21List.push(ema21);
+      }
+      
+      const len = candles.length;
+      const currentEma9 = ema9List[len - 1];
+      const currentEma21 = ema21List[len - 1];
+      const prevEma9 = ema9List[len - 2];
+      const prevEma21 = ema21List[len - 2];
+      const currentClose = candles[len - 1].close;
+      
+      let type = null;
+      
+      // Detect EMA Crossovers
+      if (prevEma9 <= prevEma21 && currentEma9 > currentEma21) {
+        type = 'CALL'; // Bullish Crossover
+      } else if (prevEma9 >= prevEma21 && currentEma9 < currentEma21) {
+        type = 'PUT'; // Bearish Crossover
+      }
+      
+      if (type) {
+        // Calculate Target & Stoploss (realistic intraday values)
+        let target_price, stoploss_price;
+        if (symbol === 'NIFTY') {
+          target_price = type === 'CALL' ? currentClose + 30 : currentClose - 30;
+          stoploss_price = type === 'CALL' ? currentClose - 15 : currentClose + 15;
+        } else {
+          target_price = type === 'CALL' ? currentClose + 75 : currentClose - 75;
+          stoploss_price = type === 'CALL' ? currentClose - 40 : currentClose + 40;
+        }
+        
+        // Check if pending Chart signal already exists to avoid duplication
+        db.get(`SELECT id FROM ai_signals WHERE symbol = ? AND source = 'CHART' AND status = 'PENDING'`, [symbol], (err, row) => {
+          if (!err && !row) {
+            // Save new Chart signal
+            db.run(
+              `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price, source) VALUES (?, ?, ?, ?, ?, 'CHART')`,
+              [symbol, type, currentClose, target_price, stoploss_price],
+              function(err) {
+                if (err) console.error(`Background Chart signal save failed for ${symbol}:`, err.message);
+                else console.log(`Background auto-saved Chart signal for ${symbol} with ID: ${this.lastID}`);
+              }
+            );
+          }
+        });
+      }
+      
+    } catch (err) {
+      console.error(`Background chart decoding failed for ${symbol}:`, err.message);
+    }
+  }
+}
+
+// Run Option Chain decoder every 1 minute
 setInterval(runBackgroundDecoder, 60000);
+
+// Run Chart decoder every 1 minute
+setInterval(runBackgroundChartDecoder, 60000);
+
+// Run immediately on startup (wait 5s for token to be generated)
+setTimeout(() => {
+  runBackgroundDecoder();
+  runBackgroundChartDecoder();
+}, 5000);
 
 app.listen(PORT, () => {
   console.log(`Backend server running on port ${PORT}`);

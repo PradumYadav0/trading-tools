@@ -1,10 +1,25 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, RefreshCw, CheckCircle, XCircle, Clock, TrendingUp, DollarSign } from 'lucide-react';
+import { 
+  AlertCircle, 
+  RefreshCw, 
+  CheckCircle, 
+  XCircle, 
+  Clock, 
+  TrendingUp, 
+  TrendingDown, 
+  Activity, 
+  Zap, 
+  TrendingUp as BullishIcon, 
+  Brain, 
+  Compass, 
+  Layers 
+} from 'lucide-react';
 
 const AiTesting = () => {
   const [signals, setSignals] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'option_chain', 'chart', 'all'
 
   useEffect(() => {
     fetchSignals();
@@ -29,144 +44,142 @@ const AiTesting = () => {
     }
   };
 
-  // Calculate stats for All Time
-  const totalTrades = signals.length;
-  const successTrades = signals.filter(s => s.status === 'SUCCESS').length;
-  const failedTrades = signals.filter(s => s.status === 'FAILED').length;
-  const pendingTrades = signals.filter(s => s.status === 'PENDING').length;
-  
-  const winRate = totalTrades > 0 ? ((successTrades / (successTrades + failedTrades || 1)) * 100).toFixed(1) : 0;
+  // Separate signals by source
+  const optionChainSignals = signals.filter(s => !s.source || s.source === 'OPTION_CHAIN');
+  const chartSignals = signals.filter(s => s.source === 'CHART');
 
-  // Calculate Net Points (Profit/Loss)
-  let netPoints = 0;
-  signals.forEach(signal => {
-    if (signal.status === 'SUCCESS') {
-      if (signal.type === 'CALL') {
-        netPoints += (signal.target_price - signal.entry_price);
-      } else if (signal.type === 'PUT') {
-        netPoints += (signal.entry_price - signal.target_price);
-      }
-    } else if (signal.status === 'FAILED') {
-      if (signal.type === 'CALL') {
-        netPoints += (signal.stoploss_price - signal.entry_price); // Will be negative
-      } else if (signal.type === 'PUT') {
-        netPoints += (signal.entry_price - signal.stoploss_price); // Will be negative
-      }
-    }
-  });
+  // Stats calculation helper
+  const calculateStats = (filteredSignals) => {
+    const total = filteredSignals.length;
+    const success = filteredSignals.filter(s => s.status === 'SUCCESS').length;
+    const failed = filteredSignals.filter(s => s.status === 'FAILED').length;
+    const pending = filteredSignals.filter(s => s.status === 'PENDING').length;
+    
+    // Win Rate logic (ignore pending trades)
+    const activeTrades = success + failed;
+    const winRate = activeTrades > 0 ? parseFloat(((success / activeTrades) * 100).toFixed(1)) : 0;
 
-  // Calculate stats for TODAY
-  const today = new Date().toISOString().slice(0, 10);
-  const todaySignals = signals.filter(s => new Date(s.created_at).toISOString().slice(0, 10) === today);
-  
-  const todayTotal = todaySignals.length;
-  const todaySuccess = todaySignals.filter(s => s.status === 'SUCCESS').length;
-  const todayFailed = todaySignals.filter(s => s.status === 'FAILED').length;
-  
-  let todayNetPoints = 0;
-  todaySignals.forEach(signal => {
-    if (signal.status === 'SUCCESS') {
-      if (signal.type === 'CALL') {
-        todayNetPoints += (signal.target_price - signal.entry_price);
-      } else if (signal.type === 'PUT') {
-        todayNetPoints += (signal.entry_price - signal.target_price);
+    let netPoints = 0;
+    filteredSignals.forEach(signal => {
+      if (signal.status === 'SUCCESS') {
+        if (signal.type === 'CALL') {
+          netPoints += (signal.target_price - signal.entry_price);
+        } else if (signal.type === 'PUT') {
+          netPoints += (signal.entry_price - signal.target_price);
+        }
+      } else if (signal.status === 'FAILED') {
+        if (signal.type === 'CALL') {
+          netPoints += (signal.stoploss_price - signal.entry_price); // Negative
+        } else if (signal.type === 'PUT') {
+          netPoints += (signal.entry_price - signal.stoploss_price); // Negative
+        }
       }
-    } else if (signal.status === 'FAILED') {
-      if (signal.type === 'CALL') {
-        todayNetPoints += (signal.stoploss_price - signal.entry_price);
-      } else if (signal.type === 'PUT') {
-        todayNetPoints += (signal.entry_price - signal.stoploss_price);
-      }
+    });
+
+    return { total, success, failed, pending, winRate, netPoints };
+  };
+
+  const optionChainStats = calculateStats(optionChainSignals);
+  const chartStats = calculateStats(chartSignals);
+  const overallStats = calculateStats(signals);
+
+  // Calculate stats for TODAY (combining all sources for quick overview)
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const todaySignals = signals.filter(s => new Date(s.created_at).toISOString().slice(0, 10) === todayStr);
+  const todayStats = calculateStats(todaySignals);
+
+  // Find the winner
+  const getWinnerInfo = () => {
+    if (optionChainStats.total === 0 && chartStats.total === 0) {
+      return { winner: 'NONE', text: 'Abhi dono systems me data load nahi hua hai. Run tools to generate signals!' };
     }
-  });
+    if (optionChainStats.total > 0 && chartStats.total === 0) {
+      return { winner: 'OPTION_CHAIN', text: 'Option Chain system signals capture kar raha hai, par chart me koi signal nahi aaya hai.' };
+    }
+    if (chartStats.total > 0 && optionChainStats.total === 0) {
+      return { winner: 'CHART', text: 'Chart system signals capture kar raha hai, par option chain me koi signal nahi aaya hai.' };
+    }
+
+    const ocRate = optionChainStats.winRate;
+    const chartRate = chartStats.winRate;
+    const ocPoints = optionChainStats.netPoints;
+    const chartPoints = chartStats.netPoints;
+
+    if (ocRate > chartRate && ocPoints > chartPoints) {
+      return {
+        winner: 'OPTION_CHAIN',
+        text: `Option Chain is clearly winning! Iski Win Rate (${ocRate}%) aur Net P&L (+${ocPoints.toFixed(1)} pts) dono Chart indicators se kaafi behtar chal rahe hain.`
+      };
+    } else if (chartRate > ocRate && chartPoints > ocPoints) {
+      return {
+        winner: 'CHART',
+        text: `Chart EMA Crossover is winning! Iski Win Rate (${chartRate}%) aur Net P&L (+${chartPoints.toFixed(1)} pts) dono Option Chain data se behtar performance de rahe hain.`
+      };
+    } else if (ocRate > chartRate) {
+      return {
+        winner: 'OPTION_CHAIN',
+        text: `Option Chain ki Accuracy (Win Rate: ${ocRate}%) higher hai, halanki Chart EMA ne net points P&L (+${chartPoints.toFixed(1)} pts) better capture kiye hain.`
+      };
+    } else if (chartRate > ocRate) {
+      return {
+        winner: 'CHART',
+        text: `Chart Crossover ki Accuracy (Win Rate: ${chartRate}%) higher hai, halanki Option Chain ne net points P&L (+${ocPoints.toFixed(1)} pts) better catch kiye hain.`
+      };
+    } else {
+      return {
+        winner: 'TIE',
+        text: `Dono models ki accuracy tied hai (${ocRate}% vs ${chartRate}%). Apne risk reward and volume indicators ko review karein trading entry se pehle.`
+      };
+    }
+  };
+
+  const winnerInfo = getWinnerInfo();
+
+  // Filter signals for table display
+  const getFilteredSignals = () => {
+    if (activeTab === 'option_chain') return optionChainSignals;
+    if (activeTab === 'chart') return chartSignals;
+    return signals; // 'all' or 'overview' shows all
+  };
+
+  const displaySignals = getFilteredSignals();
 
   return (
-    <div className="container" style={{ padding: '2rem', color: 'white' }}>
-      <div style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div className="container" style={{ padding: '2rem', color: 'white', maxWidth: '1400px', margin: '0 auto' }}>
+      
+      {/* Title Header */}
+      <div style={{ marginBottom: '2.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
-          <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>AI & System Backtesting</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Track how accurate the entries were and calculate Profit/Loss.</p>
+          <h1 style={{ fontSize: '2.2rem', fontWeight: '800', marginBottom: '0.5rem', background: 'linear-gradient(135deg, #FFF 0%, #A5B4FC 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            AI & Algorithmic Backtesting
+          </h1>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '1rem' }}>
+            Compare accuracy of Option Chain (Open Interest) vs Chart (EMA Crossovers) to find the best trading strategy.
+          </p>
         </div>
 
         <button 
           onClick={fetchSignals}
           disabled={loading}
+          className="btn-primary"
           style={{ 
             background: 'var(--primary-color)', 
             color: 'white', 
             border: 'none', 
-            padding: '0.5rem 1rem', 
-            borderRadius: '8px',
+            padding: '0.65rem 1.25rem', 
+            borderRadius: '10px',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
-            gap: '0.5rem'
+            gap: '0.5rem',
+            fontWeight: '600',
+            transition: 'all 0.2s',
+            boxShadow: '0 4px 12px rgba(99, 102, 241, 0.2)'
           }}
         >
           <RefreshCw size={16} className={loading ? 'spin' : ''} />
-          Refresh & Update
+          Refresh & Sync Data
         </button>
-      </div>
-
-      {/* Today's Performance Summary requested by user */}
-      <div className="glass-panel" style={{ padding: '1.5rem', marginBottom: '2rem', border: '1px solid rgba(255,255,255,0.05)' }}>
-        <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem', color: 'var(--accent-primary)' }}>Today's Performance (कितना दूध कितना पानी)</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
-          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
-            <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '0.25rem' }}>Trades Today</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{todayTotal}</div>
-          </div>
-          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
-            <div style={{ color: 'var(--bullish)', fontSize: '0.8rem', marginBottom: '0.25rem' }}>Success</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'var(--bullish)' }}>{todaySuccess}</div>
-          </div>
-          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
-            <div style={{ color: 'var(--bearish)', fontSize: '0.8rem', marginBottom: '0.25rem' }}>Failed</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'var(--bearish)' }}>{todayFailed}</div>
-          </div>
-          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
-            <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '0.25rem' }}>Net Points</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: todayNetPoints >= 0 ? 'var(--bullish)' : 'var(--bearish)' }}>
-              {todayNetPoints >= 0 ? `+${todayNetPoints.toFixed(1)}` : todayNetPoints.toFixed(1)}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Stats Grid - All Time */}
-      <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>All-Time Performance</h2>
-      <div style={{ 
-        display: 'grid', 
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-        gap: '1.5rem', 
-        marginBottom: '2rem' 
-      }}>
-        <div className="glass-panel" style={{ padding: '1.5rem', textAlign: 'center' }}>
-          <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>Total Signals</div>
-          <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>{totalTrades}</div>
-        </div>
-        
-        <div className="glass-panel" style={{ padding: '1.5rem', textAlign: 'center' }}>
-          <div style={{ color: '#10B981', fontSize: '0.9rem', marginBottom: '0.5rem' }}>Success</div>
-          <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#10B981' }}>{successTrades}</div>
-        </div>
-
-        <div className="glass-panel" style={{ padding: '1.5rem', textAlign: 'center' }}>
-          <div style={{ color: '#EF4444', fontSize: '0.9rem', marginBottom: '0.5rem' }}>Failed</div>
-          <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#EF4444' }}>{failedTrades}</div>
-        </div>
-
-        <div className="glass-panel" style={{ padding: '1.5rem', textAlign: 'center', background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(168, 85, 247, 0.1) 100%)' }}>
-          <div style={{ color: '#A855F7', fontSize: '0.9rem', marginBottom: '0.5rem' }}>Win Rate</div>
-          <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#A855F7' }}>{winRate}%</div>
-        </div>
-
-        <div className="glass-panel" style={{ padding: '1.5rem', textAlign: 'center' }}>
-          <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>Net Points (P&L)</div>
-          <div style={{ fontSize: '2rem', fontWeight: 'bold', color: netPoints >= 0 ? 'var(--bullish)' : 'var(--bearish)' }}>
-            {netPoints >= 0 ? `+${netPoints.toFixed(1)}` : netPoints.toFixed(1)}
-          </div>
-        </div>
       </div>
 
       {error && (
@@ -176,7 +189,7 @@ const AiTesting = () => {
           color: '#FCA5A5', 
           padding: '1rem', 
           borderRadius: '8px', 
-          marginBottom: '1rem',
+          marginBottom: '2.5rem',
           display: 'flex',
           alignItems: 'center',
           gap: '0.5rem'
@@ -186,66 +199,422 @@ const AiTesting = () => {
         </div>
       )}
 
-      {/* Signals Table */}
-      <div className="glass-panel" style={{ padding: '1.5rem', overflowX: 'auto' }}>
-        <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Past Signals Log</h2>
+      {/* Tabs Menu */}
+      <div style={{ 
+        display: 'flex', 
+        gap: '0.5rem', 
+        borderBottom: '1px solid rgba(255, 255, 255, 0.08)', 
+        marginBottom: '2rem',
+        paddingBottom: '0.5rem'
+      }}>
+        {[
+          { id: 'overview', name: 'Accuracy Comparison', icon: <Activity size={16} /> },
+          { id: 'option_chain', name: 'Option Chain Signals', icon: <Layers size={16} /> },
+          { id: 'chart', name: 'Chart EMA Signals', icon: <Compass size={16} /> },
+          { id: 'all', name: 'All Signals Log', icon: <Zap size={16} /> }
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              background: activeTab === tab.id ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
+              color: activeTab === tab.id ? '#A5B4FC' : 'var(--text-secondary)',
+              border: 'none',
+              borderBottom: activeTab === tab.id ? '2px solid #6366F1' : '2px solid transparent',
+              padding: '0.75rem 1.25rem',
+              cursor: 'pointer',
+              fontWeight: '600',
+              fontSize: '0.95rem',
+              transition: 'all 0.2s',
+              borderRadius: '6px 6px 0 0'
+            }}
+          >
+            {tab.icon}
+            {tab.name}
+          </button>
+        ))}
+      </div>
+
+      {/* 1. OVERVIEW COMPARISON TAB */}
+      {activeTab === 'overview' && (
+        <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
+          
+          {/* Winner Head-to-Head Banner */}
+          <div className="glass-panel" style={{ 
+            padding: '1.5rem 2rem', 
+            marginBottom: '2.5rem', 
+            borderRadius: '16px',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            background: winnerInfo.winner === 'OPTION_CHAIN' 
+              ? 'linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(99, 102, 241, 0.08) 100%)'
+              : winnerInfo.winner === 'CHART'
+              ? 'linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(168, 85, 247, 0.08) 100%)'
+              : 'rgba(30, 41, 59, 0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '1.5rem',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)'
+          }}>
+            <div style={{
+              background: winnerInfo.winner === 'OPTION_CHAIN' ? 'rgba(99, 102, 241, 0.2)' : winnerInfo.winner === 'CHART' ? 'rgba(168, 85, 247, 0.2)' : 'rgba(255,255,255,0.05)',
+              padding: '1rem',
+              borderRadius: '12px',
+              color: winnerInfo.winner === 'OPTION_CHAIN' ? '#A5B4FC' : winnerInfo.winner === 'CHART' ? '#F472B6' : 'white',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center'
+            }}>
+              <Brain size={32} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 'bold', color: 'var(--accent-primary)', marginBottom: '0.25rem' }}>
+                Performance Winner (कौन है ज़्यादा Accurate?)
+              </h3>
+              <p style={{ fontSize: '1.05rem', color: '#E2E8F0', lineHeight: '1.5' }}>
+                {winnerInfo.text}
+              </p>
+            </div>
+          </div>
+
+          {/* Head-to-Head Model Comparison Grid */}
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: '1fr 80px 1fr', 
+            gap: '1.5rem', 
+            marginBottom: '2.5rem',
+            alignItems: 'stretch'
+          }}>
+            
+            {/* Model A: Option Chain */}
+            <div className="glass-panel" style={{ 
+              padding: '2rem', 
+              borderRadius: '16px',
+              border: '1.5px solid rgba(99, 102, 241, 0.2)',
+              background: 'linear-gradient(180deg, rgba(99, 102, 241, 0.03) 0%, rgba(30, 41, 59, 0.4) 100%)',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between'
+            }}>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Layers size={22} color="#818CF8" />
+                    <h3 style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#A5B4FC' }}>Option Chain Model</h3>
+                  </div>
+                  <span style={{ fontSize: '0.8rem', background: 'rgba(99,102,241,0.2)', color: '#A5B4FC', padding: '0.25rem 0.5rem', borderRadius: '4px', fontWeight: '600' }}>
+                    Open Interest Math
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginBottom: '1.5rem' }}>
+                  <span style={{ fontSize: '3rem', fontWeight: '800', color: '#FFF' }}>{optionChainStats.winRate}%</span>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>Win Rate</span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '2rem' }}>
+                  <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Total Signal</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{optionChainStats.total}</div>
+                  </div>
+                  <div style={{ background: 'rgba(16,185,129,0.05)', padding: '0.75rem', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ color: '#34D399', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Success</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#34D399' }}>{optionChainStats.success}</div>
+                  </div>
+                  <div style={{ background: 'rgba(239,68,68,0.05)', padding: '0.75rem', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ color: '#F87171', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Failed</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#F87171' }}>{optionChainStats.failed}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Net Profit/Loss Points:</span>
+                <span style={{ 
+                  fontSize: '1.4rem', 
+                  fontWeight: '800', 
+                  color: optionChainStats.netPoints >= 0 ? '#34D399' : '#F87171' 
+                }}>
+                  {optionChainStats.netPoints >= 0 ? `+${optionChainStats.netPoints.toFixed(1)}` : optionChainStats.netPoints.toFixed(1)}
+                </span>
+              </div>
+            </div>
+
+            {/* VS Divider */}
+            <div style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              justifyContent: 'center', 
+              alignItems: 'center',
+              fontWeight: '900',
+              fontSize: '1.5rem',
+              color: 'rgba(255,255,255,0.15)',
+              position: 'relative'
+            }}>
+              <div style={{ width: '1px', height: '100%', background: 'linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0) 100%)', position: 'absolute', zIndex: 1 }}></div>
+              <div style={{ 
+                background: '#0F172A', 
+                border: '1px solid rgba(255,255,255,0.1)', 
+                borderRadius: '50%', 
+                width: '45px', 
+                height: '45px', 
+                display: 'flex', 
+                justifyContent: 'center', 
+                alignItems: 'center', 
+                zIndex: 2,
+                boxShadow: '0 0 15px rgba(0,0,0,0.5)',
+                color: 'var(--text-secondary)',
+                fontSize: '0.9rem',
+                letterSpacing: '1px'
+              }}>VS</div>
+            </div>
+
+            {/* Model B: Chart EMA Crossover */}
+            <div className="glass-panel" style={{ 
+              padding: '2rem', 
+              borderRadius: '16px',
+              border: '1.5px solid rgba(168, 85, 247, 0.2)',
+              background: 'linear-gradient(180deg, rgba(168, 85, 247, 0.03) 0%, rgba(30, 41, 59, 0.4) 100%)',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between'
+            }}>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Compass size={22} color="#C084FC" />
+                    <h3 style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#E9D5FF' }}>Chart EMA Model</h3>
+                  </div>
+                  <span style={{ fontSize: '0.8rem', background: 'rgba(168,85,247,0.2)', color: '#E9D5FF', padding: '0.25rem 0.5rem', borderRadius: '4px', fontWeight: '600' }}>
+                    9/21 EMA Crossover
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginBottom: '1.5rem' }}>
+                  <span style={{ fontSize: '3rem', fontWeight: '800', color: '#FFF' }}>{chartStats.winRate}%</span>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>Win Rate</span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '2rem' }}>
+                  <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Total Signal</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{chartStats.total}</div>
+                  </div>
+                  <div style={{ background: 'rgba(16,185,129,0.05)', padding: '0.75rem', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ color: '#34D399', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Success</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#34D399' }}>{chartStats.success}</div>
+                  </div>
+                  <div style={{ background: 'rgba(239,68,68,0.05)', padding: '0.75rem', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ color: '#F87171', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Failed</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#F87171' }}>{chartStats.failed}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Net Profit/Loss Points:</span>
+                <span style={{ 
+                  fontSize: '1.4rem', 
+                  fontWeight: '800', 
+                  color: chartStats.netPoints >= 0 ? '#34D399' : '#F87171' 
+                }}>
+                  {chartStats.netPoints >= 0 ? `+${chartStats.netPoints.toFixed(1)}` : chartStats.netPoints.toFixed(1)}
+                </span>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Today's performance banner ("कितना दूध कितना पानी") */}
+          <div className="glass-panel" style={{ 
+            padding: '1.5rem 2rem', 
+            marginBottom: '2.5rem',
+            border: '1px solid rgba(255, 255, 255, 0.05)'
+          }}>
+            <h3 style={{ fontSize: '1.2rem', marginBottom: '1.25rem', color: 'var(--accent-primary)', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Zap size={18} /> Today's Performance Breakdown (कितना दूध कितना पानी)
+            </h3>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.25rem' }}>
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1.25rem 1rem', borderRadius: '10px', textAlign: 'center', border: '1px solid rgba(255,255,255,0.03)' }}>
+                <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '0.35rem' }}>Trades Generated Today</div>
+                <div style={{ fontSize: '1.8rem', fontWeight: '800' }}>{todayStats.total}</div>
+              </div>
+              <div style={{ background: 'rgba(16,185,129,0.03)', padding: '1.25rem 1rem', borderRadius: '10px', textAlign: 'center', border: '1px solid rgba(16,185,129,0.1)' }}>
+                <div style={{ color: '#34D399', fontSize: '0.85rem', marginBottom: '0.35rem' }}>Success</div>
+                <div style={{ fontSize: '1.8rem', fontWeight: '800', color: '#34D399' }}>{todayStats.success}</div>
+              </div>
+              <div style={{ background: 'rgba(239,68,68,0.03)', padding: '1.25rem 1rem', borderRadius: '10px', textAlign: 'center', border: '1px solid rgba(239,68,68,0.1)' }}>
+                <div style={{ color: '#F87171', fontSize: '0.85rem', marginBottom: '0.35rem' }}>Failed</div>
+                <div style={{ fontSize: '1.8rem', fontWeight: '800', color: '#F87171' }}>{todayStats.failed}</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1.25rem 1rem', borderRadius: '10px', textAlign: 'center', border: '1px solid rgba(255,255,255,0.03)' }}>
+                <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '0.35rem' }}>Today's Net Points</div>
+                <div style={{ fontSize: '1.8rem', fontWeight: '800', color: todayStats.netPoints >= 0 ? '#34D399' : '#F87171' }}>
+                  {todayStats.netPoints >= 0 ? `+${todayStats.netPoints.toFixed(1)}` : todayStats.netPoints.toFixed(1)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      )}
+
+      {/* 2. STATS DISPLAY FOR INDIVIDUAL SIGNALS TABS */}
+      {activeTab !== 'overview' && (
+        <div style={{ 
+          display: 'grid', 
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', 
+          gap: '1.25rem', 
+          marginBottom: '2rem',
+          animation: 'fadeIn 0.3s ease-in-out'
+        }}>
+          <div className="glass-panel" style={{ padding: '1.25rem', textAlign: 'center' }}>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>Filtered Signals</div>
+            <div style={{ fontSize: '1.8rem', fontWeight: 'bold' }}>
+              {activeTab === 'option_chain' ? optionChainStats.total : activeTab === 'chart' ? chartStats.total : overallStats.total}
+            </div>
+          </div>
+          <div className="glass-panel" style={{ padding: '1.25rem', textAlign: 'center' }}>
+            <div style={{ color: '#34D399', fontSize: '0.85rem', marginBottom: '0.5rem' }}>Success</div>
+            <div style={{ fontSize: '1.8rem', fontWeight: 'bold', color: '#34D399' }}>
+              {activeTab === 'option_chain' ? optionChainStats.success : activeTab === 'chart' ? chartStats.success : overallStats.success}
+            </div>
+          </div>
+          <div className="glass-panel" style={{ padding: '1.25rem', textAlign: 'center' }}>
+            <div style={{ color: '#F87171', fontSize: '0.85rem', marginBottom: '0.5rem' }}>Failed</div>
+            <div style={{ fontSize: '1.8rem', fontWeight: 'bold', color: '#F87171' }}>
+              {activeTab === 'option_chain' ? optionChainStats.failed : activeTab === 'chart' ? chartStats.failed : overallStats.failed}
+            </div>
+          </div>
+          <div className="glass-panel" style={{ padding: '1.25rem', textAlign: 'center', background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(168, 85, 247, 0.1) 100%)' }}>
+            <div style={{ color: '#C084FC', fontSize: '0.85rem', marginBottom: '0.5rem' }}>Strategy Win Rate</div>
+            <div style={{ fontSize: '1.8rem', fontWeight: 'bold', color: '#C084FC' }}>
+              {activeTab === 'option_chain' ? optionChainStats.winRate : activeTab === 'chart' ? chartStats.winRate : overallStats.winRate}%
+            </div>
+          </div>
+          <div className="glass-panel" style={{ padding: '1.25rem', textAlign: 'center' }}>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>Net P&L Points</div>
+            <div style={{ 
+              fontSize: '1.8rem', 
+              fontWeight: 'bold', 
+              color: (activeTab === 'option_chain' ? optionChainStats.netPoints : activeTab === 'chart' ? chartStats.netPoints : overallStats.netPoints) >= 0 ? '#34D399' : '#F87171'
+            }}>
+              {(activeTab === 'option_chain' ? optionChainStats.netPoints : activeTab === 'chart' ? chartStats.netPoints : overallStats.netPoints) >= 0 ? '+' : ''}
+              {(activeTab === 'option_chain' ? optionChainStats.netPoints : activeTab === 'chart' ? chartStats.netPoints : overallStats.netPoints).toFixed(1)}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SIGNALS TABLE LOG */}
+      <div className="glass-panel" style={{ padding: '1.75rem', overflowX: 'auto', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: '700' }}>
+            {activeTab === 'overview' ? 'Recent Signals Feed (All Sources)' : `${activeTab === 'option_chain' ? 'Option Chain' : activeTab === 'chart' ? 'Chart technical' : 'All'} Signals Logs`}
+          </h2>
+          <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            Showing {displaySignals.length} records
+          </span>
+        </div>
         
-        {signals.length === 0 && !loading ? (
-          <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
-            No signals recorded yet. Signals will appear here when generated.
+        {displaySignals.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
+            No signals captured for the current view yet. Active background tracker is analyzing indices...
           </div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '850px' }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
-                <th style={{ padding: '0.75rem' }}>Time</th>
-                <th style={{ padding: '0.75rem' }}>Symbol</th>
-                <th style={{ padding: '0.75rem' }}>Type</th>
-                <th style={{ padding: '0.75rem' }}>Entry</th>
-                <th style={{ padding: '0.75rem' }}>Target</th>
-                <th style={{ padding: '0.75rem' }}>Stoploss</th>
-                <th style={{ padding: '0.75rem' }}>Status</th>
+              <tr style={{ borderBottom: '2px solid rgba(255,255,255,0.08)', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                <th style={{ padding: '1rem 0.75rem' }}>Timestamp</th>
+                <th style={{ padding: '1rem 0.75rem' }}>Symbol</th>
+                <th style={{ padding: '1rem 0.75rem' }}>Source / Type</th>
+                <th style={{ padding: '1rem 0.75rem' }}>Trade Type</th>
+                <th style={{ padding: '1rem 0.75rem' }}>Entry Price</th>
+                <th style={{ padding: '1rem 0.75rem' }}>Target Price</th>
+                <th style={{ padding: '1rem 0.75rem' }}>Stop Loss</th>
+                <th style={{ padding: '1rem 0.75rem' }}>Status</th>
               </tr>
             </thead>
             <tbody>
-              {[...signals].reverse().map(signal => (
-                <tr key={signal.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                  <td style={{ padding: '0.75rem', fontSize: '0.9rem' }}>
-                    {new Date(signal.created_at).toLocaleString()}
-                  </td>
-                  <td style={{ padding: '0.75rem', fontWeight: '600' }}>{signal.symbol}</td>
-                  <td style={{ padding: '0.75rem' }}>
-                    <span style={{ 
-                      color: signal.type === 'CALL' ? 'var(--bullish)' : 'var(--bearish)',
-                      fontWeight: 'bold'
-                    }}>
-                      {signal.type}
-                    </span>
-                  </td>
-                  <td style={{ padding: '0.75rem' }}>{signal.entry_price}</td>
-                  <td style={{ padding: '0.75rem', color: '#10B981' }}>{signal.target_price || 'N/A'}</td>
-                  <td style={{ padding: '0.75rem', color: '#EF4444' }}>{signal.stoploss_price || 'N/A'}</td>
-                  <td style={{ padding: '0.75rem' }}>
-                    <span style={{ 
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.25rem',
-                      color: signal.status === 'SUCCESS' ? '#10B981' : signal.status === 'FAILED' ? '#EF4444' : '#EAB308',
-                      fontWeight: '600',
-                      fontSize: '0.9rem'
-                    }}>
-                      {signal.status === 'SUCCESS' && <CheckCircle size={14} />}
-                      {signal.status === 'FAILED' && <XCircle size={14} />}
-                      {signal.status === 'PENDING' && <Clock size={14} />}
-                      {signal.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
+              {[...displaySignals].map(signal => {
+                const isOptionChain = !signal.source || signal.source === 'OPTION_CHAIN';
+                return (
+                  <tr key={signal.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', fontSize: '0.92rem', transition: 'background 0.2s' }} className="table-row-hover">
+                    <td style={{ padding: '1rem 0.75rem', color: 'var(--text-secondary)' }}>
+                      {new Date(signal.created_at).toLocaleString()}
+                    </td>
+                    <td style={{ padding: '1rem 0.75rem', fontWeight: 'bold' }}>{signal.symbol}</td>
+                    
+                    {/* Source Badge */}
+                    <td style={{ padding: '1rem 0.75rem' }}>
+                      <span style={{ 
+                        fontSize: '0.75rem',
+                        fontWeight: 'bold',
+                        padding: '0.25rem 0.6rem',
+                        borderRadius: '12px',
+                        background: isOptionChain ? 'rgba(99, 102, 241, 0.15)' : 'rgba(168, 85, 247, 0.15)',
+                        color: isOptionChain ? '#A5B4FC' : '#F472B6',
+                        border: isOptionChain ? '1px solid rgba(99, 102, 241, 0.3)' : '1px solid rgba(168, 85, 247, 0.3)'
+                      }}>
+                        {isOptionChain ? 'Option Chain' : 'Chart EMA'}
+                      </span>
+                    </td>
+                    
+                    {/* CALL / PUT Badge */}
+                    <td style={{ padding: '1rem 0.75rem' }}>
+                      <span style={{ 
+                        color: signal.type === 'CALL' ? 'var(--bullish)' : 'var(--bearish)',
+                        fontWeight: '800',
+                        fontSize: '0.95rem'
+                      }}>
+                        {signal.type}
+                      </span>
+                    </td>
+                    
+                    <td style={{ padding: '1rem 0.75rem', fontFamily: 'monospace' }}>{signal.entry_price.toFixed(2)}</td>
+                    <td style={{ padding: '1rem 0.75rem', color: '#34D399', fontFamily: 'monospace', fontWeight: '600' }}>
+                      {signal.target_price ? signal.target_price.toFixed(2) : 'N/A'}
+                    </td>
+                    <td style={{ padding: '1rem 0.75rem', color: '#F87171', fontFamily: 'monospace', fontWeight: '600' }}>
+                      {signal.stoploss_price ? signal.stoploss_price.toFixed(2) : 'N/A'}
+                    </td>
+                    
+                    {/* Status Badge */}
+                    <td style={{ padding: '1rem 0.75rem' }}>
+                      <span style={{ 
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.35rem',
+                        color: signal.status === 'SUCCESS' ? '#34D399' : signal.status === 'FAILED' ? '#F87171' : '#FBBF24',
+                        fontWeight: 'bold',
+                        fontSize: '0.9rem'
+                      }}>
+                        {signal.status === 'SUCCESS' && <CheckCircle size={15} />}
+                        {signal.status === 'FAILED' && <XCircle size={15} />}
+                        {signal.status === 'PENDING' && <Clock size={15} />}
+                        {signal.status}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
       </div>
+
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .table-row-hover:hover {
+          background: rgba(255, 255, 255, 0.02);
+        }
+      `}</style>
     </div>
   );
 };

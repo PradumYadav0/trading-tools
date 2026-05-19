@@ -28,6 +28,7 @@ const ChartAnalysis = () => {
     ema20: { status: 'Loading...', color: 'var(--text-secondary)' },
     emaCross: { status: 'Loading...', color: 'var(--text-secondary)' },
     rsi: { value: 'N/A', status: 'Loading...', color: 'var(--text-secondary)' },
+    macd: { status: 'Loading...', color: 'var(--text-secondary)' },
     pcr: { value: 'N/A', status: 'Loading...', color: 'var(--text-secondary)' }
   });
 
@@ -232,6 +233,12 @@ const ChartAnalysis = () => {
           ema20SeriesRef.current.setData(ema20Data);
 
           const rsiData = calculateRSI(uniqueData, 14);
+          
+          const ema12Data = calculateEMA(uniqueData, 12);
+          const ema26Data = calculateEMA(uniqueData, 26);
+          const lastEma12 = ema12Data[ema12Data.length - 1].value;
+          const lastEma26 = ema26Data[ema26Data.length - 1].value;
+          const macdLine = lastEma12 - lastEma26;
 
           const lastCandle = uniqueData[uniqueData.length - 1];
           const lastEma9 = ema9Data[ema9Data.length - 1].value;
@@ -268,12 +275,13 @@ const ChartAnalysis = () => {
             ema20: lastCandle.close > lastEma20 ? { status: 'Bullish (Price Above)', color: 'var(--bullish)' } : { status: 'Bearish (Price Below)', color: 'var(--bearish)' },
             emaCross: lastEma9 > lastEma20 ? { status: 'Bullish (9 > 20)', color: 'var(--bullish)' } : { status: 'Bearish (9 < 20)', color: 'var(--bearish)' },
             rsi: { value: lastRsi.toFixed(2), status: lastRsi > 70 ? 'Overbought' : lastRsi < 30 ? 'Oversold' : 'Neutral', color: lastRsi > 70 ? 'var(--bearish)' : lastRsi < 30 ? 'var(--bullish)' : 'var(--text-secondary)' },
+            macd: macdLine > 0 ? { status: 'Bullish (Above 0)', color: 'var(--bullish)' } : { status: 'Bearish (Below 0)', color: 'var(--bearish)' },
             pcr: { value: pcr.toFixed(2), status: pcr > 1.1 ? 'Bullish' : pcr < 0.9 ? 'Bearish' : 'Neutral', color: pcr > 1.1 ? 'var(--bullish)' : pcr < 0.9 ? 'var(--bearish)' : 'var(--text-secondary)' }
           };
           setIndicators(indStatus);
 
           let action = 'WAIT';
-          let reason = 'Chart indicators are neutral or conflicting.';
+          let reason = 'Market is in neutral zone or conflicting signals.';
           let color = 'var(--text-secondary)';
           let target = 'N/A';
           let stoploss = 'N/A';
@@ -284,32 +292,38 @@ const ChartAnalysis = () => {
           if (indStatus.ema9.status.includes('Bullish')) bullishScore++; else bearishScore++;
           if (indStatus.ema20.status.includes('Bullish')) bullishScore++; else bearishScore++;
           if (indStatus.emaCross.status.includes('Bullish')) bullishScore++; else bearishScore++;
-          if (lastRsi < 45) bullishScore++; else if (lastRsi > 55) bearishScore++;
+          if (macdLine > 0) bullishScore++; else bearishScore++;
+          if (pcr > 1.1) bullishScore++; else if (pcr < 0.9) bearishScore++;
+          if (lastRsi < 40) bullishScore++; else if (lastRsi > 60) bearishScore++;
 
-          if (bullishScore >= 3 && lastCandle.close > lastEma9) {
+          if (bullishScore >= 4 && lastCandle.close > lastEma9) {
             action = 'BUY CALL';
-            reason = `Technical Chart indicators are Bullish (${bullishScore}/4 indicators).`;
+            reason = `Strong Bullish consensus (${bullishScore}/6 indicators). Price is in upward momentum.`;
             color = 'var(--bullish)';
-            const defaultTarget = symbol === 'NIFTY' ? 30 : 75;
-            target = (lastCandle.close + defaultTarget).toFixed(2);
-            stoploss = (lastCandle.close - (symbol === 'NIFTY' ? 15 : 40)).toFixed(2);
-          } else if (bearishScore >= 3 && lastCandle.close < lastEma9) {
+            // Dynamic Target: Next Resistance or 50/150 points if resistance is far
+            const defaultTarget = symbol === 'NIFTY' ? 50 : 150;
+            target = resistance !== 'N/A' ? resistance : (lastCandle.close + defaultTarget).toFixed(2);
+            // Dynamic Stoploss: 20 EMA (moves with price)
+            stoploss = lastEma20.toFixed(2);
+          } else if (bearishScore >= 4 && lastCandle.close < lastEma9) {
             action = 'BUY PUT';
-            reason = `Technical Chart indicators are Bearish (${bearishScore}/4 indicators).`;
+            reason = `Strong Bearish consensus (${bearishScore}/6 indicators). Trend is clearly downward.`;
             color = 'var(--bearish)';
-            const defaultTarget = symbol === 'NIFTY' ? 30 : 75;
-            target = (lastCandle.close - defaultTarget).toFixed(2);
-            stoploss = (lastCandle.close + (symbol === 'NIFTY' ? 15 : 40)).toFixed(2);
+            // Dynamic Target: Next Support or 50/150 points
+            const defaultTarget = symbol === 'NIFTY' ? 50 : 150;
+            target = support !== 'N/A' ? support : (lastCandle.close - defaultTarget).toFixed(2);
+            // Dynamic Stoploss: 20 EMA (moves with price)
+            stoploss = lastEma20.toFixed(2);
           } else {
             action = 'WAIT';
-            reason = `No clear chart consensus (Bullish: ${bullishScore}, Bearish: ${bearishScore}).`;
+            reason = `No clear consensus (Bullish: ${bullishScore}, Bearish: ${bearishScore}). High risk of whipsaws.`;
             color = '#EAB308';
           }
 
           setDecision({ action, reason, target, stoploss, color, spotPrice: lastCandle.close });
 
           if (action !== 'WAIT') {
-            saveChartSignal(action, lastCandle.close, target, stoploss);
+            saveChartSignal(action, lastCandle.close, parseFloat(target), parseFloat(stoploss));
           }
         } else {
           setDecision({ action: 'WAIT', reason: 'Not enough data points to calculate all indicators (min 26 required).', color: '#EAB308', target: 'N/A', stoploss: 'N/A', spotPrice: 'N/A' });
@@ -433,6 +447,12 @@ const ChartAnalysis = () => {
                 <span>RSI (14)</span>
                 <span style={{ color: indicators.rsi.color, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                   {getIndicatorIcon(indicators.rsi.color)} {indicators.rsi.value} ({indicators.rsi.status})
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>MACD (12, 26)</span>
+                <span style={{ color: indicators.macd.color, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                  {getIndicatorIcon(indicators.macd.color)} {indicators.macd.status}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

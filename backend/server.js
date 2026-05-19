@@ -116,6 +116,32 @@ const db = new sqlite3.Database('./option_chain.db', (err) => {
   }
 });
 
+// Cache store to prevent Dhan API rate limit issues
+const dhanCache = {
+  optionChain: {},
+  chartsIntraday: {},
+  chartsHistorical: {}
+};
+
+const CACHE_DURATION_MS = 15000; // Cache duration: 15 seconds for live data
+const HISTORICAL_CACHE_DURATION_MS = 3600000; // Cache duration: 1 hour for historical daily charts
+
+function getCachedData(type, key, duration = CACHE_DURATION_MS) {
+  const entry = dhanCache[type]?.[key];
+  if (entry && (Date.now() - entry.timestamp < duration)) {
+    return entry.data;
+  }
+  return null;
+}
+
+function setCachedData(type, key, data) {
+  if (!dhanCache[type]) dhanCache[type] = {};
+  dhanCache[type][key] = {
+    data,
+    timestamp: Date.now()
+  };
+}
+
 // Scrip Mapping for Indices
 const scripMap = {
   'NIFTY': 13,
@@ -125,6 +151,14 @@ const scripMap = {
 // Endpoint to get Option Chain
 app.get('/api/option-chain', async (req, res) => {
   const symbol = req.query.symbol || 'NIFTY';
+  const expiryToUse = req.query.expiry;
+  const cacheKey = `${symbol}_${expiryToUse || 'first'}`;
+
+  const cached = getCachedData('optionChain', cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
+
   try {
     const token = dhanAccessToken;
     const clientId = process.env.DHAN_CLIENT_ID;
@@ -149,13 +183,13 @@ app.get('/api/option-chain', async (req, res) => {
     }
 
     const expiryList = expiryResponse.data.data;
-    const expiryToUse = req.query.expiry || expiryList[0];
+    const finalExpiry = expiryToUse || expiryList[0];
 
     // 2. Get Option Chain for that expiry
     const ocResponse = await axios.post('https://api.dhan.co/v2/optionchain', {
       UnderlyingScrip: scripId,
       UnderlyingSeg: 'IDX_I',
-      Expiry: expiryToUse
+      Expiry: finalExpiry
     }, { headers: getDhanHeaders() });
 
     if (ocResponse.data.status !== 'success') {
@@ -166,7 +200,6 @@ app.get('/api/option-chain', async (req, res) => {
     const ocData = rawData.oc;
     const spotPrice = rawData.last_price;
 
-    // 3. Transform object to sorted array for the frontend
     const strikesArray = Object.keys(ocData).map(strikeStr => {
       const strike = parseFloat(strikeStr);
       const data = ocData[strikeStr];
@@ -184,20 +217,16 @@ app.get('/api/option-chain', async (req, res) => {
       };
     }).sort((a, b) => a.strike - b.strike);
 
-    // 4. Save to Database for history
+    // Save to Database for history
     db.run(
       `INSERT INTO option_chain_history (symbol, spot_price, expiry, data) VALUES (?, ?, ?, ?)`,
-      [symbol, spotPrice, expiryToUse, JSON.stringify(strikesArray)],
+      [symbol, spotPrice, finalExpiry, JSON.stringify(strikesArray)],
       function(err) {
-        if (err) {
-          console.error('Error saving to DB:', err.message);
-        } else {
-          console.log(`Saved history for ${symbol} with ID: ${this.lastID}`);
-        }
+        if (err) console.error('Error saving to DB:', err.message);
       }
     );
 
-    // 5. Auto-calculate and save signals to ai_signals
+    // Auto-calculate and save signals to ai_signals
     let totalCallOi = 0;
     let totalPutOi = 0;
     let maxCallOi = 0;
@@ -237,66 +266,36 @@ app.get('/api/option-chain', async (req, res) => {
     }
 
     if (type) {
-      // Check if we already have a pending signal for this symbol and source
       db.get(`SELECT id FROM ai_signals WHERE symbol = ? AND source = 'OPTION_CHAIN' AND status = 'PENDING'`, [symbol], (err, row) => {
         if (!err && !row) {
-          // No pending signal, save new one
           db.run(
             `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price, source) VALUES (?, ?, ?, ?, ?, 'OPTION_CHAIN')`,
             [symbol, type, spotPrice, target_price, stoploss_price],
             function(err) {
               if (err) console.error('Error auto-saving Option Chain signal:', err.message);
-              else console.log(`Auto-saved Option Chain signal for ${symbol} with ID: ${this.lastID}`);
             }
           );
         }
       });
     }
 
-    res.json({ 
+    const result = { 
       success: true, 
       spotPrice,
-      expiry: expiryToUse,
+      expiry: finalExpiry,
       expiryList,
       data: strikesArray 
-    });
+    };
+
+    setCachedData('optionChain', cacheKey, result);
+    res.json(result);
 
   } catch (error) {
-    console.error('Dhan API Error, serving mock option chain fallback:', error.message);
-    
-    const spotPrice = symbol === 'NIFTY' ? 22400.50 : 47800.75;
-    const expiryToUse = '2026-05-21';
-    const expiryList = ['2026-05-21', '2026-05-28'];
-    
-    const strikesArray = [];
-    const step = symbol === 'NIFTY' ? 50 : 100;
-    const baseStrike = Math.round(spotPrice / step) * step;
-    
-    for (let i = -10; i <= 10; i++) {
-      const strike = baseStrike + (i * step);
-      const callOi = Math.round((Math.sin(i / 3) + 1.5) * 150000);
-      const putOi = Math.round((Math.cos(i / 3) + 1.5) * 160000);
-      strikesArray.push({
-        strike,
-        callOi,
-        callChgOi: Math.round(callOi * 0.1),
-        callLtp: Math.max(1, parseFloat((100 - i * (symbol === 'NIFTY' ? 10 : 25)).toFixed(2))),
-        callVolume: Math.round(callOi * 10),
-        putVolume: Math.round(putOi * 10),
-        putLtp: Math.max(1, parseFloat((100 + i * (symbol === 'NIFTY' ? 10 : 25)).toFixed(2))),
-        putChgOi: Math.round(putOi * 0.1),
-        putOi,
-        updateStatus: null
-      });
-    }
-
-    res.json({ 
-      success: true, 
-      spotPrice,
-      expiry: expiryToUse,
-      expiryList,
-      data: strikesArray,
-      isMock: true
+    console.error('Dhan API Error:', error.message);
+    res.status(error.response?.status || 500).json({ 
+      success: false, 
+      message: error.message,
+      details: error.response?.data
     });
   }
 });
@@ -329,68 +328,20 @@ app.get('/api/option-chain/history', (req, res) => {
   );
 });
 
-// Helper: serve mock intraday chart data
-const serveMockIntraday = (symbol, res) => {
-  const chartData = [];
-  const nowSecs = Math.floor(Date.now() / 1000);
-  const startPrice = symbol === 'NIFTY' ? 22400 : 47800;
-  let currentPrice = startPrice;
-  
-  for (let i = 80; i >= 0; i--) {
-    const time = nowSecs - (i * 300);
-    const change = (Math.random() - 0.48) * (symbol === 'NIFTY' ? 15 : 40);
-    const open = currentPrice;
-    const close = currentPrice + change;
-    const high = Math.max(open, close) + Math.random() * (symbol === 'NIFTY' ? 5 : 15);
-    const low = Math.min(open, close) - Math.random() * (symbol === 'NIFTY' ? 5 : 15);
-    
-    chartData.push({
-      time,
-      open: parseFloat(open.toFixed(2)),
-      high: parseFloat(high.toFixed(2)),
-      low: parseFloat(low.toFixed(2)),
-      close: parseFloat(close.toFixed(2))
-    });
-    currentPrice = close;
-  }
-  return res.json({ success: true, data: chartData, isMock: true });
-};
-
-// Helper: serve mock historical daily chart data
-const serveMockHistorical = (symbol, res) => {
-  const chartData = [];
-  const now = new Date();
-  const startPrice = symbol === 'NIFTY' ? 22000 : 47000;
-  let currentPrice = startPrice;
-  
-  for (let i = 150; i >= 0; i--) {
-    const date = new Date(now.getTime() - (i * 24 * 60 * 60 * 1000));
-    const timeUnix = Math.floor(date.getTime() / 1000);
-    const change = (Math.random() - 0.47) * (symbol === 'NIFTY' ? 100 : 250);
-    const open = currentPrice;
-    const close = currentPrice + change;
-    const high = Math.max(open, close) + Math.random() * (symbol === 'NIFTY' ? 30 : 80);
-    const low = Math.min(open, close) - Math.random() * (symbol === 'NIFTY' ? 30 : 80);
-    
-    chartData.push({
-      time: timeUnix,
-      open: parseFloat(open.toFixed(2)),
-      high: parseFloat(high.toFixed(2)),
-      low: parseFloat(low.toFixed(2)),
-      close: parseFloat(close.toFixed(2))
-    });
-    currentPrice = close;
-  }
-  return res.json({ success: true, data: chartData, isMock: true });
-};
-
 // Endpoint to get Intraday Chart Data
 app.get('/api/charts/intraday', async (req, res) => {
   const symbol = req.query.symbol || 'NIFTY';
+  const interval = req.query.interval || '5'; // default 5 mins
+  const cacheKey = `${symbol}_${interval}`;
+
+  const cached = getCachedData('chartsIntraday', cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
+
   try {
     const token = dhanAccessToken;
     const clientId = process.env.DHAN_CLIENT_ID;
-    const interval = req.query.interval || '5'; // default 5 mins
     
     // Dhan API limits intraday to recent days
     const toDate = new Date();
@@ -430,40 +381,22 @@ app.get('/api/charts/intraday', async (req, res) => {
 
     if (response.data.status === 'success' || response.data.open) {
        const data = response.data.data || response.data;
-       // Transform to array of objects for lightweight-charts
        const chartData = [];
        if (data.timestamp && data.timestamp.length > 0) {
          for (let i = 0; i < data.timestamp.length; i++) {
-            // Dhan timestamp is often in seconds or string, we need to convert to Unix seconds for lightweight-charts
             const ts = data.timestamp[i];
             
-            // lightweight charts requires time in seconds (Unix timestamp) or string format 'YYYY-MM-DD'
-            // We pass unix seconds (but we must convert Dhan timestamp which might be in seconds or format)
-            // Wait, Dhan returns 'start_Time' or 'timestamp' array depending on response. 
-            // My node script printed "timestamp". Wait, earlier I saw Dhan returns start_Time? The node script output showed "timestamp" array! 
             let timeUnix = 0;
             if (typeof ts === 'string' && ts.includes('-')) {
                timeUnix = Math.floor(new Date(ts).getTime() / 1000);
             } else if (typeof ts === 'string' && ts.includes('T')) {
                timeUnix = Math.floor(new Date(ts).getTime() / 1000);
             } else {
-               // Dhan timestamp is in Indian standard time epoch (seconds) usually, but sometimes different.
-               // Let's assume it's epoch in seconds if it's a number.
                timeUnix = typeof ts === 'string' ? parseInt(ts) : ts;
-               // If it's too large (milliseconds), convert to seconds
                if (timeUnix > 2000000000) {
                   timeUnix = Math.floor(timeUnix / 1000);
-               } else {
-                  // Dhan actually returns the timestamp in IST in an internal format. But usually it's just unix epoch.
-                  // Wait, Dhan returns Dhan Epoch (seconds since 1980-01-01 00:00:00).
-                  // Dhan epoch: 0 = 1980-01-01. Let's add the offset.
-                  // 315532800 = seconds between 1970-01-01 and 1980-01-01.
-                  // Wait, some Dhan APIs return standard unix timestamp. Let's assume standard unix timestamp, or convert to string if we can.
                }
             }
-
-            // Standardize Dhan specific timestamp conversion just in case:
-            // The safest is to return it as seconds since lightweight-charts accepts that.
             
             chartData.push({
                time: timeUnix,
@@ -474,20 +407,32 @@ app.get('/api/charts/intraday', async (req, res) => {
             });
          }
        }
-       return res.json({ success: true, data: chartData });
+       const result = { success: true, data: chartData };
+       setCachedData('chartsIntraday', cacheKey, result);
+       return res.json(result);
     } else {
-       console.warn('Failed to fetch chart data from Dhan, serving mock fallback.');
-       return serveMockIntraday(symbol, res);
-     }
-   } catch (error) {
-     console.error('Chart API Error, serving mock chart fallback:', error.message);
-     return serveMockIntraday(symbol, res);
-   }
- });
+      return res.status(400).json({ success: false, message: 'Failed to fetch chart data' });
+    }
+  } catch (error) {
+    console.error('Chart API Error:', error.message);
+    res.status(error.response?.status || 500).json({ 
+      success: false, 
+      message: error.message,
+      details: error.response?.data
+    });
+  }
+});
 
 // Endpoint to get Historical Daily Chart Data
 app.get('/api/charts/historical', async (req, res) => {
   const symbol = req.query.symbol || 'NIFTY';
+  const cacheKey = symbol;
+
+  const cached = getCachedData('chartsHistorical', cacheKey, HISTORICAL_CACHE_DURATION_MS);
+  if (cached) {
+    return res.json(cached);
+  }
+
   try {
     const token = dhanAccessToken;
     const clientId = process.env.DHAN_CLIENT_ID;
@@ -542,16 +487,21 @@ app.get('/api/charts/historical', async (req, res) => {
             });
          }
        }
-       return res.json({ success: true, data: chartData });
+       const result = { success: true, data: chartData };
+       setCachedData('chartsHistorical', cacheKey, result);
+       return res.json(result);
      } else {
-       console.warn('Failed to fetch historical chart data from Dhan, serving mock fallback.');
-       return serveMockHistorical(symbol, res);
-     }
-   } catch (error) {
-     console.error('Historical Chart API Error, serving mock chart fallback:', error.message);
-     return serveMockHistorical(symbol, res);
-   }
- });
+       return res.status(400).json({ success: false, message: 'Failed to fetch historical chart data' });
+      }
+    } catch (error) {
+      console.error('Historical Chart API Error:', error.message);
+      return res.status(error.response?.status || 500).json({ 
+        success: false, 
+        message: error.message,
+        details: error.response?.data
+      });
+    }
+  });
 
 // Endpoint for AI Analysis
 app.post('/api/ai-analysis', async (req, res) => {

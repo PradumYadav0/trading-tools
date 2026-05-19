@@ -543,8 +543,18 @@ const AiTesting = () => {
                 const isOptionChain = !signal.source || signal.source === 'OPTION_CHAIN';
                 return (
                   <tr key={signal.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', fontSize: '0.92rem', transition: 'background 0.2s' }} className="table-row-hover">
-                    <td style={{ padding: '1rem 0.75rem', color: 'var(--text-secondary)' }}>
-                      {new Date(signal.created_at).toLocaleString()}
+                    <td style={{ padding: '1rem 0.75rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                      <div style={{ fontWeight: '500', color: '#FFF' }}>
+                        {new Date(signal.created_at).toLocaleDateString()}
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
+                        Entry: {new Date(signal.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </div>
+                      {signal.status !== 'PENDING' && (
+                        <div style={{ fontSize: '0.8rem', color: '#A5B4FC', marginTop: '0.1rem' }}>
+                          Exit: {new Date(signal.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </div>
+                      )}
                     </td>
                     <td style={{ padding: '1rem 0.75rem', fontWeight: 'bold' }}>{signal.symbol}</td>
                     

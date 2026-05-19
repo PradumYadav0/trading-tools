@@ -959,7 +959,7 @@ async function runBackgroundDecoder() {
   }
 }
 
-// Background Signal Generator based on Chart Technical indicators (EMA 9 & 21 Crossovers)
+// Background Signal Generator based on Chart Technical indicators Consensus (matching ChartAnalysis page)
 async function runBackgroundChartDecoder() {
   const symbols = ['NIFTY', 'BANKNIFTY'];
   
@@ -973,7 +973,34 @@ async function runBackgroundChartDecoder() {
       const scripId = scripMap[symbol];
       if (!scripId) continue;
       
-      // Fetch 5m intraday chart data (last 3 days to have plenty of candles for EMA initialization)
+      // 1. Fetch Option Chain data locally for PCR and Support/Resistance levels
+      const ocResponse = await axios.get(`http://localhost:${PORT}/api/option-chain?symbol=${symbol}`);
+      if (!ocResponse.data || !ocResponse.data.success) continue;
+      
+      const strikes = ocResponse.data.data;
+      const spotPrice = ocResponse.data.spotPrice;
+      
+      const totalCallOi = strikes.reduce((sum, row) => sum + row.callOi, 0);
+      const totalPutOi = strikes.reduce((sum, row) => sum + row.putOi, 0);
+      const pcr = totalCallOi > 0 ? totalPutOi / totalCallOi : 1.0;
+      
+      let maxCallOi = 0;
+      let maxPutOi = 0;
+      let support = 'N/A';
+      let resistance = 'N/A';
+      
+      strikes.forEach(strike => {
+        if (strike.callOi > maxCallOi) {
+          maxCallOi = strike.callOi;
+          resistance = strike.strike;
+        }
+        if (strike.putOi > maxPutOi) {
+          maxPutOi = strike.putOi;
+          support = strike.strike;
+        }
+      });
+
+      // 2. Fetch 5m intraday chart data (last 3 days)
       const toDate = new Date();
       toDate.setDate(toDate.getDate() + 1);
       const fromDate = new Date();
@@ -997,7 +1024,7 @@ async function runBackgroundChartDecoder() {
       if (response.data.status !== 'success' && !response.data.open) continue;
       
       const data = response.data.data || response.data;
-      if (!data.timestamp || data.timestamp.length < 22) continue;
+      if (!data.timestamp || data.timestamp.length < 26) continue;
       
       const candles = [];
       for (let i = 0; i < data.timestamp.length; i++) {
@@ -1009,57 +1036,94 @@ async function runBackgroundChartDecoder() {
         });
       }
       
-      // Calculate EMA 9 and EMA 21
-      const ema9List = [];
-      const ema21List = [];
-      
-      const k9 = 2 / (9 + 1);
-      const k21 = 2 / (21 + 1);
-      
-      let ema9 = candles[0].close;
-      let ema21 = candles[0].close;
-      
-      for (let i = 0; i < candles.length; i++) {
-        ema9 = (candles[i].close * k9) + (ema9 * (1 - k9));
-        ema21 = (candles[i].close * k21) + (ema21 * (1 - k21));
-        ema9List.push(ema9);
-        ema21List.push(ema21);
-      }
+      // Helper function to calculate EMA arrays
+      const calculateEMAArray = (cand, period) => {
+        const k = 2 / (period + 1);
+        let emaList = [];
+        let ema = cand[0].close;
+        for (let i = 0; i < cand.length; i++) {
+          ema = (cand[i].close * k) + (ema * (1 - k));
+          emaList.push(ema);
+        }
+        return emaList;
+      };
+
+      // Helper to calculate RSI array
+      const calculateRSIArray = (cand, period = 14) => {
+        if (cand.length < period) return Array(cand.length).fill(50);
+        let gains = 0;
+        let losses = 0;
+        for (let i = 1; i <= period; i++) {
+          const diff = cand[i].close - cand[i-1].close;
+          if (diff >= 0) gains += diff;
+          else losses -= diff;
+        }
+        let avgGain = gains / period;
+        let avgLoss = losses / period;
+        let rsiList = Array(period).fill(50);
+        const firstRS = avgLoss === 0 ? 100 : avgGain / avgLoss;
+        rsiList.push(100 - (100 / (1 + firstRS)));
+        for (let i = period + 1; i < cand.length; i++) {
+          const diff = cand[i].close - cand[i-1].close;
+          const gain = diff >= 0 ? diff : 0;
+          const loss = diff < 0 ? -diff : 0;
+          avgGain = ((avgGain * (period - 1)) + gain) / period;
+          avgLoss = ((avgLoss * (period - 1)) + loss) / period;
+          const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+          rsiList.push(100 - (100 / (1 + rs)));
+        }
+        return rsiList;
+      };
+
+      const ema9List = calculateEMAArray(candles, 9);
+      const ema20List = calculateEMAArray(candles, 20);
+      const ema12List = calculateEMAArray(candles, 12);
+      const ema26List = calculateEMAArray(candles, 26);
+      const rsiList = calculateRSIArray(candles, 14);
       
       const len = candles.length;
-      const currentEma9 = ema9List[len - 1];
-      const currentEma21 = ema21List[len - 1];
-      const prevEma9 = ema9List[len - 2];
-      const prevEma21 = ema21List[len - 2];
-      const currentClose = candles[len - 1].close;
+      const lastCandle = candles[len - 1];
+      const lastEma9 = ema9List[len - 1];
+      const lastEma20 = ema20List[len - 1];
+      const lastRsi = rsiList[len - 1] || 50;
+      const lastEma12 = ema12List[len - 1];
+      const lastEma26 = ema26List[len - 1];
+      const macdLine = lastEma12 - lastEma26;
       
+      // Calculate scores (identical rules as ChartAnalysis.jsx)
+      let bullishScore = 0;
+      let bearishScore = 0;
+
+      if (lastCandle.close > lastEma9) bullishScore++; else bearishScore++;
+      if (lastCandle.close > lastEma20) bullishScore++; else bearishScore++;
+      if (lastEma9 > lastEma20) bullishScore++; else bearishScore++;
+      if (macdLine > 0) bullishScore++; else bearishScore++;
+      if (pcr > 1.1) bullishScore++; else if (pcr < 0.9) bearishScore++;
+      if (lastRsi < 40) bullishScore++; else if (lastRsi > 60) bearishScore++;
+
       let type = null;
+      let target_price, stoploss_price;
       
-      // Detect EMA Crossovers
-      if (prevEma9 <= prevEma21 && currentEma9 > currentEma21) {
-        type = 'CALL'; // Bullish Crossover
-      } else if (prevEma9 >= prevEma21 && currentEma9 < currentEma21) {
-        type = 'PUT'; // Bearish Crossover
+      if (bullishScore >= 4 && lastCandle.close > lastEma9) {
+        type = 'CALL';
+        const defaultTarget = symbol === 'NIFTY' ? 50 : 150;
+        target_price = resistance !== 'N/A' ? parseFloat(resistance) : lastCandle.close + defaultTarget;
+        stoploss_price = lastEma20;
+      } else if (bearishScore >= 4 && lastCandle.close < lastEma9) {
+        type = 'PUT';
+        const defaultTarget = symbol === 'NIFTY' ? 50 : 150;
+        target_price = support !== 'N/A' ? parseFloat(support) : lastCandle.close - defaultTarget;
+        stoploss_price = lastEma20;
       }
       
       if (type) {
-        // Calculate Target & Stoploss (realistic intraday values)
-        let target_price, stoploss_price;
-        if (symbol === 'NIFTY') {
-          target_price = type === 'CALL' ? currentClose + 30 : currentClose - 30;
-          stoploss_price = type === 'CALL' ? currentClose - 15 : currentClose + 15;
-        } else {
-          target_price = type === 'CALL' ? currentClose + 75 : currentClose - 75;
-          stoploss_price = type === 'CALL' ? currentClose - 40 : currentClose + 40;
-        }
-        
         // Check if pending Chart signal already exists to avoid duplication
         db.get(`SELECT id FROM ai_signals WHERE symbol = ? AND source = 'CHART' AND status = 'PENDING'`, [symbol], (err, row) => {
           if (!err && !row) {
             // Save new Chart signal
             db.run(
               `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price, source) VALUES (?, ?, ?, ?, ?, 'CHART')`,
-              [symbol, type, currentClose, target_price, stoploss_price],
+              [symbol, type, lastCandle.close, target_price, stoploss_price],
               function(err) {
                 if (err) console.error(`Background Chart signal save failed for ${symbol}:`, err.message);
                 else console.log(`Background auto-saved Chart signal for ${symbol} with ID: ${this.lastID}`);

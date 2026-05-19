@@ -113,17 +113,17 @@ const AiTesting = () => {
     } else if (chartRate > ocRate && chartPoints > ocPoints) {
       return {
         winner: 'CHART',
-        text: `Chart EMA Crossover is winning! Iski Win Rate (${chartRate}%) aur Net P&L (+${chartPoints.toFixed(1)} pts) dono Option Chain data se behtar performance de rahe hain.`
+        text: `Chart Analysis is winning! Iski Win Rate (${chartRate}%) aur Net P&L (+${chartPoints.toFixed(1)} pts) dono Option Chain data se behtar performance de rahe hain.`
       };
     } else if (ocRate > chartRate) {
       return {
         winner: 'OPTION_CHAIN',
-        text: `Option Chain ki Accuracy (Win Rate: ${ocRate}%) higher hai, halanki Chart EMA ne net points P&L (+${chartPoints.toFixed(1)} pts) better capture kiye hain.`
+        text: `Option Chain ki Accuracy (Win Rate: ${ocRate}%) higher hai, halanki Chart Analysis ne net points P&L (+${chartPoints.toFixed(1)} pts) better capture kiye hain.`
       };
     } else if (chartRate > ocRate) {
       return {
         winner: 'CHART',
-        text: `Chart Crossover ki Accuracy (Win Rate: ${chartRate}%) higher hai, halanki Option Chain ne net points P&L (+${ocPoints.toFixed(1)} pts) better catch kiye hain.`
+        text: `Chart Analysis ki Accuracy (Win Rate: ${chartRate}%) higher hai, halanki Option Chain ne net points P&L (+${ocPoints.toFixed(1)} pts) better catch kiye hain.`
       };
     } else {
       return {
@@ -154,7 +154,7 @@ const AiTesting = () => {
             AI & Algorithmic Backtesting
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '1rem' }}>
-            Compare accuracy of Option Chain (Open Interest) vs Chart (EMA Crossovers) to find the best trading strategy.
+            Compare accuracy of Option Chain (Open Interest) vs Chart Analysis (Multi-Indicator Consensus) to find the best trading strategy.
           </p>
         </div>
 
@@ -210,7 +210,7 @@ const AiTesting = () => {
         {[
           { id: 'overview', name: 'Accuracy Comparison', icon: <Activity size={16} /> },
           { id: 'option_chain', name: 'Option Chain Signals', icon: <Layers size={16} /> },
-          { id: 'chart', name: 'Chart EMA Signals', icon: <Compass size={16} /> },
+          { id: 'chart', name: 'Chart Analysis Signals', icon: <Compass size={16} /> },
           { id: 'all', name: 'All Signals Log', icon: <Zap size={16} /> }
         ].map(tab => (
           <button
@@ -371,7 +371,7 @@ const AiTesting = () => {
               }}>VS</div>
             </div>
 
-            {/* Model B: Chart EMA Crossover */}
+            {/* Model B: Chart Analysis Model */}
             <div className="glass-panel" style={{ 
               padding: '2rem', 
               borderRadius: '16px',
@@ -385,10 +385,10 @@ const AiTesting = () => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <Compass size={22} color="#C084FC" />
-                    <h3 style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#E9D5FF' }}>Chart EMA Model</h3>
+                    <h3 style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#E9D5FF' }}>Chart Analysis Model</h3>
                   </div>
                   <span style={{ fontSize: '0.8rem', background: 'rgba(168,85,247,0.2)', color: '#E9D5FF', padding: '0.25rem 0.5rem', borderRadius: '4px', fontWeight: '600' }}>
-                    9/21 EMA Crossover
+                    Multi-Indicator Consensus
                   </span>
                 </div>
 
@@ -559,7 +559,7 @@ const AiTesting = () => {
                         color: isOptionChain ? '#A5B4FC' : '#F472B6',
                         border: isOptionChain ? '1px solid rgba(99, 102, 241, 0.3)' : '1px solid rgba(168, 85, 247, 0.3)'
                       }}>
-                        {isOptionChain ? 'Option Chain' : 'Chart EMA'}
+                        {isOptionChain ? 'Option Chain' : 'Chart Analysis'}
                       </span>
                     </td>
                     

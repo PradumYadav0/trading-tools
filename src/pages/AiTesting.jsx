@@ -545,14 +545,23 @@ const AiTesting = () => {
                   <tr key={signal.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', fontSize: '0.92rem', transition: 'background 0.2s' }} className="table-row-hover">
                     <td style={{ padding: '1rem 0.75rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
                       <div style={{ fontWeight: '500', color: '#FFF' }}>
-                        {new Date(signal.created_at).toLocaleDateString()}
+                        {(() => {
+                          const dateStr = signal.created_at.endsWith('Z') || signal.created_at.endsWith('UTC') ? signal.created_at : signal.created_at + ' UTC';
+                          return new Date(dateStr).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' });
+                        })()}
                       </div>
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
-                        Entry: {new Date(signal.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        Entry: {(() => {
+                          const dateStr = signal.created_at.endsWith('Z') || signal.created_at.endsWith('UTC') ? signal.created_at : signal.created_at + ' UTC';
+                          return new Date(dateStr).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                        })()}
                       </div>
                       {signal.status !== 'PENDING' && (
                         <div style={{ fontSize: '0.8rem', color: '#A5B4FC', marginTop: '0.1rem' }}>
-                          Exit: {new Date(signal.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          Exit: {(() => {
+                            const dateStr = signal.updated_at.endsWith('Z') || signal.updated_at.endsWith('UTC') ? signal.updated_at : signal.updated_at + ' UTC';
+                            return new Date(dateStr).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                          })()}
                         </div>
                       )}
                     </td>

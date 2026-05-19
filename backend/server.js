@@ -820,31 +820,31 @@ app.post('/api/settings/refresh-token', async (req, res) => {
   }
 });
 
-// Background Signal Generator based on Option Decoder Math
-async function runBackgroundDecoder() {
+// Background Signal Generator: Unified High-Accuracy Decoder
+// Computes Option Chain (OI Decode + PCR Velocity + Max Pain + Concentration), 
+// Chart Analysis (5m EMA9/20, RSI, MACD, PCR, VWAP, ATR Dynamic S/R, plus 15m Major Trend Confirmation),
+// and convergence-based HYBRID signals to maximize win rate.
+async function runAllDecoders() {
   const symbols = ['NIFTY', 'BANKNIFTY'];
   
   for (const symbol of symbols) {
     try {
       const token = dhanAccessToken;
       const clientId = process.env.DHAN_CLIENT_ID;
-      
       if (!token || !clientId) continue;
-      
+
       const scripId = scripMap[symbol];
       if (!scripId) continue;
-      
-      // Get Expiry List
+
+      // 1. FETCH OPTION CHAIN
       const expiryResponse = await axios.post('https://api.dhan.co/v2/optionchain/expirylist', {
         UnderlyingScrip: scripId,
         UnderlyingSeg: 'IDX_I'
       }, { headers: getDhanHeaders() });
       
       if (expiryResponse.data.status !== 'success' || !expiryResponse.data.data.length) continue;
-      
       const expiry = expiryResponse.data.data[0];
       
-      // Get Option Chain
       const ocResponse = await axios.post('https://api.dhan.co/v2/optionchain', {
         UnderlyingScrip: scripId,
         UnderlyingSeg: 'IDX_I',
@@ -857,30 +857,45 @@ async function runBackgroundDecoder() {
       const ocData = rawData.oc;
       const spotPrice = rawData.last_price;
       
-      // Transform to strikes array
       const strikesArray = Object.keys(ocData).map(strikeStr => {
         const strike = parseFloat(strikeStr);
         const data = ocData[strikeStr];
         return {
           strike,
           callOi: data.ce?.oi || 0,
-          callChgOi: data.ce?.oi - data.ce?.previous_oi || 0, 
-          putChgOi: data.pe?.oi - data.pe?.previous_oi || 0,
+          callChgOi: (data.ce?.oi || 0) - (data.ce?.previous_oi || 0), 
+          putChgOi: (data.pe?.oi || 0) - (data.pe?.previous_oi || 0),
           putOi: data.pe?.oi || 0
         };
       }).sort((a, b) => a.strike - b.strike);
       
-      // Now apply Option Decoder Math
-      // 1. PCR
+      // A. Calculate PCR
       const totalCallOi = strikesArray.reduce((sum, row) => sum + row.callOi, 0);
       const totalPutOi = strikesArray.reduce((sum, row) => sum + row.putOi, 0);
       const pcr = totalCallOi > 0 ? totalPutOi / totalCallOi : 1.0;
       
-      // 2. OI Decode
-      const totalCallChg = strikesArray.reduce((sum, row) => sum + row.callChgOi, 0);
-      const totalPutChg = strikesArray.reduce((sum, row) => sum + row.putChgOi, 0);
-      
-      // 3. Max Pain
+      // B. Calculate PCR Velocity (Change speed)
+      let pcrVelocity = 0;
+      await new Promise((resolve) => {
+        db.get(
+          `SELECT data FROM option_chain_history WHERE symbol = ? ORDER BY timestamp DESC LIMIT 1 OFFSET 1`,
+          [symbol],
+          (err, row) => {
+            if (!err && row) {
+              try {
+                const prevStrikes = JSON.parse(row.data);
+                const prevCallOi = prevStrikes.reduce((sum, r) => sum + (r.callOi || 0), 0);
+                const prevPutOi = prevStrikes.reduce((sum, r) => sum + (r.putOi || 0), 0);
+                const prevPcr = prevCallOi > 0 ? prevPutOi / prevCallOi : 1.0;
+                pcrVelocity = pcr - prevPcr;
+              } catch (e) {}
+            }
+            resolve();
+          }
+        );
+      });
+
+      // C. Max Pain Strike
       let minLoss = Infinity;
       let maxPainStrike = spotPrice;
       strikesArray.forEach(targetStrike => {
@@ -899,116 +914,47 @@ async function runBackgroundDecoder() {
         }
       });
       
-      // 4. Strike Concentration
-      const atmStrike = strikesArray.reduce((prev, curr) => {
-        return (Math.abs(curr.strike - spotPrice) < Math.abs(prev.strike - spotPrice) ? curr : prev);
-      }, strikesArray[0] || { strike: 0 }).strike;
-      
-      const atmIndex = strikesArray.findIndex(s => s.strike === atmStrike);
-      const nearStrikes = strikesArray.slice(Math.max(0, atmIndex - 5), Math.min(strikesArray.length, atmIndex + 6));
-      const nearCallOi = nearStrikes.reduce((sum, row) => sum + row.callOi, 0);
-      const nearPutOi = nearStrikes.reduce((sum, row) => sum + row.putOi, 0);
-      
-      // 5. Score
+      // D. Concentration Ratio
+      const callStrikes = [...strikesArray].sort((a,b) => b.callOi - a.callOi).slice(0, 3);
+      const putStrikes = [...strikesArray].sort((a,b) => b.putOi - a.putOi).slice(0, 3);
+      const topCallOi = callStrikes.reduce((sum, s) => sum + s.callOi, 0);
+      const topPutOi = putStrikes.reduce((sum, s) => sum + s.putOi, 0);
+      const concentrationRatio = topCallOi > 0 ? topPutOi / topCallOi : 1.0;
+
+      // E. Calculate Option Decoder Score
+      let optionScore = 50;
+      let optionSignal = 'WAIT';
       let bullishPoints = 0;
-      let totalPoints = 4;
-      
-      if (pcr > 1.0) bullishPoints++;
-      if (totalPutChg > totalCallChg) bullishPoints++;
-      if (maxPainStrike > spotPrice) bullishPoints++;
-      if (nearPutOi > nearCallOi) bullishPoints++;
-      
-      const percentage = (bullishPoints / totalPoints) * 100;
-      
-      let type = null;
-      if (percentage >= 75) type = 'CALL';
-      if (percentage <= 25) type = 'PUT';
-      
-      if (type) {
-        // Calculate Dynamic Target based on Max Pain
-        const distanceToPain = Math.abs(spotPrice - maxPainStrike);
-        let dynamicTarget = distanceToPain * 0.5;
-        if (symbol === 'NIFTY') {
-          dynamicTarget = Math.max(10, Math.min(30, dynamicTarget));
-        } else {
-          dynamicTarget = Math.max(20, Math.min(60, dynamicTarget));
-        }
-        
-        const target_price = type === 'CALL' ? spotPrice + dynamicTarget : spotPrice - dynamicTarget;
-        const stoploss_price = type === 'CALL' ? spotPrice - (symbol === 'NIFTY' ? 10 : 25) : spotPrice + (symbol === 'NIFTY' ? 10 : 25);
-        
-        // Check if pending signal exists
-        db.get(`SELECT id FROM ai_signals WHERE symbol = ? AND source = 'OPTION_CHAIN' AND status = 'PENDING'`, [symbol], (err, row) => {
-          if (!err && !row) {
-            // Save new signal
-            db.run(
-              `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price, source) VALUES (?, ?, ?, ?, ?, 'OPTION_CHAIN')`,
-              [symbol, type, spotPrice, target_price, stoploss_price],
-              function(err) {
-                if (err) console.error(`Background signal save failed for ${symbol}:`, err.message);
-                else console.log(`Background auto-saved Option Chain signal for ${symbol} with ID: ${this.lastID}`);
-              }
-            );
-          }
-        });
-      }
-      
-    } catch (err) {
-      console.error(`Background decoding failed for ${symbol}:`, err.message);
-    }
-  }
-}
+      let totalPoints = 0;
 
-// Background Signal Generator based on Chart Technical indicators Consensus (matching ChartAnalysis page)
-async function runBackgroundChartDecoder() {
-  const symbols = ['NIFTY', 'BANKNIFTY'];
-  
-  for (const symbol of symbols) {
-    try {
-      const token = dhanAccessToken;
-      const clientId = process.env.DHAN_CLIENT_ID;
-      
-      if (!token || !clientId) continue;
-      
-      const scripId = scripMap[symbol];
-      if (!scripId) continue;
-      
-      // 1. Fetch Option Chain data locally for PCR and Support/Resistance levels
-      const ocResponse = await axios.get(`http://localhost:${PORT}/api/option-chain?symbol=${symbol}`);
-      if (!ocResponse.data || !ocResponse.data.success) continue;
-      
-      const strikes = ocResponse.data.data;
-      const spotPrice = ocResponse.data.spotPrice;
-      
-      const totalCallOi = strikes.reduce((sum, row) => sum + row.callOi, 0);
-      const totalPutOi = strikes.reduce((sum, row) => sum + row.putOi, 0);
-      const pcr = totalCallOi > 0 ? totalPutOi / totalCallOi : 1.0;
-      
-      let maxCallOi = 0;
-      let maxPutOi = 0;
-      let support = 'N/A';
-      let resistance = 'N/A';
-      
-      strikes.forEach(strike => {
-        if (strike.callOi > maxCallOi) {
-          maxCallOi = strike.callOi;
-          resistance = strike.strike;
-        }
-        if (strike.putOi > maxPutOi) {
-          maxPutOi = strike.putOi;
-          support = strike.strike;
-        }
-      });
+      totalPoints += 30;
+      if (pcr > 1.2) bullishPoints += 30;
+      else if (pcr >= 0.9) bullishPoints += 15;
 
-      // 2. Fetch 5m intraday chart data (last 3 days)
+      totalPoints += 20;
+      if (pcrVelocity > 0.02) bullishPoints += 20;
+      else if (pcrVelocity >= -0.02) bullishPoints += 10;
+
+      totalPoints += 25;
+      if (spotPrice < maxPainStrike) bullishPoints += 25;
+      else if (spotPrice === maxPainStrike) bullishPoints += 12;
+
+      totalPoints += 25;
+      if (concentrationRatio > 1.2) bullishPoints += 25;
+      else if (concentrationRatio >= 0.9) bullishPoints += 12;
+
+      optionScore = Math.round((bullishPoints / totalPoints) * 100);
+      if (optionScore >= 75) optionSignal = 'CALL';
+      else if (optionScore <= 25) optionSignal = 'PUT';
+
+      // 2. FETCH 5M CHART CANDLES
       const toDate = new Date();
       toDate.setDate(toDate.getDate() + 1);
       const fromDate = new Date();
       fromDate.setDate(fromDate.getDate() - 3); 
-      
       const formatDate = (d) => d.toISOString().split('T')[0];
       
-      const payload = {
+      const chartPayload = {
         securityId: scripId.toString(),
         exchangeSegment: 'IDX_I',
         instrument: 'INDEX',
@@ -1017,27 +963,38 @@ async function runBackgroundChartDecoder() {
         toDate: formatDate(toDate)
       };
       
-      const response = await axios.post('https://api.dhan.co/v2/charts/intraday', payload, {
+      const chartResponse = await axios.post('https://api.dhan.co/v2/charts/intraday', chartPayload, {
         headers: getDhanHeaders()
       });
       
-      if (response.data.status !== 'success' && !response.data.open) continue;
+      if (chartResponse.data.status !== 'success' && !chartResponse.data.open) continue;
+      const chartData = chartResponse.data.data || chartResponse.data;
+      if (!chartData.timestamp || chartData.timestamp.length < 30) continue;
       
-      const data = response.data.data || response.data;
-      if (!data.timestamp || data.timestamp.length < 26) continue;
-      
-      const candles = [];
-      for (let i = 0; i < data.timestamp.length; i++) {
-        candles.push({
-          close: data.close[i],
-          high: data.high[i],
-          low: data.low[i],
-          open: data.open[i]
+      const candles5m = [];
+      for (let i = 0; i < chartData.timestamp.length; i++) {
+        candles5m.push({
+          close: chartData.close[i],
+          high: chartData.high[i],
+          low: chartData.low[i],
+          open: chartData.open[i]
         });
       }
-      
-      // Helper function to calculate EMA arrays
-      const calculateEMAArray = (cand, period) => {
+
+      // Group into 15m candles for Trend Filter
+      const candles15m = [];
+      for (let i = 0; i < candles5m.length; i += 3) {
+        const chunk = candles5m.slice(i, i + 3);
+        if (chunk.length === 0) continue;
+        const open = chunk[0].open;
+        const close = chunk[chunk.length - 1].close;
+        const high = Math.max(...chunk.map(c => c.high));
+        const low = Math.min(...chunk.map(c => c.low));
+        candles15m.push({ open, close, high, low });
+      }
+
+      // Indicator Calculators
+      const calculateEMA = (cand, period) => {
         const k = 2 / (period + 1);
         let emaList = [];
         let ema = cand[0].close;
@@ -1048,8 +1005,7 @@ async function runBackgroundChartDecoder() {
         return emaList;
       };
 
-      // Helper to calculate RSI array
-      const calculateRSIArray = (cand, period = 14) => {
+      const calculateRSI = (cand, period = 14) => {
         if (cand.length < period) return Array(cand.length).fill(50);
         let gains = 0;
         let losses = 0;
@@ -1075,80 +1031,150 @@ async function runBackgroundChartDecoder() {
         return rsiList;
       };
 
-      const ema9List = calculateEMAArray(candles, 9);
-      const ema20List = calculateEMAArray(candles, 20);
-      const ema12List = calculateEMAArray(candles, 12);
-      const ema26List = calculateEMAArray(candles, 26);
-      const rsiList = calculateRSIArray(candles, 14);
-      
-      const len = candles.length;
-      const lastCandle = candles[len - 1];
-      const lastEma9 = ema9List[len - 1];
-      const lastEma20 = ema20List[len - 1];
-      const lastRsi = rsiList[len - 1] || 50;
-      const lastEma12 = ema12List[len - 1];
-      const lastEma26 = ema26List[len - 1];
+      const calculateATR = (cand, period = 14) => {
+        let trs = [];
+        for (let i = 1; i < cand.length; i++) {
+          const h_l = cand[i].high - cand[i].low;
+          const h_pc = Math.abs(cand[i].high - cand[i-1].close);
+          const l_pc = Math.abs(cand[i].low - cand[i-1].close);
+          trs.push(Math.max(h_l, h_pc, l_pc));
+        }
+        let atr = trs.slice(0, period).reduce((a, b) => a + b, 0) / period;
+        let atrList = Array(period).fill(atr);
+        for (let i = period; i < trs.length; i++) {
+          atr = ((atr * (period - 1)) + trs[i]) / period;
+          atrList.push(atr);
+        }
+        return atrList;
+      };
+
+      const ema9List = calculateEMA(candles5m, 9);
+      const ema20List = calculateEMA(candles5m, 20);
+      const ema12List = calculateEMA(candles5m, 12);
+      const ema26List = calculateEMA(candles5m, 26);
+      const rsiList = calculateRSI(candles5m, 14);
+      const atrList = calculateATR(candles5m, 14);
+      const ema20_15m = calculateEMA(candles15m, 20);
+
+      const len5 = candles5m.length;
+      const lastCandle = candles5m[len5 - 1];
+      const lastEma9 = ema9List[len5 - 1];
+      const lastEma20 = ema20List[len5 - 1];
+      const lastRsi = rsiList[len5 - 1] || 50;
+      const lastEma12 = ema12List[len5 - 1];
+      const lastEma26 = ema26List[len5 - 1];
       const macdLine = lastEma12 - lastEma26;
-      
-      // Calculate scores (identical rules as ChartAnalysis.jsx)
-      let bullishScore = 0;
-      let bearishScore = 0;
+      const lastAtr = atrList[len5 - 1] || (symbol === 'NIFTY' ? 10 : 25);
 
-      if (lastCandle.close > lastEma9) bullishScore++; else bearishScore++;
-      if (lastCandle.close > lastEma20) bullishScore++; else bearishScore++;
-      if (lastEma9 > lastEma20) bullishScore++; else bearishScore++;
-      if (macdLine > 0) bullishScore++; else bearishScore++;
-      if (pcr > 1.1) bullishScore++; else if (pcr < 0.9) bearishScore++;
-      if (lastRsi < 40) bullishScore++; else if (lastRsi > 60) bearishScore++;
+      // Major Trend Alignment (15m Timeframe Filter)
+      const len15 = candles15m.length;
+      const last15mClose = candles15m[len15 - 1].close;
+      const last15mEma20 = ema20_15m[len15 - 1] || last15mClose;
+      const majorTrend = last15mClose > last15mEma20 ? 'BULLISH' : 'BEARISH';
 
-      let type = null;
-      let target_price, stoploss_price;
-      
-      if (bullishScore >= 4 && lastCandle.close > lastEma9) {
-        type = 'CALL';
-        const defaultTarget = symbol === 'NIFTY' ? 50 : 150;
-        target_price = resistance !== 'N/A' ? parseFloat(resistance) : lastCandle.close + defaultTarget;
-        stoploss_price = lastEma20;
-      } else if (bearishScore >= 4 && lastCandle.close < lastEma9) {
-        type = 'PUT';
-        const defaultTarget = symbol === 'NIFTY' ? 50 : 150;
-        target_price = support !== 'N/A' ? parseFloat(support) : lastCandle.close - defaultTarget;
-        stoploss_price = lastEma20;
+      // VWAP Calculation
+      let vwap = lastCandle.close;
+      if (chartData.volume && chartData.volume.length > 0) {
+        let vwapSum = 0;
+        let volSum = 0;
+        for (let i = Math.max(0, len5 - 50); i < len5; i++) {
+          const typPrice = (chartData.high[i] + chartData.low[i] + chartData.close[i]) / 3;
+          const vol = chartData.volume[i] || 1;
+          vwapSum += typPrice * vol;
+          volSum += vol;
+        }
+        if (volSum > 0) vwap = vwapSum / volSum;
       }
-      
-      if (type) {
-        // Check if pending Chart signal already exists to avoid duplication
+
+      // Calculate Chart Analysis Consensus Score
+      let chartBullishScore = 0;
+      let chartBearishScore = 0;
+
+      if (lastCandle.close > lastEma9) chartBullishScore++; else chartBearishScore++;
+      if (lastCandle.close > lastEma20) chartBullishScore++; else chartBearishScore++;
+      if (lastEma9 > lastEma20) chartBullishScore++; else chartBearishScore++;
+      if (macdLine > 0) chartBullishScore++; else chartBearishScore++;
+      if (pcr > 1.1) chartBullishScore++; else if (pcr < 0.9) chartBearishScore++;
+      if (lastRsi < 40) chartBullishScore++; else if (lastRsi > 60) chartBearishScore++;
+      if (lastCandle.close > vwap) chartBullishScore++; else chartBearishScore++;
+
+      let chartSignal = 'WAIT';
+      // 5m signal confirmation + 15m major trend alignment
+      if (chartBullishScore >= 5 && lastCandle.close > lastEma9 && majorTrend === 'BULLISH') {
+        chartSignal = 'CALL';
+      } else if (chartBearishScore >= 5 && lastCandle.close < lastEma9 && majorTrend === 'BEARISH') {
+        chartSignal = 'PUT';
+      }
+
+      // ATR-Based Dynamic Stoploss (1.5 * ATR) and Target (3.0 * ATR)
+      const dynamicSlAmt = 1.5 * lastAtr;
+      const dynamicTgtAmt = 3.0 * lastAtr;
+
+      const callTarget = parseFloat((lastCandle.close + dynamicTgtAmt).toFixed(2));
+      const callStoploss = parseFloat((lastCandle.close - dynamicSlAmt).toFixed(2));
+      const putTarget = parseFloat((lastCandle.close - dynamicTgtAmt).toFixed(2));
+      const putStoploss = parseFloat((lastCandle.close + dynamicSlAmt).toFixed(2));
+
+      // Save Option Chain Signal
+      if (optionSignal !== 'WAIT') {
+        const target = optionSignal === 'CALL' ? spotPrice + (2.0 * lastAtr) : spotPrice - (2.0 * lastAtr);
+        const sl = optionSignal === 'CALL' ? spotPrice - (1.0 * lastAtr) : spotPrice + (1.0 * lastAtr);
+        
+        db.get(`SELECT id FROM ai_signals WHERE symbol = ? AND source = 'OPTION_CHAIN' AND status = 'PENDING'`, [symbol], (err, row) => {
+          if (!err && !row) {
+            db.run(
+              `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price, source) VALUES (?, ?, ?, ?, ?, 'OPTION_CHAIN')`,
+              [symbol, optionSignal, spotPrice, parseFloat(target.toFixed(2)), parseFloat(sl.toFixed(2))]
+            );
+          }
+        });
+      }
+
+      // Save Chart Signal
+      if (chartSignal !== 'WAIT') {
+        const target = chartSignal === 'CALL' ? callTarget : putTarget;
+        const sl = chartSignal === 'CALL' ? callStoploss : putStoploss;
+        
         db.get(`SELECT id FROM ai_signals WHERE symbol = ? AND source = 'CHART' AND status = 'PENDING'`, [symbol], (err, row) => {
           if (!err && !row) {
-            // Save new Chart signal
             db.run(
               `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price, source) VALUES (?, ?, ?, ?, ?, 'CHART')`,
-              [symbol, type, lastCandle.close, target_price, stoploss_price],
+              [symbol, chartSignal, lastCandle.close, target, sl]
+            );
+          }
+        });
+      }
+
+      // Save Hybrid Convergence Signal (when both models agree, representing extreme accuracy)
+      if (optionSignal !== 'WAIT' && optionSignal === chartSignal) {
+        const target = optionSignal === 'CALL' ? callTarget : putTarget;
+        const sl = optionSignal === 'CALL' ? callStoploss : putStoploss;
+        
+        db.get(`SELECT id FROM ai_signals WHERE symbol = ? AND source = 'HYBRID' AND status = 'PENDING'`, [symbol], (err, row) => {
+          if (!err && !row) {
+            db.run(
+              `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price, source) VALUES (?, ?, ?, ?, ?, 'HYBRID')`,
+              [symbol, optionSignal, lastCandle.close, target, sl],
               function(err) {
-                if (err) console.error(`Background Chart signal save failed for ${symbol}:`, err.message);
-                else console.log(`Background auto-saved Chart signal for ${symbol} with ID: ${this.lastID}`);
+                if (!err) console.log(`Background auto-saved HYBRID signal for ${symbol} with ID: ${this.lastID}`);
               }
             );
           }
         });
       }
-      
+
     } catch (err) {
-      console.error(`Background chart decoding failed for ${symbol}:`, err.message);
+      console.error(`Unified decoding failed for ${symbol}:`, err.message);
     }
   }
 }
 
-// Run Option Chain decoder every 1 minute
-setInterval(runBackgroundDecoder, 60000);
-
-// Run Chart decoder every 1 minute
-setInterval(runBackgroundChartDecoder, 60000);
+// Run unified decoder every 1 minute
+setInterval(runAllDecoders, 60000);
 
 // Run immediately on startup (wait 5s for token to be generated)
 setTimeout(() => {
-  runBackgroundDecoder();
-  runBackgroundChartDecoder();
+  runAllDecoders();
 }, 5000);
 
 app.listen(PORT, () => {

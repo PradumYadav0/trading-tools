@@ -47,6 +47,7 @@ const AiTesting = () => {
   // Separate signals by source
   const optionChainSignals = signals.filter(s => !s.source || s.source === 'OPTION_CHAIN');
   const chartSignals = signals.filter(s => s.source === 'CHART');
+  const hybridSignals = signals.filter(s => s.source === 'HYBRID');
 
   // Stats calculation helper
   const calculateStats = (filteredSignals) => {
@@ -81,6 +82,7 @@ const AiTesting = () => {
 
   const optionChainStats = calculateStats(optionChainSignals);
   const chartStats = calculateStats(chartSignals);
+  const hybridStats = calculateStats(hybridSignals);
   const overallStats = calculateStats(signals);
 
   // Calculate stats for TODAY (combining all sources for quick overview)
@@ -90,20 +92,23 @@ const AiTesting = () => {
 
   // Find the winner
   const getWinnerInfo = () => {
-    if (optionChainStats.total === 0 && chartStats.total === 0) {
+    if (optionChainStats.total === 0 && chartStats.total === 0 && hybridStats.total === 0) {
       return { winner: 'NONE', text: 'Abhi dono systems me data load nahi hua hai. Run tools to generate signals!' };
-    }
-    if (optionChainStats.total > 0 && chartStats.total === 0) {
-      return { winner: 'OPTION_CHAIN', text: 'Option Chain system signals capture kar raha hai, par chart me koi signal nahi aaya hai.' };
-    }
-    if (chartStats.total > 0 && optionChainStats.total === 0) {
-      return { winner: 'CHART', text: 'Chart system signals capture kar raha hai, par option chain me koi signal nahi aaya hai.' };
     }
 
     const ocRate = optionChainStats.winRate;
     const chartRate = chartStats.winRate;
+    const hybridRate = hybridStats.winRate;
     const ocPoints = optionChainStats.netPoints;
     const chartPoints = chartStats.netPoints;
+    const hybridPoints = hybridStats.netPoints;
+
+    if (hybridStats.total > 0 && hybridRate >= Math.max(ocRate, chartRate) && hybridRate >= 50) {
+      return {
+        winner: 'HYBRID',
+        text: `Hybrid Convergence Model sabse accurate hai! Iski Win Rate ${hybridRate}% (Net P&L: +${hybridPoints.toFixed(1)} pts) hai. Option Chain (${ocRate}%) aur Chart (${chartRate}%) isse piche hain. Convergence filtering works best!`
+      };
+    }
 
     if (ocRate > chartRate && ocPoints > chartPoints) {
       return {
@@ -139,6 +144,7 @@ const AiTesting = () => {
   const getFilteredSignals = () => {
     if (activeTab === 'option_chain') return optionChainSignals;
     if (activeTab === 'chart') return chartSignals;
+    if (activeTab === 'hybrid') return hybridSignals;
     return signals; // 'all' or 'overview' shows all
   };
 
@@ -205,12 +211,14 @@ const AiTesting = () => {
         gap: '0.5rem', 
         borderBottom: '1px solid rgba(255, 255, 255, 0.08)', 
         marginBottom: '2rem',
-        paddingBottom: '0.5rem'
+        paddingBottom: '0.5rem',
+        flexWrap: 'wrap'
       }}>
         {[
           { id: 'overview', name: 'Accuracy Comparison', icon: <Activity size={16} /> },
           { id: 'option_chain', name: 'Option Chain Signals', icon: <Layers size={16} /> },
           { id: 'chart', name: 'Chart Analysis Signals', icon: <Compass size={16} /> },
+          { id: 'hybrid', name: 'Hybrid Convergence', icon: <Brain size={16} /> },
           { id: 'all', name: 'All Signals Log', icon: <Zap size={16} /> }
         ].map(tab => (
           <button
@@ -252,6 +260,8 @@ const AiTesting = () => {
               ? 'linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(99, 102, 241, 0.08) 100%)'
               : winnerInfo.winner === 'CHART'
               ? 'linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(168, 85, 247, 0.08) 100%)'
+              : winnerInfo.winner === 'HYBRID'
+              ? 'linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(16, 185, 129, 0.08) 100%)'
               : 'rgba(30, 41, 59, 0.8)',
             display: 'flex',
             alignItems: 'center',
@@ -259,10 +269,22 @@ const AiTesting = () => {
             boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)'
           }}>
             <div style={{
-              background: winnerInfo.winner === 'OPTION_CHAIN' ? 'rgba(99, 102, 241, 0.2)' : winnerInfo.winner === 'CHART' ? 'rgba(168, 85, 247, 0.2)' : 'rgba(255,255,255,0.05)',
+              background: winnerInfo.winner === 'OPTION_CHAIN' 
+                ? 'rgba(99, 102, 241, 0.2)' 
+                : winnerInfo.winner === 'CHART' 
+                ? 'rgba(168, 85, 247, 0.2)' 
+                : winnerInfo.winner === 'HYBRID' 
+                ? 'rgba(16, 185, 129, 0.2)' 
+                : 'rgba(255,255,255,0.05)',
               padding: '1rem',
               borderRadius: '12px',
-              color: winnerInfo.winner === 'OPTION_CHAIN' ? '#A5B4FC' : winnerInfo.winner === 'CHART' ? '#F472B6' : 'white',
+              color: winnerInfo.winner === 'OPTION_CHAIN' 
+                ? '#A5B4FC' 
+                : winnerInfo.winner === 'CHART' 
+                ? '#F472B6' 
+                : winnerInfo.winner === 'HYBRID' 
+                ? '#10B981' 
+                : 'white',
               display: 'flex',
               justifyContent: 'center',
               alignItems: 'center'
@@ -282,7 +304,7 @@ const AiTesting = () => {
           {/* Head-to-Head Model Comparison Grid */}
           <div style={{ 
             display: 'grid', 
-            gridTemplateColumns: '1fr 80px 1fr', 
+            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', 
             gap: '1.5rem', 
             marginBottom: '2.5rem',
             alignItems: 'stretch'
@@ -342,35 +364,6 @@ const AiTesting = () => {
               </div>
             </div>
 
-            {/* VS Divider */}
-            <div style={{ 
-              display: 'flex', 
-              flexDirection: 'column', 
-              justifyContent: 'center', 
-              alignItems: 'center',
-              fontWeight: '900',
-              fontSize: '1.5rem',
-              color: 'rgba(255,255,255,0.15)',
-              position: 'relative'
-            }}>
-              <div style={{ width: '1px', height: '100%', background: 'linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0) 100%)', position: 'absolute', zIndex: 1 }}></div>
-              <div style={{ 
-                background: '#0F172A', 
-                border: '1px solid rgba(255,255,255,0.1)', 
-                borderRadius: '50%', 
-                width: '45px', 
-                height: '45px', 
-                display: 'flex', 
-                justifyContent: 'center', 
-                alignItems: 'center', 
-                zIndex: 2,
-                boxShadow: '0 0 15px rgba(0,0,0,0.5)',
-                color: 'var(--text-secondary)',
-                fontSize: '0.9rem',
-                letterSpacing: '1px'
-              }}>VS</div>
-            </div>
-
             {/* Model B: Chart Analysis Model */}
             <div className="glass-panel" style={{ 
               padding: '2rem', 
@@ -425,6 +418,60 @@ const AiTesting = () => {
               </div>
             </div>
 
+            {/* Model C: Hybrid Convergence Model */}
+            <div className="glass-panel" style={{ 
+              padding: '2rem', 
+              borderRadius: '16px',
+              border: '1.5px solid rgba(16, 185, 129, 0.2)',
+              background: 'linear-gradient(180deg, rgba(16, 185, 129, 0.03) 0%, rgba(30, 41, 59, 0.4) 100%)',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between'
+            }}>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Brain size={22} color="#34D399" />
+                    <h3 style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#A7F3D0' }}>Hybrid Convergence</h3>
+                  </div>
+                  <span style={{ fontSize: '0.8rem', background: 'rgba(16,185,129,0.2)', color: '#34D399', padding: '0.25rem 0.5rem', borderRadius: '4px', fontWeight: '600' }}>
+                    Double Confirmation
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginBottom: '1.5rem' }}>
+                  <span style={{ fontSize: '3rem', fontWeight: '800', color: '#FFF' }}>{hybridStats.winRate}%</span>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>Win Rate</span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '2rem' }}>
+                  <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Total Signal</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{hybridStats.total}</div>
+                  </div>
+                  <div style={{ background: 'rgba(16,185,129,0.05)', padding: '0.75rem', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ color: '#34D399', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Success</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#34D399' }}>{hybridStats.success}</div>
+                  </div>
+                  <div style={{ background: 'rgba(239,68,68,0.05)', padding: '0.75rem', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ color: '#F87171', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Failed</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#F87171' }}>{hybridStats.failed}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Net Profit/Loss Points:</span>
+                <span style={{ 
+                  fontSize: '1.4rem', 
+                  fontWeight: '800', 
+                  color: hybridStats.netPoints >= 0 ? '#34D399' : '#F87171' 
+                }}>
+                  {hybridStats.netPoints >= 0 ? `+${hybridStats.netPoints.toFixed(1)}` : hybridStats.netPoints.toFixed(1)}
+                </span>
+              </div>
+            </div>
+
           </div>
 
           {/* Today's performance banner ("कितना दूध कितना पानी") */}
@@ -474,25 +521,25 @@ const AiTesting = () => {
           <div className="glass-panel" style={{ padding: '1.25rem', textAlign: 'center' }}>
             <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>Filtered Signals</div>
             <div style={{ fontSize: '1.8rem', fontWeight: 'bold' }}>
-              {activeTab === 'option_chain' ? optionChainStats.total : activeTab === 'chart' ? chartStats.total : overallStats.total}
+              {activeTab === 'option_chain' ? optionChainStats.total : activeTab === 'chart' ? chartStats.total : activeTab === 'hybrid' ? hybridStats.total : overallStats.total}
             </div>
           </div>
           <div className="glass-panel" style={{ padding: '1.25rem', textAlign: 'center' }}>
             <div style={{ color: '#34D399', fontSize: '0.85rem', marginBottom: '0.5rem' }}>Success</div>
             <div style={{ fontSize: '1.8rem', fontWeight: 'bold', color: '#34D399' }}>
-              {activeTab === 'option_chain' ? optionChainStats.success : activeTab === 'chart' ? chartStats.success : overallStats.success}
+              {activeTab === 'option_chain' ? optionChainStats.success : activeTab === 'chart' ? chartStats.success : activeTab === 'hybrid' ? hybridStats.success : overallStats.success}
             </div>
           </div>
           <div className="glass-panel" style={{ padding: '1.25rem', textAlign: 'center' }}>
             <div style={{ color: '#F87171', fontSize: '0.85rem', marginBottom: '0.5rem' }}>Failed</div>
             <div style={{ fontSize: '1.8rem', fontWeight: 'bold', color: '#F87171' }}>
-              {activeTab === 'option_chain' ? optionChainStats.failed : activeTab === 'chart' ? chartStats.failed : overallStats.failed}
+              {activeTab === 'option_chain' ? optionChainStats.failed : activeTab === 'chart' ? chartStats.failed : activeTab === 'hybrid' ? hybridStats.failed : overallStats.failed}
             </div>
           </div>
           <div className="glass-panel" style={{ padding: '1.25rem', textAlign: 'center', background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(168, 85, 247, 0.1) 100%)' }}>
             <div style={{ color: '#C084FC', fontSize: '0.85rem', marginBottom: '0.5rem' }}>Strategy Win Rate</div>
             <div style={{ fontSize: '1.8rem', fontWeight: 'bold', color: '#C084FC' }}>
-              {activeTab === 'option_chain' ? optionChainStats.winRate : activeTab === 'chart' ? chartStats.winRate : overallStats.winRate}%
+              {activeTab === 'option_chain' ? optionChainStats.winRate : activeTab === 'chart' ? chartStats.winRate : activeTab === 'hybrid' ? hybridStats.winRate : overallStats.winRate}%
             </div>
           </div>
           <div className="glass-panel" style={{ padding: '1.25rem', textAlign: 'center' }}>
@@ -500,10 +547,10 @@ const AiTesting = () => {
             <div style={{ 
               fontSize: '1.8rem', 
               fontWeight: 'bold', 
-              color: (activeTab === 'option_chain' ? optionChainStats.netPoints : activeTab === 'chart' ? chartStats.netPoints : overallStats.netPoints) >= 0 ? '#34D399' : '#F87171'
+              color: (activeTab === 'option_chain' ? optionChainStats.netPoints : activeTab === 'chart' ? chartStats.netPoints : activeTab === 'hybrid' ? hybridStats.netPoints : overallStats.netPoints) >= 0 ? '#34D399' : '#F87171'
             }}>
-              {(activeTab === 'option_chain' ? optionChainStats.netPoints : activeTab === 'chart' ? chartStats.netPoints : overallStats.netPoints) >= 0 ? '+' : ''}
-              {(activeTab === 'option_chain' ? optionChainStats.netPoints : activeTab === 'chart' ? chartStats.netPoints : overallStats.netPoints).toFixed(1)}
+              {(activeTab === 'option_chain' ? optionChainStats.netPoints : activeTab === 'chart' ? chartStats.netPoints : activeTab === 'hybrid' ? hybridStats.netPoints : overallStats.netPoints) >= 0 ? '+' : ''}
+              {(activeTab === 'option_chain' ? optionChainStats.netPoints : activeTab === 'chart' ? chartStats.netPoints : activeTab === 'hybrid' ? hybridStats.netPoints : overallStats.netPoints).toFixed(1)}
             </div>
           </div>
         </div>
@@ -513,7 +560,7 @@ const AiTesting = () => {
       <div className="glass-panel" style={{ padding: '1.75rem', overflowX: 'auto', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
           <h2 style={{ fontSize: '1.25rem', fontWeight: '700' }}>
-            {activeTab === 'overview' ? 'Recent Signals Feed (All Sources)' : `${activeTab === 'option_chain' ? 'Option Chain' : activeTab === 'chart' ? 'Chart technical' : 'All'} Signals Logs`}
+            {activeTab === 'overview' ? 'Recent Signals Feed (All Sources)' : `${activeTab === 'option_chain' ? 'Option Chain' : activeTab === 'chart' ? 'Chart Technical' : activeTab === 'hybrid' ? 'Hybrid Convergence' : 'All'} Signals Logs`}
           </h2>
           <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
             Showing {displaySignals.length} records
@@ -540,9 +587,8 @@ const AiTesting = () => {
             </thead>
             <tbody>
               {[...displaySignals].map(signal => {
-                const isOptionChain = !signal.source || signal.source === 'OPTION_CHAIN';
                 return (
-                  <tr key={signal.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', fontSize: '0.92rem', transition: 'background 0.2s' }} className="table-row-hover">
+                  <tr key={signal.id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.04)', fontSize: '0.92rem', transition: 'background 0.2s' }} className="table-row-hover">
                     <td style={{ padding: '1rem 0.75rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
                       <div style={{ fontWeight: '500', color: '#FFF' }}>
                         {(() => {
@@ -574,11 +620,23 @@ const AiTesting = () => {
                         fontWeight: 'bold',
                         padding: '0.25rem 0.6rem',
                         borderRadius: '12px',
-                        background: isOptionChain ? 'rgba(99, 102, 241, 0.15)' : 'rgba(168, 85, 247, 0.15)',
-                        color: isOptionChain ? '#A5B4FC' : '#F472B6',
-                        border: isOptionChain ? '1px solid rgba(99, 102, 241, 0.3)' : '1px solid rgba(168, 85, 247, 0.3)'
+                        background: signal.source === 'OPTION_CHAIN' 
+                          ? 'rgba(99, 102, 241, 0.15)' 
+                          : signal.source === 'CHART'
+                          ? 'rgba(168, 85, 247, 0.15)'
+                          : 'rgba(16, 185, 129, 0.15)',
+                        color: signal.source === 'OPTION_CHAIN' 
+                          ? '#A5B4FC' 
+                          : signal.source === 'CHART'
+                          ? '#F472B6'
+                          : '#34D399',
+                        border: signal.source === 'OPTION_CHAIN' 
+                          ? '1px solid rgba(99, 102, 241, 0.3)' 
+                          : signal.source === 'CHART'
+                          ? '1px solid rgba(168, 85, 247, 0.3)'
+                          : '1px solid rgba(16, 185, 129, 0.3)'
                       }}>
-                        {isOptionChain ? 'Option Chain' : 'Chart Analysis'}
+                        {signal.source === 'OPTION_CHAIN' ? 'Option Chain' : signal.source === 'CHART' ? 'Chart Analysis' : 'Hybrid Convergence'}
                       </span>
                     </td>
                     

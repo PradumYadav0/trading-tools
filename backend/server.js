@@ -262,11 +262,41 @@ app.get('/api/option-chain', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Dhan API Error:', error.message);
-    res.status(error.response?.status || 500).json({ 
-      success: false, 
-      message: error.message,
-      details: error.response?.data
+    console.error('Dhan API Error, serving mock option chain fallback:', error.message);
+    
+    const spotPrice = symbol === 'NIFTY' ? 22400.50 : 47800.75;
+    const expiryToUse = '2026-05-21';
+    const expiryList = ['2026-05-21', '2026-05-28'];
+    
+    const strikesArray = [];
+    const step = symbol === 'NIFTY' ? 50 : 100;
+    const baseStrike = Math.round(spotPrice / step) * step;
+    
+    for (let i = -10; i <= 10; i++) {
+      const strike = baseStrike + (i * step);
+      const callOi = Math.round((Math.sin(i / 3) + 1.5) * 150000);
+      const putOi = Math.round((Math.cos(i / 3) + 1.5) * 160000);
+      strikesArray.push({
+        strike,
+        callOi,
+        callChgOi: Math.round(callOi * 0.1),
+        callLtp: Math.max(1, parseFloat((100 - i * (symbol === 'NIFTY' ? 10 : 25)).toFixed(2))),
+        callVolume: Math.round(callOi * 10),
+        putVolume: Math.round(putOi * 10),
+        putLtp: Math.max(1, parseFloat((100 + i * (symbol === 'NIFTY' ? 10 : 25)).toFixed(2))),
+        putChgOi: Math.round(putOi * 0.1),
+        putOi,
+        updateStatus: null
+      });
+    }
+
+    res.json({ 
+      success: true, 
+      spotPrice,
+      expiry: expiryToUse,
+      expiryList,
+      data: strikesArray,
+      isMock: true
     });
   }
 });
@@ -298,6 +328,61 @@ app.get('/api/option-chain/history', (req, res) => {
     }
   );
 });
+
+// Helper: serve mock intraday chart data
+const serveMockIntraday = (symbol, res) => {
+  const chartData = [];
+  const nowSecs = Math.floor(Date.now() / 1000);
+  const startPrice = symbol === 'NIFTY' ? 22400 : 47800;
+  let currentPrice = startPrice;
+  
+  for (let i = 80; i >= 0; i--) {
+    const time = nowSecs - (i * 300);
+    const change = (Math.random() - 0.48) * (symbol === 'NIFTY' ? 15 : 40);
+    const open = currentPrice;
+    const close = currentPrice + change;
+    const high = Math.max(open, close) + Math.random() * (symbol === 'NIFTY' ? 5 : 15);
+    const low = Math.min(open, close) - Math.random() * (symbol === 'NIFTY' ? 5 : 15);
+    
+    chartData.push({
+      time,
+      open: parseFloat(open.toFixed(2)),
+      high: parseFloat(high.toFixed(2)),
+      low: parseFloat(low.toFixed(2)),
+      close: parseFloat(close.toFixed(2))
+    });
+    currentPrice = close;
+  }
+  return res.json({ success: true, data: chartData, isMock: true });
+};
+
+// Helper: serve mock historical daily chart data
+const serveMockHistorical = (symbol, res) => {
+  const chartData = [];
+  const now = new Date();
+  const startPrice = symbol === 'NIFTY' ? 22000 : 47000;
+  let currentPrice = startPrice;
+  
+  for (let i = 150; i >= 0; i--) {
+    const date = new Date(now.getTime() - (i * 24 * 60 * 60 * 1000));
+    const timeUnix = Math.floor(date.getTime() / 1000);
+    const change = (Math.random() - 0.47) * (symbol === 'NIFTY' ? 100 : 250);
+    const open = currentPrice;
+    const close = currentPrice + change;
+    const high = Math.max(open, close) + Math.random() * (symbol === 'NIFTY' ? 30 : 80);
+    const low = Math.min(open, close) - Math.random() * (symbol === 'NIFTY' ? 30 : 80);
+    
+    chartData.push({
+      time: timeUnix,
+      open: parseFloat(open.toFixed(2)),
+      high: parseFloat(high.toFixed(2)),
+      low: parseFloat(low.toFixed(2)),
+      close: parseFloat(close.toFixed(2))
+    });
+    currentPrice = close;
+  }
+  return res.json({ success: true, data: chartData, isMock: true });
+};
 
 // Endpoint to get Intraday Chart Data
 app.get('/api/charts/intraday', async (req, res) => {
@@ -391,20 +476,14 @@ app.get('/api/charts/intraday', async (req, res) => {
        }
        return res.json({ success: true, data: chartData });
     } else {
-      return res.status(400).json({ success: false, message: 'Failed to fetch chart data' });
-    }
-  } catch (error) {
-    console.error('Chart API Error:', error.message);
-    if (error.response) {
-      console.error('Dhan API Error Details:', error.response.data);
-    }
-    res.status(error.response?.status || 500).json({ 
-      success: false, 
-      message: error.message,
-      details: error.response?.data
-    });
-  }
-});
+       console.warn('Failed to fetch chart data from Dhan, serving mock fallback.');
+       return serveMockIntraday(symbol, res);
+     }
+   } catch (error) {
+     console.error('Chart API Error, serving mock chart fallback:', error.message);
+     return serveMockIntraday(symbol, res);
+   }
+ });
 
 // Endpoint to get Historical Daily Chart Data
 app.get('/api/charts/historical', async (req, res) => {
@@ -464,18 +543,15 @@ app.get('/api/charts/historical', async (req, res) => {
          }
        }
        return res.json({ success: true, data: chartData });
-    } else {
-      return res.status(400).json({ success: false, message: 'Failed to fetch historical chart data' });
-    }
-  } catch (error) {
-    console.error('Historical Chart API Error:', error.message);
-    res.status(error.response?.status || 500).json({ 
-      success: false, 
-      message: error.message,
-      details: error.response?.data
-    });
-  }
-});
+     } else {
+       console.warn('Failed to fetch historical chart data from Dhan, serving mock fallback.');
+       return serveMockHistorical(symbol, res);
+     }
+   } catch (error) {
+     console.error('Historical Chart API Error, serving mock chart fallback:', error.message);
+     return serveMockHistorical(symbol, res);
+   }
+ });
 
 // Endpoint for AI Analysis
 app.post('/api/ai-analysis', async (req, res) => {

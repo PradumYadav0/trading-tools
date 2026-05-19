@@ -124,10 +124,10 @@ const scripMap = {
 
 // Endpoint to get Option Chain
 app.get('/api/option-chain', async (req, res) => {
+  const symbol = req.query.symbol || 'NIFTY';
   try {
     const token = dhanAccessToken;
     const clientId = process.env.DHAN_CLIENT_ID;
-    const symbol = req.query.symbol || 'NIFTY';
 
     if (!token || !clientId) {
       return res.status(400).json({ success: false, message: 'Dhan credentials missing. Please set them or wait for auto-refresh.' });
@@ -386,10 +386,10 @@ const serveMockHistorical = (symbol, res) => {
 
 // Endpoint to get Intraday Chart Data
 app.get('/api/charts/intraday', async (req, res) => {
+  const symbol = req.query.symbol || 'NIFTY';
   try {
     const token = dhanAccessToken;
     const clientId = process.env.DHAN_CLIENT_ID;
-    const symbol = req.query.symbol || 'NIFTY';
     const interval = req.query.interval || '5'; // default 5 mins
     
     // Dhan API limits intraday to recent days
@@ -487,10 +487,10 @@ app.get('/api/charts/intraday', async (req, res) => {
 
 // Endpoint to get Historical Daily Chart Data
 app.get('/api/charts/historical', async (req, res) => {
+  const symbol = req.query.symbol || 'NIFTY';
   try {
     const token = dhanAccessToken;
     const clientId = process.env.DHAN_CLIENT_ID;
-    const symbol = req.query.symbol || 'NIFTY';
     
     // Fetch for the last 2 years for good daily/monthly view
     const toDate = new Date();

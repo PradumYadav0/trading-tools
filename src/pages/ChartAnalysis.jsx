@@ -28,8 +28,7 @@ const ChartAnalysis = () => {
     ema20: { status: 'Loading...', color: 'var(--text-secondary)' },
     emaCross: { status: 'Loading...', color: 'var(--text-secondary)' },
     rsi: { value: 'N/A', status: 'Loading...', color: 'var(--text-secondary)' },
-    macd: { status: 'Loading...', color: 'var(--text-secondary)' },
-    pcr: { value: 'N/A', status: 'Loading...', color: 'var(--text-secondary)' }
+    macd: { status: 'Loading...', color: 'var(--text-secondary)' }
   });
 
   useEffect(() => {
@@ -275,8 +274,7 @@ const ChartAnalysis = () => {
             ema20: lastCandle.close > lastEma20 ? { status: 'Bullish (Price Above)', color: 'var(--bullish)' } : { status: 'Bearish (Price Below)', color: 'var(--bearish)' },
             emaCross: lastEma9 > lastEma20 ? { status: 'Bullish (9 > 20)', color: 'var(--bullish)' } : { status: 'Bearish (9 < 20)', color: 'var(--bearish)' },
             rsi: { value: lastRsi.toFixed(2), status: lastRsi > 70 ? 'Overbought' : lastRsi < 30 ? 'Oversold' : 'Neutral', color: lastRsi > 70 ? 'var(--bearish)' : lastRsi < 30 ? 'var(--bullish)' : 'var(--text-secondary)' },
-            macd: macdLine > 0 ? { status: 'Bullish (Above 0)', color: 'var(--bullish)' } : { status: 'Bearish (Below 0)', color: 'var(--bearish)' },
-            pcr: { value: pcr.toFixed(2), status: pcr > 1.1 ? 'Bullish' : pcr < 0.9 ? 'Bearish' : 'Neutral', color: pcr > 1.1 ? 'var(--bullish)' : pcr < 0.9 ? 'var(--bearish)' : 'var(--text-secondary)' }
+            macd: macdLine > 0 ? { status: 'Bullish (Above 0)', color: 'var(--bullish)' } : { status: 'Bearish (Below 0)', color: 'var(--bearish)' }
           };
           setIndicators(indStatus);
 
@@ -293,12 +291,11 @@ const ChartAnalysis = () => {
           if (indStatus.ema20.status.includes('Bullish')) bullishScore++; else bearishScore++;
           if (indStatus.emaCross.status.includes('Bullish')) bullishScore++; else bearishScore++;
           if (macdLine > 0) bullishScore++; else bearishScore++;
-          if (pcr > 1.1) bullishScore++; else if (pcr < 0.9) bearishScore++;
           if (lastRsi < 40) bullishScore++; else if (lastRsi > 60) bearishScore++;
 
           if (bullishScore >= 4 && lastCandle.close > lastEma9) {
             action = 'BUY CALL';
-            reason = `Strong Bullish consensus (${bullishScore}/6 indicators). Price is in upward momentum.`;
+            reason = `Strong Bullish consensus (${bullishScore}/5 indicators). Price is in upward momentum.`;
             color = 'var(--bullish)';
             // Dynamic Target: Next Resistance or 50/150 points if resistance is far
             const defaultTarget = symbol === 'NIFTY' ? 50 : 150;
@@ -307,7 +304,7 @@ const ChartAnalysis = () => {
             stoploss = lastEma20.toFixed(2);
           } else if (bearishScore >= 4 && lastCandle.close < lastEma9) {
             action = 'BUY PUT';
-            reason = `Strong Bearish consensus (${bearishScore}/6 indicators). Trend is clearly downward.`;
+            reason = `Strong Bearish consensus (${bearishScore}/5 indicators). Trend is clearly downward.`;
             color = 'var(--bearish)';
             // Dynamic Target: Next Support or 50/150 points
             const defaultTarget = symbol === 'NIFTY' ? 50 : 150;
@@ -453,12 +450,6 @@ const ChartAnalysis = () => {
                 <span>MACD (12, 26)</span>
                 <span style={{ color: indicators.macd.color, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                   {getIndicatorIcon(indicators.macd.color)} {indicators.macd.status}
-                </span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>PCR (Open Interest)</span>
-                <span style={{ color: indicators.pcr.color, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                  {getIndicatorIcon(indicators.pcr.color)} {indicators.pcr.value} ({indicators.pcr.status})
                 </span>
               </div>
             </div>

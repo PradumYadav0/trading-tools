@@ -1094,15 +1094,14 @@ async function runAllDecoders() {
       if (lastCandle.close > lastEma20) chartBullishScore++; else chartBearishScore++;
       if (lastEma9 > lastEma20) chartBullishScore++; else chartBearishScore++;
       if (macdLine > 0) chartBullishScore++; else chartBearishScore++;
-      if (pcr > 1.1) chartBullishScore++; else if (pcr < 0.9) chartBearishScore++;
       if (lastRsi < 40) chartBullishScore++; else if (lastRsi > 60) chartBearishScore++;
       if (lastCandle.close > vwap) chartBullishScore++; else chartBearishScore++;
 
       let chartSignal = 'WAIT';
       // 5m signal confirmation + 15m major trend alignment
-      if (chartBullishScore >= 5 && lastCandle.close > lastEma9 && majorTrend === 'BULLISH') {
+      if (chartBullishScore >= 4 && lastCandle.close > lastEma9 && majorTrend === 'BULLISH') {
         chartSignal = 'CALL';
-      } else if (chartBearishScore >= 5 && lastCandle.close < lastEma9 && majorTrend === 'BEARISH') {
+      } else if (chartBearishScore >= 4 && lastCandle.close < lastEma9 && majorTrend === 'BEARISH') {
         chartSignal = 'PUT';
       }
 

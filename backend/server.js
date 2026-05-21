@@ -127,7 +127,20 @@ const db = new sqlite3.Database('./option_chain.db', (err) => {
       spot_price REAL,
       expiry TEXT,
       data TEXT
-    )`);
+    )`, () => {
+      // Clean up off-market hours history records on startup (keeping strictly 9:15 AM to 3:30 PM IST)
+      db.run(`
+        DELETE FROM option_chain_history 
+        WHERE time(timestamp, '+5.5 hours') < '09:15:00' 
+           OR time(timestamp, '+5.5 hours') > '15:30:00'
+      `, function(cleanErr) {
+        if (cleanErr) {
+          console.error('Error cleaning up off-hours history:', cleanErr.message);
+        } else if (this.changes > 0) {
+          console.log(`Cleaned up ${this.changes} off-market hours history records from database.`);
+        }
+      });
+    });
 
     db.run(`CREATE TABLE IF NOT EXISTS ai_signals (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -224,7 +237,7 @@ const parseDhanTimestamp = (ts) => {
   return 0;
 };
 
-// Helper to check if Indian Stock Market is open (Monday to Friday, 9:00 AM to 3:45 PM IST)
+// Helper to check if Indian Stock Market is open strictly for live trading hours (Monday to Friday, 9:15 AM to 3:30 PM IST)
 const isIndianMarketOpen = () => {
   const now = new Date();
   const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
@@ -236,8 +249,8 @@ const isIndianMarketOpen = () => {
   if (day < 1 || day > 5) return false; // Closed on weekends
   
   const timeInMinutes = hours * 60 + minutes;
-  // 9:00 AM is 540 minutes, 3:45 PM is 945 minutes
-  return timeInMinutes >= 540 && timeInMinutes <= 945;
+  // 9:15 AM is 555 minutes, 3:30 PM is 930 minutes
+  return timeInMinutes >= 555 && timeInMinutes <= 930;
 };
 
 // Initialize latest spot prices from database history on startup

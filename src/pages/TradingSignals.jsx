@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AlertCircle, RefreshCw, TrendingUp, TrendingDown, ShieldAlert, Zap } from 'lucide-react';
+import { isMarketOpen } from '../utils/market';
 
 const TradingSignals = () => {
   const [symbol, setSymbol] = useState('NIFTY');
@@ -50,7 +51,11 @@ const TradingSignals = () => {
     setCooldown(false); // Reset cooldown when switching symbols
     fetchSignals();
     // Auto refresh every 1 minute
-    const interval = setInterval(fetchSignals, 60000);
+    const interval = setInterval(() => {
+      if (isMarketOpen()) {
+        fetchSignals();
+      }
+    }, 60000);
     return () => clearInterval(interval);
   }, [symbol]);
 
@@ -242,6 +247,22 @@ const TradingSignals = () => {
             <option value="FINNIFTY">FINNIFTY</option>
             <option value="MIDCPNIFTY">MIDCPNIFTY</option>
           </select>
+
+          {/* Market Status Badge */}
+          <div style={{
+            background: isMarketOpen() ? 'rgba(0, 200, 5, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+            color: isMarketOpen() ? '#00c805' : '#ef4444',
+            border: `1px solid ${isMarketOpen() ? '#00c805' : '#ef4444'}`,
+            padding: '0.5rem 1rem',
+            borderRadius: '8px',
+            fontSize: '0.9rem',
+            fontWeight: '600',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.25rem'
+          }}>
+            <span style={{ fontSize: '0.6rem' }}>●</span> {isMarketOpen() ? 'Live' : 'Closed'}
+          </div>
 
           <button 
             onClick={fetchSignals}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { RefreshCw, Filter, Zap, ZapOff, BarChart2, Calendar, Clock, Trophy, Database, Eye, EyeOff, Award } from 'lucide-react';
+import { isMarketOpen, getIstDateString } from '../utils/market';
 
 const OptionChain = () => {
   const [spotPrice, setSpotPrice] = useState(0);
@@ -18,7 +19,7 @@ const OptionChain = () => {
 
   // History Mode State
   const [mode, setMode] = useState('live'); // 'live' or 'history'
-  const [historyDate, setHistoryDate] = useState(new Date().toISOString().slice(0, 10));
+  const [historyDate, setHistoryDate] = useState(getIstDateString());
   const [historySnapshots, setHistorySnapshots] = useState([]);
   const [selectedSnapshotIndex, setSelectedSnapshotIndex] = useState(0);
 
@@ -117,7 +118,11 @@ const OptionChain = () => {
     let interval = null;
     if (autoRefresh && mode === 'live') {
       interval = setInterval(() => {
-        fetchData();
+        if (isMarketOpen()) {
+          fetchData();
+        } else {
+          console.log('Skipping auto-refresh: Market is closed.');
+        }
       }, 60000);
     }
     return () => {
@@ -347,6 +352,22 @@ const OptionChain = () => {
               PCR: <span style={{ color: parseFloat(pcr) > 1 ? 'var(--bullish)' : 'var(--bearish)' }}>{pcr}</span>
             </div>
 
+            {/* Market Status Badge */}
+            <div style={{
+              background: isMarketOpen() ? 'rgba(0, 200, 5, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+              color: isMarketOpen() ? '#00c805' : '#ef4444',
+              border: `1px solid ${isMarketOpen() ? '#00c805' : '#ef4444'}`,
+              padding: '0.25rem 0.75rem',
+              borderRadius: '8px',
+              fontSize: '0.85rem',
+              fontWeight: '600',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.25rem'
+            }}>
+              <span style={{ fontSize: '0.6rem' }}>●</span> {isMarketOpen() ? 'Live' : 'Closed'}
+            </div>
+
             {/* Last Updated Time */}
             <div style={{ 
               display: 'flex', 
@@ -386,18 +407,25 @@ const OptionChain = () => {
           {/* Auto Refresh Toggle */}
           {mode === 'live' && (
             <button
-              onClick={() => setAutoRefresh(!autoRefresh)}
+              onClick={() => {
+                if (!isMarketOpen()) {
+                  alert("Market closed hai. Live auto-refresh market hours (9:15 AM to 3:30 PM, Mon-Fri) me hi chalega.");
+                  return;
+                }
+                setAutoRefresh(!autoRefresh);
+              }}
               style={{
                 background: autoRefresh ? 'rgba(0, 200, 5, 0.1)' : 'rgba(255, 255, 255, 0.05)',
                 color: autoRefresh ? '#00c805' : 'var(--text-secondary)',
                 border: `1px solid ${autoRefresh ? '#00c805' : 'var(--border-color)'}`,
                 padding: '0.5rem 1rem',
                 borderRadius: '8px',
-                cursor: 'pointer',
+                cursor: isMarketOpen() ? 'pointer' : 'not-allowed',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '0.5rem',
                 fontSize: '0.9rem',
+                opacity: isMarketOpen() ? 1 : 0.6,
                 transition: 'var(--transition-smooth)'
               }}
             >

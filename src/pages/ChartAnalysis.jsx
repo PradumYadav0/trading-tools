@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, CandlestickSeries, LineSeries } from 'lightweight-charts';
 import { RefreshCw, AlertCircle, Zap, TrendingUp, TrendingDown, Minus, Maximize2 } from 'lucide-react';
+import { isMarketOpen } from '../utils/market';
 
 const ChartAnalysis = () => {
   const chartContainerRef = useRef();
@@ -114,8 +115,12 @@ const ChartAnalysis = () => {
     fetchData();
     
     const intervalId = setInterval(() => {
-      console.log('Auto-refreshing data...');
-      fetchData();
+      if (isMarketOpen()) {
+        console.log('Auto-refreshing data...');
+        fetchData();
+      } else {
+        console.log('Skipping auto-refresh: Market is closed.');
+      }
     }, 60000);
     
     return () => clearInterval(intervalId);
@@ -403,6 +408,22 @@ const ChartAnalysis = () => {
             <option value="60">1 Hour</option>
             <option value="D">1 Day</option>
           </select>
+
+          {/* Market Status Badge */}
+          <div style={{
+            background: isMarketOpen() ? 'rgba(0, 200, 5, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+            color: isMarketOpen() ? '#00c805' : '#ef4444',
+            border: `1px solid ${isMarketOpen() ? '#00c805' : '#ef4444'}`,
+            padding: '0.5rem 1rem',
+            borderRadius: '8px',
+            fontSize: '0.9rem',
+            fontWeight: '600',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.25rem'
+          }}>
+            <span style={{ fontSize: '0.6rem' }}>●</span> {isMarketOpen() ? 'Live' : 'Closed'}
+          </div>
 
           <button 
             onClick={fetchData}

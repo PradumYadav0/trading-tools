@@ -239,18 +239,42 @@ const parseDhanTimestamp = (ts) => {
 
 // Helper to check if Indian Stock Market is open strictly for live trading hours (Monday to Friday, 9:15 AM to 3:30 PM IST)
 const isIndianMarketOpen = () => {
-  const now = new Date();
-  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-  const ist = new Date(utc + (3600000 * 5.5));
-  const day = ist.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-  const hours = ist.getHours();
-  const minutes = ist.getMinutes();
-  
-  if (day < 1 || day > 5) return false; // Closed on weekends
-  
-  const timeInMinutes = hours * 60 + minutes;
-  // 9:15 AM is 555 minutes, 3:30 PM is 930 minutes
-  return timeInMinutes >= 555 && timeInMinutes <= 930;
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Kolkata',
+      hour12: false,
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    
+    const parts = formatter.formatToParts(new Date());
+    const getValue = (type) => parts.find(p => p.type === type)?.value;
+    
+    const weekday = getValue('weekday'); // "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"
+    const hour = parseInt(getValue('hour'), 10);
+    const minute = parseInt(getValue('minute'), 10);
+    
+    if (!weekday || isNaN(hour) || isNaN(minute)) return false;
+    if (['Sat', 'Sun'].includes(weekday)) return false;
+    
+    const timeInMinutes = hour * 60 + minute;
+    // 9:15 AM is 555 minutes, 3:30 PM is 930 minutes
+    return timeInMinutes >= 555 && timeInMinutes <= 930;
+  } catch (err) {
+    console.error('Error in isIndianMarketOpen:', err.message);
+    const now = new Date();
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const ist = new Date(utc + (3600000 * 5.5));
+    const day = ist.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    const hours = ist.getHours();
+    const minutes = ist.getMinutes();
+    
+    if (day < 1 || day > 5) return false; // Closed on weekends
+    
+    const timeInMinutes = hours * 60 + minutes;
+    return timeInMinutes >= 555 && timeInMinutes <= 930;
+  }
 };
 
 // Initialize latest spot prices from database history on startup
@@ -271,15 +295,119 @@ const initializeSpotPrices = async () => {
 };
 initializeSpotPrices();
 
+// Helper to get the last saved option chain for a symbol (and expiry if provided) from database
+const getLastSavedOptionChain = (symbol, expiryToUse) => {
+  return new Promise((resolve) => {
+    let query = `SELECT * FROM option_chain_history WHERE symbol = ?`;
+    const params = [symbol];
+    if (expiryToUse) {
+      query += ` AND expiry = ?`;
+      params.push(expiryToUse);
+    }
+    query += ` ORDER BY timestamp DESC LIMIT 1`;
+    
+    db.get(query, params, (err, row) => {
+      if (err || !row) {
+        resolve(null);
+      } else {
+        resolve(row);
+      }
+    });
+  });
+};
+
+// Helper to get unique expiries saved in database
+const getSavedExpiries = (symbol) => {
+  return new Promise((resolve) => {
+    db.all(
+      `SELECT DISTINCT expiry FROM option_chain_history WHERE symbol = ? ORDER BY expiry ASC`,
+      [symbol],
+      (err, rows) => {
+        if (err || !rows) {
+          resolve([]);
+        } else {
+          resolve(rows.map(r => r.expiry));
+        }
+      }
+    );
+  });
+};
+
+// Helper to check for duplicate and save option chain (at most one per symbol per minute)
+const checkAndSaveOptionChain = (symbol, spotPrice, expiry, strikesArray) => {
+  return new Promise((resolve) => {
+    const now = new Date();
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const ist = new Date(utc + (3600000 * 5.5));
+    const currentMinuteStr = ist.toISOString().slice(0, 16).replace('T', ' '); // YYYY-MM-DD HH:MM
+    
+    db.get(
+      `SELECT id FROM option_chain_history 
+       WHERE symbol = ? 
+         AND strftime('%Y-%m-%d %H:%M', datetime(timestamp, '+5.5 hours')) = ?`,
+      [symbol, currentMinuteStr],
+      (err, row) => {
+        if (err) {
+          console.error(`Error querying duplicates for ${symbol}:`, err.message);
+          resolve();
+          return;
+        }
+        
+        if (!row) {
+          db.run(
+            `INSERT INTO option_chain_history (symbol, spot_price, expiry, data) VALUES (?, ?, ?, ?)`,
+            [symbol, spotPrice, expiry, JSON.stringify(strikesArray)],
+            function(insertErr) {
+              if (insertErr) {
+                console.error(`Error background-saving option chain for ${symbol}:`, insertErr.message);
+              }
+              resolve();
+            }
+          );
+        } else {
+          // Already exists for this minute, skip to prevent duplicates
+          resolve();
+        }
+      }
+    );
+  });
+};
+
 // Endpoint to get Option Chain
 app.get('/api/option-chain', async (req, res) => {
   const symbol = req.query.symbol || 'NIFTY';
   const expiryToUse = req.query.expiry;
   const cacheKey = `${symbol}_${expiryToUse || 'first'}`;
 
-  const cached = getCachedData('optionChain', cacheKey);
+  // If market is closed, check cache first with a longer duration (1 hour)
+  const duration = isIndianMarketOpen() ? CACHE_DURATION_MS : 3600000; // 1 hour
+  const cached = getCachedData('optionChain', cacheKey, duration);
   if (cached) {
     return res.json(cached);
+  }
+
+  // If market is closed, try to serve from database snapshot first
+  if (!isIndianMarketOpen()) {
+    try {
+      const row = await getLastSavedOptionChain(symbol, expiryToUse);
+      if (row) {
+        const dbExpiries = await getSavedExpiries(symbol);
+        const strikesArray = JSON.parse(row.data);
+        const result = {
+          success: true,
+          spotPrice: row.spot_price,
+          expiry: row.expiry,
+          expiryList: dbExpiries.length > 0 ? dbExpiries : [row.expiry],
+          data: strikesArray,
+          atr: latestAtrValues[symbol] || (symbol === 'NIFTY' ? 15 : symbol === 'BANKNIFTY' ? 40 : symbol === 'FINNIFTY' ? 18 : 10)
+        };
+        setCachedData('optionChain', cacheKey, result);
+        console.log(`Served ${symbol} option chain from database snapshot (market closed).`);
+        return res.json(result);
+      }
+    } catch (dbErr) {
+      console.error('Error fetching option chain from DB:', dbErr.message);
+    }
   }
 
   try {
@@ -354,15 +482,9 @@ app.get('/api/option-chain', async (req, res) => {
       };
     }).sort((a, b) => a.strike - b.strike);
 
-    // Save to Database for history and generate signals only during market hours
+    // Save to Database for history and generate signals only during market hours (using duplicate check)
     if (isIndianMarketOpen()) {
-      db.run(
-        `INSERT INTO option_chain_history (symbol, spot_price, expiry, data) VALUES (?, ?, ?, ?)`,
-        [symbol, spotPrice, finalExpiry, JSON.stringify(strikesArray)],
-        function(err) {
-          if (err) console.error('Error saving to DB:', err.message);
-        }
-      );
+      await checkAndSaveOptionChain(symbol, spotPrice, finalExpiry, strikesArray);
 
       // Auto-calculate and save signals to ai_signals
       let totalCallOi = 0;
@@ -390,25 +512,25 @@ app.get('/api/option-chain', async (req, res) => {
       const pcr = totalCallOi > 0 ? (totalPutOi / totalCallOi).toFixed(2) : 0;
       
       let type = null;
-      let target_price = 0;
-      let stoploss_price = 0;
 
       if (pcr > 1.2 && spotPrice > supportStrike) {
         type = 'CALL';
-        stoploss_price = supportStrike;
-        target_price = resistanceStrike;
       } else if (pcr < 0.8 && spotPrice < resistanceStrike) {
         type = 'PUT';
-        stoploss_price = resistanceStrike;
-        target_price = supportStrike;
       }
 
       if (type) {
+        const lastAtr = latestAtrValues[symbol] || (symbol === 'NIFTY' ? 15 : symbol === 'BANKNIFTY' ? 40 : symbol === 'FINNIFTY' ? 18 : 10);
+        const dynamicSlAmt = 1.0 * lastAtr;
+        const dynamicTgtAmt = 2.0 * lastAtr;
+        const target_price = type === 'CALL' ? spotPrice + dynamicTgtAmt : spotPrice - dynamicTgtAmt;
+        const stoploss_price = type === 'CALL' ? spotPrice - dynamicSlAmt : spotPrice + dynamicSlAmt;
+
         db.get(`SELECT id FROM ai_signals WHERE symbol = ? AND source = 'OPTION_CHAIN' AND status = 'PENDING'`, [symbol], (err, row) => {
           if (!err && !row) {
             db.run(
               `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price, source) VALUES (?, ?, ?, ?, ?, 'OPTION_CHAIN')`,
-              [symbol, type, spotPrice, target_price, stoploss_price],
+              [symbol, type, spotPrice, parseFloat(target_price.toFixed(2)), parseFloat(stoploss_price.toFixed(2))],
               function(err) {
                 if (err) console.error('Error auto-saving Option Chain signal:', err.message);
               }
@@ -479,7 +601,9 @@ app.get('/api/charts/intraday', async (req, res) => {
   const interval = req.query.interval || '5'; // default 5 mins
   const cacheKey = `${symbol}_${interval}`;
 
-  const cached = getCachedData('chartsIntraday', cacheKey);
+  // If market is closed, cache for 1 hour
+  const duration = isIndianMarketOpen() ? CACHE_DURATION_MS : 3600000; // 1 hour
+  const cached = getCachedData('chartsIntraday', cacheKey, duration);
   if (cached) {
     return res.json(cached);
   }
@@ -651,90 +775,157 @@ app.post('/api/ai-analysis', async (req, res) => {
     const symbol = req.body.symbol || 'NIFTY';
     
     // 1. Fetch Option Chain Data
-    const scripId = scripMap[symbol];
-    if (!scripId) {
-      return res.status(400).json({ success: false, message: 'Invalid symbol requested' });
+    let spotPrice;
+    let strikesArray = [];
+    let finalExpiry = req.body.expiry;
+    let ocData = null;
+
+    // Check cache or DB first (especially when market is closed)
+    const cacheKey = `${symbol}_${finalExpiry || 'first'}`;
+    const cachedOc = getCachedData('optionChain', cacheKey, isIndianMarketOpen() ? CACHE_DURATION_MS : 3600000);
+    
+    if (cachedOc) {
+      spotPrice = cachedOc.spotPrice;
+      strikesArray = cachedOc.data;
+      finalExpiry = cachedOc.expiry;
+    } else if (!isIndianMarketOpen()) {
+      try {
+        const row = await getLastSavedOptionChain(symbol, finalExpiry);
+        if (row) {
+          spotPrice = row.spot_price;
+          strikesArray = JSON.parse(row.data);
+          finalExpiry = row.expiry;
+        }
+      } catch (dbErr) {
+        console.error('Error fetching option chain for AI analysis:', dbErr.message);
+      }
     }
 
-    // Get Expiry List first
-    const expiryResponse = await queuedDhanRequest({
-      method: 'post',
-      url: 'https://api.dhan.co/v2/optionchain/expirylist',
-      data: {
-        UnderlyingScrip: scripId,
-        UnderlyingSeg: 'IDX_I'
-      },
-      headers: getDhanHeaders()
-    });
+    // Fallback to Dhan API if option chain not available
+    if (!spotPrice || strikesArray.length === 0) {
+      const expiryResponse = await queuedDhanRequest({
+        method: 'post',
+        url: 'https://api.dhan.co/v2/optionchain/expirylist',
+        data: {
+          UnderlyingScrip: scripId,
+          UnderlyingSeg: 'IDX_I'
+        },
+        headers: getDhanHeaders()
+      });
 
-    if (expiryResponse.data.status !== 'success' || !expiryResponse.data.data.length) {
-      return res.status(400).json({ success: false, message: `Failed to fetch expiry list for ${symbol}` });
+      if (expiryResponse.data.status !== 'success' || !expiryResponse.data.data.length) {
+        return res.status(400).json({ success: false, message: `Failed to fetch expiry list for ${symbol}` });
+      }
+
+      const expiryList = expiryResponse.data.data;
+      finalExpiry = finalExpiry || expiryList[0];
+
+      const ocResponse = await queuedDhanRequest({
+        method: 'post',
+        url: 'https://api.dhan.co/v2/optionchain',
+        data: {
+          UnderlyingScrip: scripId,
+          UnderlyingSeg: 'IDX_I',
+          Expiry: finalExpiry
+        },
+        headers: getDhanHeaders()
+      });
+
+      if (ocResponse.data.status !== 'success') {
+        return res.status(400).json({ success: false, message: 'Failed to fetch option chain' });
+      }
+
+      ocData = ocResponse.data.data;
+      spotPrice = ocData.last_price;
+      
+      const rawOc = ocData.oc;
+      strikesArray = Object.keys(rawOc).map(strikeStr => {
+        const strike = parseFloat(strikeStr);
+        const data = rawOc[strikeStr];
+        return {
+          strike,
+          callOi: data.ce?.oi || 0,
+          callChgOi: (data.ce?.oi || 0) - (data.ce?.previous_oi || 0), 
+          callLtp: data.ce?.last_price || 0,
+          callVolume: data.ce?.volume || 0,
+          putVolume: data.pe?.volume || 0,
+          putLtp: data.pe?.last_price || 0,
+          putChgOi: (data.pe?.oi || 0) - (data.pe?.previous_oi || 0),
+          putOi: data.pe?.oi || 0
+        };
+      }).sort((a, b) => a.strike - b.strike);
     }
 
-    const expiryList = expiryResponse.data.data;
-    const expiryToUse = req.body.expiry || expiryList[0];
-
-    const ocResponse = await queuedDhanRequest({
-      method: 'post',
-      url: 'https://api.dhan.co/v2/optionchain',
-      data: {
-        UnderlyingScrip: scripId,
-        UnderlyingSeg: 'IDX_I',
-        Expiry: expiryToUse
-      },
-      headers: getDhanHeaders()
-    });
-
-    // 2. Fetch Chart Data (Last 20 candles of 5 min)
-    const toDate = new Date();
-    toDate.setDate(toDate.getDate() + 1);
-    const fromDate = new Date();
-    fromDate.setDate(fromDate.getDate() - 2); // 2 days to be safe
-
-    const formatDate = (d) => d.toISOString().split('T')[0];
+    // 2. Fetch Chart Data (Last 30 candles of 5 min)
+    let chartCandles = [];
+    const cachedChart = getCachedData('chartsIntraday', `${symbol}_5`, isIndianMarketOpen() ? CACHE_DURATION_MS : 3600000);
     
-    const chartResponse = await queuedDhanRequest({
-      method: 'post',
-      url: 'https://api.dhan.co/v2/charts/intraday',
-      data: {
-        securityId: scripId.toString(),
-        exchangeSegment: 'IDX_I',
-        instrument: 'INDEX',
-        interval: '5',
-        fromDate: formatDate(fromDate),
-        toDate: formatDate(toDate)
-      },
-      headers: getDhanHeaders()
-    });
+    if (cachedChart && cachedChart.success && cachedChart.data) {
+      chartCandles = cachedChart.data;
+    } else {
+      const toDate = new Date();
+      toDate.setDate(toDate.getDate() + 1);
+      const fromDate = new Date();
+      fromDate.setDate(fromDate.getDate() - 2);
 
-    // Process data for prompt
-    const ocData = ocResponse.data.data;
-    const spotPrice = ocData.last_price;
-    
+      const formatDate = (d) => d.toISOString().split('T')[0];
+      
+      const chartResponse = await queuedDhanRequest({
+        method: 'post',
+        url: 'https://api.dhan.co/v2/charts/intraday',
+        data: {
+          securityId: scripId.toString(),
+          exchangeSegment: 'IDX_I',
+          instrument: 'INDEX',
+          interval: '5',
+          fromDate: formatDate(fromDate),
+          toDate: formatDate(toDate)
+        },
+        headers: getDhanHeaders()
+      });
+
+      const chartData = chartResponse.data.data || chartResponse.data;
+      if (chartData.timestamp) {
+        for (let i = 0; i < chartData.timestamp.length; i++) {
+          chartCandles.push({
+            time: chartData.timestamp[i],
+            open: chartData.open[i],
+            high: chartData.high[i],
+            low: chartData.low[i],
+            close: chartData.close[i]
+          });
+        }
+      }
+    }
+
     // Calculate PCR
     let totalCallOi = 0;
     let totalPutOi = 0;
-    Object.values(ocData.oc).forEach(strike => {
-      totalCallOi += strike.ce?.oi || 0;
-      totalPutOi += strike.pe?.oi || 0;
+    strikesArray.forEach(strike => {
+      totalCallOi += strike.callOi || 0;
+      totalPutOi += strike.putOi || 0;
     });
     const pcr = totalCallOi > 0 ? (totalPutOi / totalCallOi).toFixed(2) : 0;
 
     // Get last 30 candles
-    const chartData = chartResponse.data;
     const lastCandles = [];
-    if (chartData.timestamp) {
-      const len = chartData.timestamp.length;
-      const startIdx = Math.max(0, len - 30);
-      for (let i = startIdx; i < len; i++) {
-        lastCandles.push({
-          time: new Date(parseDhanTimestamp(chartData.timestamp[i]) * 1000).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }),
-          open: chartData.open[i],
-          high: chartData.high[i],
-          low: chartData.low[i],
-          close: chartData.close[i]
-        });
+    const len = chartCandles.length;
+    const startIdx = Math.max(0, len - 30);
+    for (let i = startIdx; i < len; i++) {
+      const candle = chartCandles[i];
+      let formattedTime = '';
+      if (typeof candle.time === 'string') {
+        formattedTime = candle.time;
+      } else {
+        formattedTime = new Date(parseDhanTimestamp(candle.time) * 1000).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
       }
+      lastCandles.push({
+        time: formattedTime,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close
+      });
     }
 
     const prompt = `You are an expert stock market technical analyst. 
@@ -1051,10 +1242,18 @@ async function runAllDecoders() {
           strike,
           callOi: data.ce?.oi || 0,
           callChgOi: (data.ce?.oi || 0) - (data.ce?.previous_oi || 0), 
+          callLtp: data.ce?.last_price || 0,
+          callVolume: data.ce?.volume || 0,
+          putVolume: data.pe?.volume || 0,
+          putLtp: data.pe?.last_price || 0,
           putChgOi: (data.pe?.oi || 0) - (data.pe?.previous_oi || 0),
-          putOi: data.pe?.oi || 0
+          putOi: data.pe?.oi || 0,
+          updateStatus: null
         };
       }).sort((a, b) => a.strike - b.strike);
+
+      // Save to Database for history using duplicate check
+      await checkAndSaveOptionChain(symbol, spotPrice, expiry, strikesArray);
       
       // A. Calculate PCR
       const totalCallOi = strikesArray.reduce((sum, row) => sum + row.callOi, 0);

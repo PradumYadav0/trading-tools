@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { RefreshCw, Zap, TrendingUp, TrendingDown, Minus, Activity, Cpu, Brain, Target, ShieldAlert, Flame, Percent } from 'lucide-react';
+import { isMarketOpen } from '../utils/market';
 
 const OptionDecoder = () => {
   const [symbol, setSymbol] = useState('NIFTY');
@@ -181,7 +182,11 @@ const OptionDecoder = () => {
   useEffect(() => {
     fetchData();
     const intervalId = setInterval(() => {
-      fetchData();
+      if (isMarketOpen()) {
+        fetchData();
+      } else {
+        console.log('Skipping auto-refresh: Market is closed.');
+      }
     }, 60000);
     
     return () => clearInterval(intervalId);
@@ -253,6 +258,22 @@ const OptionDecoder = () => {
             <option value="FINNIFTY">FINNIFTY</option>
             <option value="MIDCPNIFTY">MIDCPNIFTY</option>
           </select>
+
+          {/* Market Status Badge */}
+          <div style={{
+            background: isMarketOpen() ? 'rgba(0, 200, 5, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+            color: isMarketOpen() ? '#00c805' : '#ef4444',
+            border: `1px solid ${isMarketOpen() ? '#00c805' : '#ef4444'}`,
+            padding: '0.5rem 1rem',
+            borderRadius: '8px',
+            fontSize: '0.9rem',
+            fontWeight: '600',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.25rem'
+          }}>
+            <span style={{ fontSize: '0.6rem' }}>●</span> {isMarketOpen() ? 'Live' : 'Closed'}
+          </div>
 
           <button 
             onClick={fetchData}

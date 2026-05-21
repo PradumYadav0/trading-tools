@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { ArrowUpRight, ArrowDownRight, Activity, Zap, RefreshCw } from 'lucide-react';
+import { isMarketOpen } from '../utils/market';
 
 const Dashboard = () => {
   const [indexData, setIndexData] = useState({
@@ -58,7 +59,11 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 60000); // Auto refresh every 1 minute
+    const interval = setInterval(() => {
+      if (isMarketOpen()) {
+        fetchData();
+      }
+    }, 60000); // Auto refresh every 1 minute if market is open
     return () => clearInterval(interval);
   }, []);
 
@@ -70,24 +75,42 @@ const Dashboard = () => {
           <p style={{ color: 'var(--text-secondary)' }}>Here is your live market summary from Dhan API.</p>
         </div>
         
-        <button 
-          onClick={fetchData}
-          disabled={isRefreshing}
-          style={{ 
-            background: 'var(--primary-color)', 
-            color: 'white', 
-            border: 'none', 
-            padding: '0.5rem 1rem', 
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          {/* Market Status Badge */}
+          <div style={{
+            background: isMarketOpen() ? 'rgba(0, 200, 5, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+            color: isMarketOpen() ? '#00c805' : '#ef4444',
+            border: `1px solid ${isMarketOpen() ? '#00c805' : '#ef4444'}`,
+            padding: '0.5rem 1rem',
             borderRadius: '8px',
-            cursor: 'pointer',
+            fontSize: '0.9rem',
+            fontWeight: '600',
             display: 'flex',
             alignItems: 'center',
-            gap: '0.5rem'
-          }}
-        >
-          <RefreshCw size={16} className={isRefreshing ? 'spin' : ''} />
-          Refresh
-        </button>
+            gap: '0.25rem'
+          }}>
+            <span style={{ fontSize: '0.6rem' }}>●</span> {isMarketOpen() ? 'Live' : 'Closed'}
+          </div>
+
+          <button 
+            onClick={fetchData}
+            disabled={isRefreshing}
+            style={{ 
+              background: 'var(--primary-color)', 
+              color: 'white', 
+              border: 'none', 
+              padding: '0.5rem 1rem', 
+              borderRadius: '8px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem'
+            }}
+          >
+            <RefreshCw size={16} className={isRefreshing ? 'spin' : ''} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -96,7 +119,7 @@ const Dashboard = () => {
           <div key={key} className="glass-panel" style={{ flex: '1', minWidth: '240px', padding: '1.5rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
               <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 'bold' }}>{data.name}</span>
-              <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Live</span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{isMarketOpen() ? 'Live' : 'Closed'}</span>
             </div>
             <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--accent-primary)' }}>
               {data.loading ? 'Loading...' : (typeof data.spot === 'number' ? data.spot.toFixed(2) : data.spot)}
@@ -121,7 +144,7 @@ const Dashboard = () => {
         </p>
         <div style={{ display: 'flex', gap: '1rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-            <Activity size={16} /> Auto-refresh is ON (1m)
+            <Activity size={16} /> Auto-refresh is {isMarketOpen() ? 'ON (1m)' : 'OFF (Market Closed)'}
           </div>
           <div>|</div>
           <div>Data Source: Dhan API</div>

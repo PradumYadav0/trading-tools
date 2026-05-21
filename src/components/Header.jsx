@@ -1,7 +1,20 @@
-import React from 'react';
-import { Bell, User, Search, Wifi, Menu } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Bell, User, Search, Wifi, WifiOff, Menu } from 'lucide-react';
+import { isMarketOpen } from '../utils/market';
 
 const Header = ({ toggleSidebar }) => {
+  const [marketStatus, setMarketStatus] = useState('CLOSED');
+
+  useEffect(() => {
+    const checkMarketStatus = () => {
+      setMarketStatus(isMarketOpen() ? 'OPEN' : 'CLOSED');
+    };
+
+    checkMarketStatus();
+    const interval = setInterval(checkMarketStatus, 15000); // Check every 15 seconds
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <header className="header">
       <div className="header-left">
@@ -29,15 +42,17 @@ const Header = ({ toggleSidebar }) => {
             alignItems: 'center', 
             gap: '0.5rem', 
             fontSize: '0.85rem', 
-            color: 'var(--bullish)',
-            background: 'rgba(16, 185, 129, 0.1)',
+            color: marketStatus === 'OPEN' ? 'var(--bullish)' : 'var(--bearish)',
+            background: marketStatus === 'OPEN' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
             padding: '0.25rem 0.75rem',
             borderRadius: '20px',
-            fontWeight: '500',
-            whiteSpace: 'nowrap'
+            fontWeight: '600',
+            whiteSpace: 'nowrap',
+            border: `1px solid ${marketStatus === 'OPEN' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
+            transition: 'all 0.3s ease'
           }}>
-            <Wifi size={14} />
-            <span>Connected</span>
+            {marketStatus === 'OPEN' ? <Wifi size={14} /> : <WifiOff size={14} />}
+            <span>Market: {marketStatus}</span>
           </div>
         </div>
       </div>

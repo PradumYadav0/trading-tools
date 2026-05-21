@@ -14,6 +14,7 @@ import {
   Compass, 
   Layers 
 } from 'lucide-react';
+import { getIstDateString } from '../utils/market';
 
 const AiTesting = () => {
   const [signals, setSignals] = useState([]);
@@ -86,8 +87,11 @@ const AiTesting = () => {
   const overallStats = calculateStats(signals);
 
   // Calculate stats for TODAY (combining all sources for quick overview)
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const todaySignals = signals.filter(s => new Date(s.created_at).toISOString().slice(0, 10) === todayStr);
+  const todayStr = getIstDateString(new Date());
+  const todaySignals = signals.filter(s => {
+    const dateStr = s.created_at.endsWith('Z') || s.created_at.endsWith('UTC') ? s.created_at : s.created_at + ' UTC';
+    return getIstDateString(new Date(dateStr)) === todayStr;
+  });
   const todayStats = calculateStats(todaySignals);
 
   // Find the winner

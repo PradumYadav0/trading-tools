@@ -560,21 +560,65 @@ const OptionChain = () => {
         <div className="glass-panel" style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '0.85rem' }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 2, background: '#161B22' }}>
-              <tr className={!showAllColumns ? "mobile-hide" : ""} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                <th colSpan={showAllColumns ? 4 : 2} style={{ padding: '0.75rem', color: 'var(--bearish)', borderRight: '1px solid var(--border-color)' }}>CALLS</th>
-                <th style={{ padding: '0.75rem' }}>STRIKE</th>
-                <th colSpan={showAllColumns ? 4 : 2} style={{ padding: '0.75rem', color: 'var(--bullish)', borderLeft: '1px solid var(--border-color)' }}>PUTS</th>
+              {/* CALLS | STRIKE | PUTS - Main Group Header */}
+              <tr style={{ borderBottom: '2px solid var(--border-color)' }}>
+                <th 
+                  colSpan={showAllColumns ? 4 : 2} 
+                  style={{ 
+                    padding: '0.6rem 1rem', 
+                    color: '#ff6b6b', 
+                    background: 'rgba(239, 68, 68, 0.08)',
+                    borderRight: '2px solid rgba(239,68,68,0.4)',
+                    fontSize: '0.9rem',
+                    fontWeight: '800',
+                    letterSpacing: '2px',
+                    textTransform: 'uppercase'
+                  }}
+                >
+                  ▼ CALLS
+                </th>
+                <th 
+                  style={{ 
+                    padding: '0.6rem 0.75rem',
+                    color: '#c9d1d9',
+                    background: 'rgba(255,255,255,0.04)',
+                    fontSize: '0.8rem',
+                    fontWeight: '700',
+                    letterSpacing: '1px',
+                    borderLeft: '2px solid rgba(239,68,68,0.4)',
+                    borderRight: '2px solid rgba(16,185,129,0.4)',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  STRIKE
+                </th>
+                <th 
+                  colSpan={showAllColumns ? 4 : 2} 
+                  style={{ 
+                    padding: '0.6rem 1rem', 
+                    color: '#00c805', 
+                    background: 'rgba(16, 185, 129, 0.08)',
+                    borderLeft: '2px solid rgba(16,185,129,0.4)',
+                    fontSize: '0.9rem',
+                    fontWeight: '800',
+                    letterSpacing: '2px',
+                    textTransform: 'uppercase'
+                  }}
+                >
+                  PUTS ▲
+                </th>
               </tr>
-              <tr style={{ background: 'rgba(255, 255, 255, 0.01)', borderBottom: '1px solid var(--border-color)' }}>
-                <th style={{ padding: '0.5rem' }}>OI</th>
-                <th className={!showAllColumns ? "mobile-hide" : ""} style={{ padding: '0.5rem' }}>Chg OI</th>
-                <th className={!showAllColumns ? "mobile-hide" : ""} style={{ padding: '0.5rem' }}>Volume</th>
-                <th style={{ padding: '0.5rem', borderRight: '1px solid var(--border-color)' }}>LTP</th>
-                <th style={{ padding: '0.5rem' }}>Strike Price</th>
-                <th style={{ padding: '0.5rem', borderLeft: '1px solid var(--border-color)' }}>LTP</th>
-                <th className={!showAllColumns ? "mobile-hide" : ""} style={{ padding: '0.5rem' }}>Volume</th>
-                <th className={!showAllColumns ? "mobile-hide" : ""} style={{ padding: '0.5rem' }}>Chg OI</th>
-                <th style={{ padding: '0.5rem' }}>OI</th>
+              {/* Sub-column headers */}
+              <tr style={{ background: 'rgba(255, 255, 255, 0.02)', borderBottom: '1px solid var(--border-color)' }}>
+                <th style={{ padding: '0.4rem 0.5rem', color: '#8b949e', fontSize: '0.75rem', fontWeight: '600' }}>OI</th>
+                <th className={!showAllColumns ? "mobile-hide" : ""} style={{ padding: '0.4rem 0.5rem', color: '#8b949e', fontSize: '0.75rem', fontWeight: '600' }}>Chg OI</th>
+                <th className={!showAllColumns ? "mobile-hide" : ""} style={{ padding: '0.4rem 0.5rem', color: '#8b949e', fontSize: '0.75rem', fontWeight: '600' }}>Volume</th>
+                <th style={{ padding: '0.4rem 0.5rem', color: '#8b949e', fontSize: '0.75rem', fontWeight: '600', borderRight: '2px solid rgba(239,68,68,0.4)' }}>LTP</th>
+                <th style={{ padding: '0.4rem 0.5rem', color: '#c9d1d9', fontSize: '0.75rem', fontWeight: '700', background: 'rgba(255,255,255,0.03)', borderLeft: '2px solid rgba(239,68,68,0.4)', borderRight: '2px solid rgba(16,185,129,0.4)' }}>Strike Price</th>
+                <th style={{ padding: '0.4rem 0.5rem', color: '#8b949e', fontSize: '0.75rem', fontWeight: '600', borderLeft: '2px solid rgba(16,185,129,0.4)' }}>LTP</th>
+                <th className={!showAllColumns ? "mobile-hide" : ""} style={{ padding: '0.4rem 0.5rem', color: '#8b949e', fontSize: '0.75rem', fontWeight: '600' }}>Volume</th>
+                <th className={!showAllColumns ? "mobile-hide" : ""} style={{ padding: '0.4rem 0.5rem', color: '#8b949e', fontSize: '0.75rem', fontWeight: '600' }}>Chg OI</th>
+                <th style={{ padding: '0.4rem 0.5rem', color: '#8b949e', fontSize: '0.75rem', fontWeight: '600' }}>OI</th>
               </tr>
             </thead>
             <tbody>
@@ -620,17 +664,17 @@ const OptionChain = () => {
                       {(row.callVolume || 0).toLocaleString()}
                       {callVolRank > 0 && <span style={{ fontSize: '0.75rem', color: '#3B82F6', marginLeft: '2px' }}>#{callVolRank}</span>}
                     </td>
-                    <td style={{ color: 'var(--text-primary)', borderRight: '1px solid var(--border-color)' }}>
+                    <td style={{ color: 'var(--text-primary)', borderRight: '2px solid rgba(239,68,68,0.4)' }}>
                       {row.callLtp.toFixed(2)}
                     </td>
 
                     {/* STRIKE */}
-                    <td style={{ fontWeight: '700', color: '#fff' }}>
+                    <td style={{ fontWeight: '700', color: '#fff', background: 'rgba(255,255,255,0.02)', borderLeft: '2px solid rgba(239,68,68,0.4)', borderRight: '2px solid rgba(16,185,129,0.4)' }}>
                       {row.strike}
                     </td>
 
                     {/* PUTS */}
-                    <td style={{ color: 'var(--text-primary)', borderLeft: '1px solid var(--border-color)' }}>
+                    <td style={{ color: 'var(--text-primary)', borderLeft: '2px solid rgba(16,185,129,0.4)' }}>
                       {row.putLtp.toFixed(2)}
                     </td>
                     <td className={!showAllColumns ? "mobile-hide" : ""} style={{ 

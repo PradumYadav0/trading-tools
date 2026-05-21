@@ -44,4 +44,15 @@ jobs:
             # Install backend dependencies and restart PM2
             cd backend
             npm install
-            pm2 restart trading-api || pm2 start server.js --name trading-api
+            
+            # Stop and delete conflicting/old PM2 processes if they exist
+            pm2 stop trading || true
+            pm2 delete trading || true
+            pm2 stop trading-api || true
+            pm2 delete trading-api || true
+            
+            # Ensure port 5000 is completely free
+            npx -y kill-port 5000 || true
+            
+            # Start the new server as trading-api
+            pm2 start server.js --name trading-api

@@ -28,6 +28,43 @@ const getDhanHeaders = () => ({
   'client-id': process.env.DHAN_CLIENT_ID
 });
 
+// Rate-limiting queue for Dhan API calls to prevent 429 errors
+const dhanQueue = [];
+let isProcessingQueue = false;
+let lastDhanCallTime = 0;
+const MIN_DELAY_BETWEEN_CALLS = 500; // 500ms spacing
+
+const queuedDhanRequest = (config) => {
+  return new Promise((resolve, reject) => {
+    dhanQueue.push({ config, resolve, reject });
+    processDhanQueue();
+  });
+};
+
+const processDhanQueue = async () => {
+  if (isProcessingQueue || dhanQueue.length === 0) return;
+  isProcessingQueue = true;
+
+  while (dhanQueue.length > 0) {
+    const { config, resolve, reject } = dhanQueue.shift();
+    const now = Date.now();
+    const elapsed = now - lastDhanCallTime;
+    if (elapsed < MIN_DELAY_BETWEEN_CALLS) {
+      await new Promise(r => setTimeout(r, MIN_DELAY_BETWEEN_CALLS - elapsed));
+    }
+    lastDhanCallTime = Date.now();
+
+    try {
+      const res = await axios(config);
+      resolve(res);
+    } catch (err) {
+      reject(err);
+    }
+  }
+
+  isProcessingQueue = false;
+};
+
 // Function to refresh Dhan Token automatically
 const refreshDhanToken = async () => {
   const secret = process.env.DHAN_TOTP_SECRET;
@@ -123,7 +160,7 @@ const dhanCache = {
   chartsHistorical: {}
 };
 
-const CACHE_DURATION_MS = 15000; // Cache duration: 15 seconds for live data
+const CACHE_DURATION_MS = 30000; // Cache duration: 30 seconds for live data
 const HISTORICAL_CACHE_DURATION_MS = 3600000; // Cache duration: 1 hour for historical daily charts
 
 function getCachedData(type, key, duration = CACHE_DURATION_MS) {
@@ -201,10 +238,15 @@ app.get('/api/option-chain', async (req, res) => {
     }
 
     // 1. Get Expiry List for requested symbol
-    const expiryResponse = await axios.post('https://api.dhan.co/v2/optionchain/expirylist', {
-      UnderlyingScrip: scripId,
-      UnderlyingSeg: 'IDX_I'
-    }, { headers: getDhanHeaders() });
+    const expiryResponse = await queuedDhanRequest({
+      method: 'post',
+      url: 'https://api.dhan.co/v2/optionchain/expirylist',
+      data: {
+        UnderlyingScrip: scripId,
+        UnderlyingSeg: 'IDX_I'
+      },
+      headers: getDhanHeaders()
+    });
 
     if (expiryResponse.data.status !== 'success' || !expiryResponse.data.data.length) {
       return res.status(400).json({ success: false, message: `Failed to fetch expiry list for ${symbol}` });
@@ -214,11 +256,16 @@ app.get('/api/option-chain', async (req, res) => {
     const finalExpiry = expiryToUse || expiryList[0];
 
     // 2. Get Option Chain for that expiry
-    const ocResponse = await axios.post('https://api.dhan.co/v2/optionchain', {
-      UnderlyingScrip: scripId,
-      UnderlyingSeg: 'IDX_I',
-      Expiry: finalExpiry
-    }, { headers: getDhanHeaders() });
+    const ocResponse = await queuedDhanRequest({
+      method: 'post',
+      url: 'https://api.dhan.co/v2/optionchain',
+      data: {
+        UnderlyingScrip: scripId,
+        UnderlyingSeg: 'IDX_I',
+        Expiry: finalExpiry
+      },
+      headers: getDhanHeaders()
+    });
 
     if (ocResponse.data.status !== 'success') {
       return res.status(400).json({ success: false, message: 'Failed to fetch option chain' });
@@ -407,7 +454,10 @@ app.get('/api/charts/intraday', async (req, res) => {
       toDate: formatDate(toDate)
     };
 
-    const response = await axios.post('https://api.dhan.co/v2/charts/intraday', payload, {
+    const response = await queuedDhanRequest({
+      method: 'post',
+      url: 'https://api.dhan.co/v2/charts/intraday',
+      data: payload,
       headers: getDhanHeaders()
     });
 
@@ -495,7 +545,10 @@ app.get('/api/charts/historical', async (req, res) => {
     };
 
     // Dhan uses /v2/charts/historical for daily data
-    const response = await axios.post('https://api.dhan.co/v2/charts/historical', payload, {
+    const response = await queuedDhanRequest({
+      method: 'post',
+      url: 'https://api.dhan.co/v2/charts/historical',
+      data: payload,
       headers: getDhanHeaders()
     });
 
@@ -552,10 +605,15 @@ app.post('/api/ai-analysis', async (req, res) => {
     }
 
     // Get Expiry List first
-    const expiryResponse = await axios.post('https://api.dhan.co/v2/optionchain/expirylist', {
-      UnderlyingScrip: scripId,
-      UnderlyingSeg: 'IDX_I'
-    }, { headers: getDhanHeaders() });
+    const expiryResponse = await queuedDhanRequest({
+      method: 'post',
+      url: 'https://api.dhan.co/v2/optionchain/expirylist',
+      data: {
+        UnderlyingScrip: scripId,
+        UnderlyingSeg: 'IDX_I'
+      },
+      headers: getDhanHeaders()
+    });
 
     if (expiryResponse.data.status !== 'success' || !expiryResponse.data.data.length) {
       return res.status(400).json({ success: false, message: `Failed to fetch expiry list for ${symbol}` });
@@ -564,11 +622,16 @@ app.post('/api/ai-analysis', async (req, res) => {
     const expiryList = expiryResponse.data.data;
     const expiryToUse = req.body.expiry || expiryList[0];
 
-    const ocResponse = await axios.post('https://api.dhan.co/v2/optionchain', {
-      UnderlyingScrip: scripId,
-      UnderlyingSeg: 'IDX_I',
-      Expiry: expiryToUse
-    }, { headers: getDhanHeaders() });
+    const ocResponse = await queuedDhanRequest({
+      method: 'post',
+      url: 'https://api.dhan.co/v2/optionchain',
+      data: {
+        UnderlyingScrip: scripId,
+        UnderlyingSeg: 'IDX_I',
+        Expiry: expiryToUse
+      },
+      headers: getDhanHeaders()
+    });
 
     // 2. Fetch Chart Data (Last 20 candles of 5 min)
     const toDate = new Date();
@@ -578,14 +641,19 @@ app.post('/api/ai-analysis', async (req, res) => {
 
     const formatDate = (d) => d.toISOString().split('T')[0];
     
-    const chartResponse = await axios.post('https://api.dhan.co/v2/charts/intraday', {
-      securityId: scripId.toString(),
-      exchangeSegment: 'IDX_I',
-      instrument: 'INDEX',
-      interval: '5',
-      fromDate: formatDate(fromDate),
-      toDate: formatDate(toDate)
-    }, { headers: getDhanHeaders() });
+    const chartResponse = await queuedDhanRequest({
+      method: 'post',
+      url: 'https://api.dhan.co/v2/charts/intraday',
+      data: {
+        securityId: scripId.toString(),
+        exchangeSegment: 'IDX_I',
+        instrument: 'INDEX',
+        interval: '5',
+        fromDate: formatDate(fromDate),
+        toDate: formatDate(toDate)
+      },
+      headers: getDhanHeaders()
+    });
 
     // Process data for prompt
     const ocData = ocResponse.data.data;
@@ -885,19 +953,29 @@ async function runAllDecoders() {
       if (!scripId) continue;
 
       // 1. FETCH OPTION CHAIN
-      const expiryResponse = await axios.post('https://api.dhan.co/v2/optionchain/expirylist', {
-        UnderlyingScrip: scripId,
-        UnderlyingSeg: 'IDX_I'
-      }, { headers: getDhanHeaders() });
+      const expiryResponse = await queuedDhanRequest({
+        method: 'post',
+        url: 'https://api.dhan.co/v2/optionchain/expirylist',
+        data: {
+          UnderlyingScrip: scripId,
+          UnderlyingSeg: 'IDX_I'
+        },
+        headers: getDhanHeaders()
+      });
       
       if (expiryResponse.data.status !== 'success' || !expiryResponse.data.data.length) continue;
       const expiry = expiryResponse.data.data[0];
       
-      const ocResponse = await axios.post('https://api.dhan.co/v2/optionchain', {
-        UnderlyingScrip: scripId,
-        UnderlyingSeg: 'IDX_I',
-        Expiry: expiry
-      }, { headers: getDhanHeaders() });
+      const ocResponse = await queuedDhanRequest({
+        method: 'post',
+        url: 'https://api.dhan.co/v2/optionchain',
+        data: {
+          UnderlyingScrip: scripId,
+          UnderlyingSeg: 'IDX_I',
+          Expiry: expiry
+        },
+        headers: getDhanHeaders()
+      });
       
       if (ocResponse.data.status !== 'success') continue;
       
@@ -1015,7 +1093,10 @@ async function runAllDecoders() {
         toDate: formatDate(toDate)
       };
       
-      const chartResponse = await axios.post('https://api.dhan.co/v2/charts/intraday', chartPayload, {
+      const chartResponse = await queuedDhanRequest({
+        method: 'post',
+        url: 'https://api.dhan.co/v2/charts/intraday',
+        data: chartPayload,
         headers: getDhanHeaders()
       });
       
@@ -1047,6 +1128,7 @@ async function runAllDecoders() {
 
       // Indicator Calculators
       const calculateEMA = (cand, period) => {
+        if (!cand || cand.length === 0) return [];
         const k = 2 / (period + 1);
         let emaList = [];
         let ema = cand[0].close;
@@ -1058,7 +1140,7 @@ async function runAllDecoders() {
       };
 
       const calculateRSI = (cand, period = 14) => {
-        if (cand.length < period) return Array(cand.length).fill(50);
+        if (!cand || cand.length < period) return Array(cand ? cand.length : 0).fill(50);
         let gains = 0;
         let losses = 0;
         for (let i = 1; i <= period; i++) {
@@ -1084,6 +1166,7 @@ async function runAllDecoders() {
       };
 
       const calculateATR = (cand, period = 14) => {
+        if (!cand || cand.length <= period) return Array(cand ? cand.length : 0).fill(10);
         let trs = [];
         for (let i = 1; i < cand.length; i++) {
           const h_l = cand[i].high - cand[i].low;
@@ -1116,7 +1199,7 @@ async function runAllDecoders() {
       const lastEma12 = ema12List[len5 - 1];
       const lastEma26 = ema26List[len5 - 1];
       const macdLine = lastEma12 - lastEma26;
-      const lastAtr = atrList[len5 - 1] || (symbol === 'NIFTY' ? 10 : 25);
+      const lastAtr = atrList[atrList.length - 1] || (symbol === 'NIFTY' ? 10 : 25);
 
       // Major Trend Alignment (15m Timeframe Filter)
       const len15 = candles15m.length;

@@ -145,8 +145,36 @@ function setCachedData(type, key, data) {
 // Scrip Mapping for Indices
 const scripMap = {
   'NIFTY': 13,
-  'BANKNIFTY': 25
+  'BANKNIFTY': 25,
+  'FINNIFTY': 27,
+  'MIDCPNIFTY': 442
 };
+
+// Global cache for latest spot prices
+const latestSpotPrices = {
+  'NIFTY': 0,
+  'BANKNIFTY': 0,
+  'FINNIFTY': 0,
+  'MIDCPNIFTY': 0
+};
+
+// Initialize latest spot prices from database history on startup
+const initializeSpotPrices = async () => {
+  const symbols = Object.keys(latestSpotPrices);
+  for (const sym of symbols) {
+    db.get(
+      `SELECT spot_price FROM option_chain_history WHERE symbol = ? ORDER BY timestamp DESC LIMIT 1`,
+      [sym],
+      (err, row) => {
+        if (!err && row && row.spot_price) {
+          latestSpotPrices[sym] = row.spot_price;
+          console.log(`Initialized spot price for ${sym}: ${row.spot_price}`);
+        }
+      }
+    );
+  }
+};
+initializeSpotPrices();
 
 // Endpoint to get Option Chain
 app.get('/api/option-chain', async (req, res) => {
@@ -199,6 +227,10 @@ app.get('/api/option-chain', async (req, res) => {
     const rawData = ocResponse.data.data;
     const ocData = rawData.oc;
     const spotPrice = rawData.last_price;
+
+    if (latestSpotPrices.hasOwnProperty(symbol)) {
+      latestSpotPrices[symbol] = spotPrice;
+    }
 
     const strikesArray = Object.keys(ocData).map(strikeStr => {
       const strike = parseFloat(strikeStr);
@@ -606,7 +638,7 @@ IMPORTANT INSTRUCTIONS for the tone and format:
 - Explain it in a simple way, like an expert friend giving advice.`;
 
     // Call Gemini API
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
     
     const parts = [{ text: prompt }];
     
@@ -667,66 +699,53 @@ app.post('/api/signals', (req, res) => {
   });
 });
 
+// Function to update PENDING signals in background using latestSpotPrices cache
+const updatePendingSignals = () => {
+  return new Promise((resolve, reject) => {
+    db.all(`SELECT * FROM ai_signals WHERE status = 'PENDING'`, [], (err, rows) => {
+      if (err) return reject(err);
+      
+      if (rows.length === 0) return resolve(0);
+
+      let pendingUpdates = rows.length;
+      let updatedCount = 0;
+
+      rows.forEach(row => {
+        const currentSpot = latestSpotPrices[row.symbol];
+        if (!currentSpot || currentSpot <= 0) {
+          pendingUpdates--;
+          if (pendingUpdates === 0) resolve(updatedCount);
+          return;
+        }
+
+        let newStatus = 'PENDING';
+        if (row.type === 'CALL') {
+          if (row.target_price && currentSpot >= row.target_price) newStatus = 'SUCCESS';
+          else if (row.stoploss_price && currentSpot <= row.stoploss_price) newStatus = 'FAILED';
+        } else if (row.type === 'PUT') {
+          if (row.target_price && currentSpot <= row.target_price) newStatus = 'SUCCESS';
+          else if (row.stoploss_price && currentSpot >= row.stoploss_price) newStatus = 'FAILED';
+        }
+
+        if (newStatus !== 'PENDING') {
+          db.run(`UPDATE ai_signals SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [newStatus, row.id], function(err) {
+            if (!err) updatedCount++;
+            pendingUpdates--;
+            if (pendingUpdates === 0) resolve(updatedCount);
+          });
+        } else {
+          pendingUpdates--;
+          if (pendingUpdates === 0) resolve(updatedCount);
+        }
+      });
+    });
+  });
+};
+
 // Endpoint to get all signals and update status
 app.get('/api/signals', async (req, res) => {
   try {
-    // Get the latest spot prices from option_chain_history to avoid rate limits
-    const getLatestPrice = (sym) => {
-      return new Promise((resolve) => {
-        db.get(`SELECT spot_price FROM option_chain_history WHERE symbol = ? ORDER BY timestamp DESC LIMIT 1`, [sym], (err, row) => {
-          if (err || !row) resolve(null);
-          else resolve(row.spot_price);
-        });
-      });
-    };
-
-    const niftySpot = await getLatestPrice('NIFTY');
-    const bankNiftySpot = await getLatestPrice('BANKNIFTY');
-
-    // Update PENDING signals
-    const updateSignals = () => {
-      return new Promise((resolve, reject) => {
-        db.all(`SELECT * FROM ai_signals WHERE status = 'PENDING'`, [], (err, rows) => {
-          if (err) return reject(err);
-          
-          if (rows.length === 0) return resolve(0);
-
-          let pendingUpdates = rows.length;
-          let updatedCount = 0;
-
-          rows.forEach(row => {
-            const currentSpot = row.symbol === 'NIFTY' ? niftySpot : bankNiftySpot;
-            if (!currentSpot) {
-              pendingUpdates--;
-              if (pendingUpdates === 0) resolve(updatedCount);
-              return;
-            }
-
-            let newStatus = 'PENDING';
-            if (row.type === 'CALL') {
-              if (row.target_price && currentSpot >= row.target_price) newStatus = 'SUCCESS';
-              else if (row.stoploss_price && currentSpot <= row.stoploss_price) newStatus = 'FAILED';
-            } else if (row.type === 'PUT') {
-              if (row.target_price && currentSpot <= row.target_price) newStatus = 'SUCCESS';
-              else if (row.stoploss_price && currentSpot >= row.stoploss_price) newStatus = 'FAILED';
-            }
-
-            if (newStatus !== 'PENDING') {
-              db.run(`UPDATE ai_signals SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [newStatus, row.id], function(err) {
-                if (!err) updatedCount++;
-                pendingUpdates--;
-                if (pendingUpdates === 0) resolve(updatedCount);
-              });
-            } else {
-              pendingUpdates--;
-              if (pendingUpdates === 0) resolve(updatedCount);
-            }
-          });
-        });
-      });
-    };
-
-    await updateSignals();
+    await updatePendingSignals();
 
     // Return all signals
     db.all(`SELECT * FROM ai_signals ORDER BY created_at DESC`, [], (err, rows) => {
@@ -851,10 +870,13 @@ app.post('/api/settings/refresh-token', async (req, res) => {
 // Chart Analysis (5m EMA9/20, RSI, MACD, PCR, VWAP, ATR Dynamic S/R, plus 15m Major Trend Confirmation),
 // and convergence-based HYBRID signals to maximize win rate.
 async function runAllDecoders() {
-  const symbols = ['NIFTY', 'BANKNIFTY'];
+  const symbols = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
   
   for (const symbol of symbols) {
     try {
+      // Space out requests to avoid Dhan API rate limits (429)
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
       const token = dhanAccessToken;
       const clientId = process.env.DHAN_CLIENT_ID;
       if (!token || !clientId) continue;
@@ -882,6 +904,10 @@ async function runAllDecoders() {
       const rawData = ocResponse.data.data;
       const ocData = rawData.oc;
       const spotPrice = rawData.last_price;
+      
+      if (latestSpotPrices.hasOwnProperty(symbol)) {
+        latestSpotPrices[symbol] = spotPrice;
+      }
       
       const strikesArray = Object.keys(ocData).map(strikeStr => {
         const strike = parseFloat(strikeStr);
@@ -1191,6 +1217,16 @@ async function runAllDecoders() {
     } catch (err) {
       console.error(`Unified decoding failed for ${symbol}:`, err.message);
     }
+  }
+  
+  // After looping through all symbols, trigger signal checks in background
+  try {
+    const updated = await updatePendingSignals();
+    if (updated > 0) {
+      console.log(`[Background] Automated signal verification updated ${updated} pending signals.`);
+    }
+  } catch (err) {
+    console.error('Failed to run automated background signal verification:', err.message);
   }
 }
 

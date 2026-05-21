@@ -10,13 +10,20 @@ const getDhanHeaders = () => ({
 
 async function test() {
   try {
+    const toDateObj = new Date();
+    toDateObj.setDate(toDateObj.getDate() + 1);
+    const fromDateObj = new Date();
+    fromDateObj.setDate(fromDateObj.getDate() - 2);
+    
+    const formatDateWithTime = (d) => `${d.toISOString().split('T')[0]} 00:00:00`;
+
     const payload = {
       securityId: "13", // Nifty
       exchangeSegment: 'IDX_I',
       instrument: 'INDEX',
-      interval: '5',
-      fromDate: '2026-05-12',
-      toDate: '2026-05-18'
+      interval: 5,
+      fromDate: formatDateWithTime(fromDateObj),
+      toDate: formatDateWithTime(toDateObj)
     };
     
     const response = await axios.post('https://api.dhan.co/v2/charts/intraday', payload, {
@@ -28,6 +35,9 @@ async function test() {
     console.log('Type of first timestamp:', typeof data.timestamp?.[0]);
   } catch (error) {
     console.error('Error:', error.message);
+    if (error.response) {
+      console.log('Error Data:', error.response.data);
+    }
   }
 }
 

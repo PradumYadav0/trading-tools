@@ -300,7 +300,7 @@ const ChartAnalysis = () => {
             reason = `Strong Bullish consensus (${bullishScore}/5 indicators). Price is in upward momentum.`;
             color = 'var(--bullish)';
             // Dynamic Target: Next Resistance or 50/150 points if resistance is far
-            const defaultTarget = symbol === 'NIFTY' ? 50 : 150;
+            const defaultTarget = symbol === 'NIFTY' ? 50 : symbol === 'FINNIFTY' ? 60 : symbol === 'MIDCPNIFTY' ? 30 : 150;
             target = resistance !== 'N/A' ? resistance : (lastCandle.close + defaultTarget).toFixed(2);
             // Dynamic Stoploss: 20 EMA (moves with price)
             stoploss = lastEma20.toFixed(2);
@@ -309,7 +309,7 @@ const ChartAnalysis = () => {
             reason = `Strong Bearish consensus (${bearishScore}/5 indicators). Trend is clearly downward.`;
             color = 'var(--bearish)';
             // Dynamic Target: Next Support or 50/150 points
-            const defaultTarget = symbol === 'NIFTY' ? 50 : 150;
+            const defaultTarget = symbol === 'NIFTY' ? 50 : symbol === 'FINNIFTY' ? 60 : symbol === 'MIDCPNIFTY' ? 30 : 150;
             target = support !== 'N/A' ? support : (lastCandle.close - defaultTarget).toFixed(2);
             // Dynamic Stoploss: 20 EMA (moves with price)
             stoploss = lastEma20.toFixed(2);
@@ -373,6 +373,8 @@ const ChartAnalysis = () => {
           >
             <option value="NIFTY">NIFTY</option>
             <option value="BANKNIFTY">BANKNIFTY</option>
+            <option value="FINNIFTY">FINNIFTY</option>
+            <option value="MIDCPNIFTY">MIDCPNIFTY</option>
           </select>
 
           <select 

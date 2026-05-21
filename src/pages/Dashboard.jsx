@@ -3,47 +3,57 @@ import axios from 'axios';
 import { ArrowUpRight, ArrowDownRight, Activity, Zap, RefreshCw } from 'lucide-react';
 
 const Dashboard = () => {
-  const [niftyData, setNiftyData] = useState({ spot: 0, pcr: 0, loading: true });
-  const [bankNiftyData, setBankNiftyData] = useState({ spot: 0, pcr: 0, loading: true });
+  const [indexData, setIndexData] = useState({
+    'NIFTY': { name: 'NIFTY 50', spot: 0, pcr: 0, loading: true },
+    'BANKNIFTY': { name: 'BANK NIFTY', spot: 0, pcr: 0, loading: true },
+    'FINNIFTY': { name: 'FINNIFTY', spot: 0, pcr: 0, loading: true },
+    'MIDCPNIFTY': { name: 'MIDCPNIFTY', spot: 0, pcr: 0, loading: true }
+  });
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const fetchData = async () => {
     setIsRefreshing(true);
-    try {
-      // Fetch NIFTY Data
-      const nResponse = await axios.get('/api/option-chain?symbol=NIFTY');
-      if (nResponse.data.success) {
-        const strikes = nResponse.data.data;
-        const totalCallOi = strikes.reduce((sum, row) => sum + row.callOi, 0);
-        const totalPutOi = strikes.reduce((sum, row) => sum + row.putOi, 0);
-        const pcr = totalCallOi > 0 ? totalPutOi / totalCallOi : 1.0;
-        
-        setNiftyData({
-          spot: nResponse.data.spotPrice,
-          pcr: pcr.toFixed(2),
-          loading: false
-        });
+    const symbols = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
+    
+    await Promise.all(symbols.map(async (symbol) => {
+      try {
+        const response = await axios.get(`/api/option-chain?symbol=${symbol}`);
+        if (response.data.success) {
+          const strikes = response.data.data;
+          const totalCallOi = strikes.reduce((sum, row) => sum + row.callOi, 0);
+          const totalPutOi = strikes.reduce((sum, row) => sum + row.putOi, 0);
+          const pcr = totalCallOi > 0 ? totalPutOi / totalCallOi : 1.0;
+          
+          setIndexData(prev => ({
+            ...prev,
+            [symbol]: {
+              ...prev[symbol],
+              spot: response.data.spotPrice,
+              pcr: pcr.toFixed(2),
+              loading: false
+            }
+          }));
+        } else {
+          setIndexData(prev => ({
+            ...prev,
+            [symbol]: {
+              ...prev[symbol],
+              loading: false
+            }
+          }));
+        }
+      } catch (err) {
+        console.error(`Error fetching data for ${symbol}:`, err);
+        setIndexData(prev => ({
+          ...prev,
+          [symbol]: {
+            ...prev[symbol],
+            loading: false
+          }
+        }));
       }
-      
-      // Fetch BANKNIFTY Data
-      const bResponse = await axios.get('/api/option-chain?symbol=BANKNIFTY');
-      if (bResponse.data.success) {
-        const strikes = bResponse.data.data;
-        const totalCallOi = strikes.reduce((sum, row) => sum + row.callOi, 0);
-        const totalPutOi = strikes.reduce((sum, row) => sum + row.putOi, 0);
-        const pcr = totalCallOi > 0 ? totalPutOi / totalCallOi : 1.0;
-        
-        setBankNiftyData({
-          spot: bResponse.data.spotPrice,
-          pcr: pcr.toFixed(2),
-          loading: false
-        });
-      }
-    } catch (err) {
-      console.error('Error fetching dashboard data:', err);
-    } finally {
-      setIsRefreshing(false);
-    }
+    }));
+    setIsRefreshing(false);
   };
 
   useEffect(() => {
@@ -82,35 +92,20 @@ const Dashboard = () => {
 
       {/* Summary Cards */}
       <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
-        
-        {/* NIFTY Card */}
-        <div className="glass-panel" style={{ flex: '1', minWidth: '240px', padding: '1.5rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 'bold' }}>NIFTY 50</span>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Live</span>
+        {Object.entries(indexData).map(([key, data]) => (
+          <div key={key} className="glass-panel" style={{ flex: '1', minWidth: '240px', padding: '1.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 'bold' }}>{data.name}</span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Live</span>
+            </div>
+            <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--accent-primary)' }}>
+              {data.loading ? 'Loading...' : (typeof data.spot === 'number' ? data.spot.toFixed(2) : data.spot)}
+            </div>
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.5rem' }}>
+              PCR: <span style={{ color: parseFloat(data.pcr) >= 1 ? 'var(--bullish)' : 'var(--bearish)', fontWeight: 'bold' }}>{data.pcr}</span>
+            </div>
           </div>
-          <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--accent-primary)' }}>
-            {niftyData.loading ? 'Loading...' : niftyData.spot.toFixed(2)}
-          </div>
-          <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.5rem' }}>
-            PCR: <span style={{ color: parseFloat(niftyData.pcr) >= 1 ? 'var(--bullish)' : 'var(--bearish)', fontWeight: 'bold' }}>{niftyData.pcr}</span>
-          </div>
-        </div>
-
-        {/* BANKNIFTY Card */}
-        <div className="glass-panel" style={{ flex: '1', minWidth: '240px', padding: '1.5rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 'bold' }}>BANK NIFTY</span>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Live</span>
-          </div>
-          <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--accent-primary)' }}>
-            {bankNiftyData.loading ? 'Loading...' : bankNiftyData.spot.toFixed(2)}
-          </div>
-          <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.5rem' }}>
-            PCR: <span style={{ color: parseFloat(bankNiftyData.pcr) >= 1 ? 'var(--bullish)' : 'var(--bearish)', fontWeight: 'bold' }}>{bankNiftyData.pcr}</span>
-          </div>
-        </div>
-
+        ))}
       </div>
 
       {/* Suggestion Box */}

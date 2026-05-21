@@ -8,14 +8,6 @@ const TradingSignals = () => {
   const [signalData, setSignalData] = useState(null);
   const [cooldown, setCooldown] = useState(false);
 
-  useEffect(() => {
-    setCooldown(false); // Reset cooldown when switching symbols
-    fetchSignals();
-    // Auto refresh every 1 minute
-    const interval = setInterval(fetchSignals, 60000);
-    return () => clearInterval(interval);
-  }, [symbol]);
-
   const fetchSignals = async () => {
     if (cooldown) return;
     
@@ -53,6 +45,14 @@ const TradingSignals = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    setCooldown(false); // Reset cooldown when switching symbols
+    fetchSignals();
+    // Auto refresh every 1 minute
+    const interval = setInterval(fetchSignals, 60000);
+    return () => clearInterval(interval);
+  }, [symbol]);
 
   const calculateSignals = (ocData, spotPrice, chartData) => {
     let totalCallOi = 0;
@@ -201,6 +201,8 @@ const TradingSignals = () => {
           >
             <option value="NIFTY">NIFTY</option>
             <option value="BANKNIFTY">BANKNIFTY</option>
+            <option value="FINNIFTY">FINNIFTY</option>
+            <option value="MIDCPNIFTY">MIDCPNIFTY</option>
           </select>
 
           <button 

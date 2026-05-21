@@ -201,15 +201,27 @@ const OptionDecoder = () => {
       let targetDist = distanceToPain * 0.5;
       if (symbol === 'NIFTY') {
         return Math.max(10, Math.min(30, targetDist));
+      } else if (symbol === 'FINNIFTY') {
+        return Math.max(12, Math.min(35, targetDist));
+      } else if (symbol === 'MIDCPNIFTY') {
+        return Math.max(8, Math.min(25, targetDist));
       } else {
         return Math.max(20, Math.min(60, targetDist));
       }
     })();
 
     const targetVal = buyerSignal === 'BUY CALL' ? spotPrice + dynamicTargetVal : spotPrice - dynamicTargetVal;
+    
+    const getStoplossAmt = () => {
+      if (symbol === 'NIFTY') return 10;
+      if (symbol === 'FINNIFTY') return 12;
+      if (symbol === 'MIDCPNIFTY') return 8;
+      return 25;
+    };
+    const slAmt = getStoplossAmt();
     const stoplossVal = buyerSignal === 'BUY CALL' 
-      ? spotPrice - (symbol === 'NIFTY' ? 10 : 25) 
-      : spotPrice + (symbol === 'NIFTY' ? 10 : 25);
+      ? spotPrice - slAmt 
+      : spotPrice + slAmt;
 
     const saveOptionSignal = async () => {
       try {
@@ -240,12 +252,23 @@ const OptionDecoder = () => {
   
   if (symbol === 'NIFTY') {
     dynamicTarget = Math.max(10, Math.min(30, dynamicTarget));
+  } else if (symbol === 'FINNIFTY') {
+    dynamicTarget = Math.max(12, Math.min(35, dynamicTarget));
+  } else if (symbol === 'MIDCPNIFTY') {
+    dynamicTarget = Math.max(8, Math.min(25, dynamicTarget));
   } else {
     dynamicTarget = Math.max(20, Math.min(60, dynamicTarget));
   }
   
   const targetPoints = `${dynamicTarget.toFixed(0)} Points`;
-  const stoplossPoints = symbol === 'NIFTY' ? '10 Points' : '25 Points';
+  
+  const getStoplossPointsStr = () => {
+    if (symbol === 'NIFTY') return '10 Points';
+    if (symbol === 'FINNIFTY') return '12 Points';
+    if (symbol === 'MIDCPNIFTY') return '8 Points';
+    return '25 Points';
+  };
+  const stoplossPoints = getStoplossPointsStr();
 
   return (
     <div className="container" style={{ padding: '2rem', color: 'white' }}>
@@ -263,6 +286,8 @@ const OptionDecoder = () => {
           >
             <option value="NIFTY">NIFTY</option>
             <option value="BANKNIFTY">BANKNIFTY</option>
+            <option value="FINNIFTY">FINNIFTY</option>
+            <option value="MIDCPNIFTY">MIDCPNIFTY</option>
           </select>
 
           <button 

@@ -341,66 +341,68 @@ app.get('/api/option-chain', async (req, res) => {
       };
     }).sort((a, b) => a.strike - b.strike);
 
-    // Save to Database for history
-    db.run(
-      `INSERT INTO option_chain_history (symbol, spot_price, expiry, data) VALUES (?, ?, ?, ?)`,
-      [symbol, spotPrice, finalExpiry, JSON.stringify(strikesArray)],
-      function(err) {
-        if (err) console.error('Error saving to DB:', err.message);
-      }
-    );
+    // Save to Database for history and generate signals only during market hours
+    if (isIndianMarketOpen()) {
+      db.run(
+        `INSERT INTO option_chain_history (symbol, spot_price, expiry, data) VALUES (?, ?, ?, ?)`,
+        [symbol, spotPrice, finalExpiry, JSON.stringify(strikesArray)],
+        function(err) {
+          if (err) console.error('Error saving to DB:', err.message);
+        }
+      );
 
-    // Auto-calculate and save signals to ai_signals
-    let totalCallOi = 0;
-    let totalPutOi = 0;
-    let maxCallOi = 0;
-    let maxPutOi = 0;
-    let supportStrike = 0;
-    let resistanceStrike = 0;
+      // Auto-calculate and save signals to ai_signals
+      let totalCallOi = 0;
+      let totalPutOi = 0;
+      let maxCallOi = 0;
+      let maxPutOi = 0;
+      let supportStrike = 0;
+      let resistanceStrike = 0;
 
-    strikesArray.forEach(strike => {
-      totalCallOi += strike.callOi;
-      totalPutOi += strike.putOi;
+      strikesArray.forEach(strike => {
+        totalCallOi += strike.callOi;
+        totalPutOi += strike.putOi;
 
-      if (strike.callOi > maxCallOi) {
-        maxCallOi = strike.callOi;
-        resistanceStrike = strike.strike;
-      }
+        if (strike.callOi > maxCallOi) {
+          maxCallOi = strike.callOi;
+          resistanceStrike = strike.strike;
+        }
 
-      if (strike.putOi > maxPutOi) {
-        maxPutOi = strike.putOi;
-        supportStrike = strike.strike;
-      }
-    });
-
-    const pcr = totalCallOi > 0 ? (totalPutOi / totalCallOi).toFixed(2) : 0;
-    
-    let type = null;
-    let target_price = 0;
-    let stoploss_price = 0;
-
-    if (pcr > 1.2 && spotPrice > supportStrike) {
-      type = 'CALL';
-      stoploss_price = supportStrike;
-      target_price = resistanceStrike;
-    } else if (pcr < 0.8 && spotPrice < resistanceStrike) {
-      type = 'PUT';
-      stoploss_price = resistanceStrike;
-      target_price = supportStrike;
-    }
-
-    if (type) {
-      db.get(`SELECT id FROM ai_signals WHERE symbol = ? AND source = 'OPTION_CHAIN' AND status = 'PENDING'`, [symbol], (err, row) => {
-        if (!err && !row) {
-          db.run(
-            `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price, source) VALUES (?, ?, ?, ?, ?, 'OPTION_CHAIN')`,
-            [symbol, type, spotPrice, target_price, stoploss_price],
-            function(err) {
-              if (err) console.error('Error auto-saving Option Chain signal:', err.message);
-            }
-          );
+        if (strike.putOi > maxPutOi) {
+          maxPutOi = strike.putOi;
+          supportStrike = strike.strike;
         }
       });
+
+      const pcr = totalCallOi > 0 ? (totalPutOi / totalCallOi).toFixed(2) : 0;
+      
+      let type = null;
+      let target_price = 0;
+      let stoploss_price = 0;
+
+      if (pcr > 1.2 && spotPrice > supportStrike) {
+        type = 'CALL';
+        stoploss_price = supportStrike;
+        target_price = resistanceStrike;
+      } else if (pcr < 0.8 && spotPrice < resistanceStrike) {
+        type = 'PUT';
+        stoploss_price = resistanceStrike;
+        target_price = supportStrike;
+      }
+
+      if (type) {
+        db.get(`SELECT id FROM ai_signals WHERE symbol = ? AND source = 'OPTION_CHAIN' AND status = 'PENDING'`, [symbol], (err, row) => {
+          if (!err && !row) {
+            db.run(
+              `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price, source) VALUES (?, ?, ?, ?, ?, 'OPTION_CHAIN')`,
+              [symbol, type, spotPrice, target_price, stoploss_price],
+              function(err) {
+                if (err) console.error('Error auto-saving Option Chain signal:', err.message);
+              }
+            );
+          }
+        });
+      }
     }
 
     const result = { 
@@ -435,8 +437,11 @@ app.get('/api/option-chain/history', (req, res) => {
   }
 
   db.all(
-    `SELECT * FROM option_chain_history WHERE symbol = ? AND timestamp LIKE ? ORDER BY timestamp DESC`,
-    [symbol, `${date}%`],
+    `SELECT * FROM option_chain_history 
+     WHERE symbol = ? 
+       AND strftime('%Y-%m-%d', datetime(timestamp, '+5.5 hours')) = ? 
+     ORDER BY timestamp DESC`,
+    [symbol, date],
     (err, rows) => {
       if (err) {
         return res.status(500).json({ success: false, message: err.message });
@@ -445,6 +450,8 @@ app.get('/api/option-chain/history', (req, res) => {
       // Parse the JSON data in each row
       const parsedRows = rows.map(row => ({
         ...row,
+        // Convert timestamp to local IST date string for the frontend
+        timestamp: new Date(new Date(row.timestamp + 'Z').getTime()).toISOString(),
         data: JSON.parse(row.data)
       }));
 

@@ -76,12 +76,18 @@ const OptionChain = () => {
         } else {
           setStrikes([]);
           setSpotPrice(0);
+          setHistorySnapshots([]);
+          setLastUpdated('');
           setError('No data found for this date in database');
         }
       } else {
+        setHistorySnapshots([]);
+        setLastUpdated('');
         setError(response.data.message || 'Failed to fetch history');
       }
     } catch (err) {
+      setHistorySnapshots([]);
+      setLastUpdated('');
       setError(err.message || 'Server Error');
     } finally {
       setLoading(false);

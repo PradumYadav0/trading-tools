@@ -245,6 +245,27 @@ const ChartAnalysis = () => {
           const lastEma20 = ema20Data[ema20Data.length - 1].value;
           const lastRsi = rsiData.length > 0 ? rsiData[rsiData.length - 1].value : 50;
 
+          // Calculate ATR (14)
+          let atrVal = 10;
+          if (uniqueData.length > 14) {
+            let trs = [];
+            for (let i = 1; i < uniqueData.length; i++) {
+              const h_l = uniqueData[i].high - uniqueData[i].low;
+              const h_pc = Math.abs(uniqueData[i].high - uniqueData[i - 1].close);
+              const l_pc = Math.abs(uniqueData[i].low - uniqueData[i - 1].close);
+              trs.push(Math.max(h_l, h_pc, l_pc));
+            }
+            let atr = trs.slice(0, 14).reduce((a, b) => a + b, 0) / 14;
+            for (let i = 14; i < trs.length; i++) {
+              atr = ((atr * 13) + trs[i]) / 14;
+            }
+            atrVal = atr;
+          } else if (ocResult.success && ocResult.atr) {
+            atrVal = ocResult.atr;
+          } else {
+            atrVal = symbol === 'NIFTY' ? 15 : symbol === 'BANKNIFTY' ? 40 : symbol === 'FINNIFTY' ? 18 : 10;
+          }
+
           let pcr = 1.0;
           let support = 'N/A';
           let resistance = 'N/A';
@@ -299,20 +320,14 @@ const ChartAnalysis = () => {
             action = 'BUY CALL';
             reason = `Strong Bullish consensus (${bullishScore}/5 indicators). Price is in upward momentum.`;
             color = 'var(--bullish)';
-            // Dynamic Target: Next Resistance or 50/150 points if resistance is far
-            const defaultTarget = symbol === 'NIFTY' ? 50 : symbol === 'FINNIFTY' ? 60 : symbol === 'MIDCPNIFTY' ? 30 : 150;
-            target = resistance !== 'N/A' ? resistance : (lastCandle.close + defaultTarget).toFixed(2);
-            // Dynamic Stoploss: 20 EMA (moves with price)
-            stoploss = lastEma20.toFixed(2);
+            target = (lastCandle.close + (2.5 * atrVal)).toFixed(2);
+            stoploss = (lastCandle.close - (1.2 * atrVal)).toFixed(2);
           } else if (bearishScore >= 4 && lastCandle.close < lastEma9) {
             action = 'BUY PUT';
             reason = `Strong Bearish consensus (${bearishScore}/5 indicators). Trend is clearly downward.`;
             color = 'var(--bearish)';
-            // Dynamic Target: Next Support or 50/150 points
-            const defaultTarget = symbol === 'NIFTY' ? 50 : symbol === 'FINNIFTY' ? 60 : symbol === 'MIDCPNIFTY' ? 30 : 150;
-            target = support !== 'N/A' ? support : (lastCandle.close - defaultTarget).toFixed(2);
-            // Dynamic Stoploss: 20 EMA (moves with price)
-            stoploss = lastEma20.toFixed(2);
+            target = (lastCandle.close - (2.5 * atrVal)).toFixed(2);
+            stoploss = (lastCandle.close + (1.2 * atrVal)).toFixed(2);
           } else {
             action = 'WAIT';
             reason = `No clear consensus (Bullish: ${bullishScore}, Bearish: ${bearishScore}). High risk of whipsaws.`;

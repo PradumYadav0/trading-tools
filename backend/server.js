@@ -195,6 +195,51 @@ const latestSpotPrices = {
   'MIDCPNIFTY': 0
 };
 
+// Global cache for latest ATR values (initialized with reasonable defaults)
+const latestAtrValues = {
+  'NIFTY': 15,
+  'BANKNIFTY': 40,
+  'FINNIFTY': 18,
+  'MIDCPNIFTY': 10
+};
+
+// Robust helper to parse Dhan API timestamps with IST (+05:30) offset
+const parseDhanTimestamp = (ts) => {
+  if (ts === null || ts === undefined) return 0;
+  if (typeof ts === 'string') {
+    const trimmed = ts.trim();
+    if (trimmed.includes('-') || trimmed.includes('T') || trimmed.includes(':')) {
+      let dateStr = trimmed;
+      if (!dateStr.includes('+') && !dateStr.includes('Z') && !dateStr.includes('GMT')) {
+        dateStr = dateStr.replace(' ', 'T') + '+05:30';
+      }
+      const timeMs = new Date(dateStr).getTime();
+      return isNaN(timeMs) ? 0 : Math.floor(timeMs / 1000);
+    }
+    const val = parseInt(trimmed, 10);
+    return isNaN(val) ? 0 : (val > 2000000000 ? Math.floor(val / 1000) : val);
+  } else if (typeof ts === 'number') {
+    return ts > 2000000000 ? Math.floor(ts / 1000) : ts;
+  }
+  return 0;
+};
+
+// Helper to check if Indian Stock Market is open (Monday to Friday, 9:00 AM to 3:45 PM IST)
+const isIndianMarketOpen = () => {
+  const now = new Date();
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const ist = new Date(utc + (3600000 * 5.5));
+  const day = ist.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  const hours = ist.getHours();
+  const minutes = ist.getMinutes();
+  
+  if (day < 1 || day > 5) return false; // Closed on weekends
+  
+  const timeInMinutes = hours * 60 + minutes;
+  // 9:00 AM is 540 minutes, 3:45 PM is 945 minutes
+  return timeInMinutes >= 540 && timeInMinutes <= 945;
+};
+
 // Initialize latest spot prices from database history on startup
 const initializeSpotPrices = async () => {
   const symbols = Object.keys(latestSpotPrices);
@@ -363,7 +408,8 @@ app.get('/api/option-chain', async (req, res) => {
       spotPrice,
       expiry: finalExpiry,
       expiryList,
-      data: strikesArray 
+      data: strikesArray,
+      atr: latestAtrValues[symbol] || (symbol === 'NIFTY' ? 15 : symbol === 'BANKNIFTY' ? 40 : symbol === 'FINNIFTY' ? 18 : 10)
     };
 
     setCachedData('optionChain', cacheKey, result);
@@ -468,18 +514,7 @@ app.get('/api/charts/intraday', async (req, res) => {
          for (let i = 0; i < data.timestamp.length; i++) {
             const ts = data.timestamp[i];
             
-            let timeUnix = 0;
-            if (typeof ts === 'string' && ts.includes('-')) {
-               timeUnix = Math.floor(new Date(ts).getTime() / 1000);
-            } else if (typeof ts === 'string' && ts.includes('T')) {
-               timeUnix = Math.floor(new Date(ts).getTime() / 1000);
-            } else {
-               timeUnix = typeof ts === 'string' ? parseInt(ts) : ts;
-               if (timeUnix > 2000000000) {
-                  timeUnix = Math.floor(timeUnix / 1000);
-               }
-            }
-            
+            const timeUnix = parseDhanTimestamp(ts);
             chartData.push({
                time: timeUnix,
                open: data.open[i],
@@ -558,10 +593,7 @@ app.get('/api/charts/historical', async (req, res) => {
        if (data.timestamp && data.timestamp.length > 0) {
          for (let i = 0; i < data.timestamp.length; i++) {
             const ts = data.timestamp[i];
-            let timeUnix = typeof ts === 'string' ? parseInt(ts) : ts;
-            if (timeUnix > 2000000000) {
-               timeUnix = Math.floor(timeUnix / 1000);
-            }
+            const timeUnix = parseDhanTimestamp(ts);
             
             chartData.push({
                time: timeUnix,
@@ -676,7 +708,7 @@ app.post('/api/ai-analysis', async (req, res) => {
       const startIdx = Math.max(0, len - 30);
       for (let i = startIdx; i < len; i++) {
         lastCandles.push({
-          time: new Date(chartData.timestamp[i] * 1000).toLocaleTimeString(),
+          time: new Date(parseDhanTimestamp(chartData.timestamp[i]) * 1000).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }),
           open: chartData.open[i],
           high: chartData.high[i],
           low: chartData.low[i],
@@ -813,7 +845,9 @@ const updatePendingSignals = () => {
 // Endpoint to get all signals and update status
 app.get('/api/signals', async (req, res) => {
   try {
-    await updatePendingSignals();
+    if (isIndianMarketOpen()) {
+      await updatePendingSignals();
+    }
 
     // Return all signals
     db.all(`SELECT * FROM ai_signals ORDER BY created_at DESC`, [], (err, rows) => {
@@ -938,6 +972,9 @@ app.post('/api/settings/refresh-token', async (req, res) => {
 // Chart Analysis (5m EMA9/20, RSI, MACD, PCR, VWAP, ATR Dynamic S/R, plus 15m Major Trend Confirmation),
 // and convergence-based HYBRID signals to maximize win rate.
 async function runAllDecoders() {
+  if (!isIndianMarketOpen()) {
+    return;
+  }
   const symbols = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
   
   for (const symbol of symbols) {
@@ -1200,6 +1237,9 @@ async function runAllDecoders() {
       const lastEma26 = ema26List[len5 - 1];
       const macdLine = lastEma12 - lastEma26;
       const lastAtr = atrList[atrList.length - 1] || (symbol === 'NIFTY' ? 10 : 25);
+      
+      // Update latestAtrValues cache
+      latestAtrValues[symbol] = parseFloat(lastAtr.toFixed(2));
 
       // Major Trend Alignment (15m Timeframe Filter)
       const len15 = candles15m.length;

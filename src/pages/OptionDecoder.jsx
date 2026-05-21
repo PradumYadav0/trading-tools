@@ -8,6 +8,7 @@ const OptionDecoder = () => {
   const [error, setError] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [spotPrice, setSpotPrice] = useState(0);
+  const [atr, setAtr] = useState(15);
   
   // Data states
   const [pcrData, setPcrData] = useState({ value: 1.0, status: 'Neutral', velocity: 'Stable' });
@@ -59,6 +60,7 @@ const OptionDecoder = () => {
         const strikes = response.data.data;
         const spot = response.data.spotPrice;
         setSpotPrice(spot);
+        setAtr(response.data.atr || 15);
 
         // 1. Calculate PCR
         const totalCallOi = strikes.reduce((sum, row) => sum + row.callOi, 0);
@@ -196,29 +198,10 @@ const OptionDecoder = () => {
   useEffect(() => {
     if (buyerSignal === 'WAIT' || !spotPrice || loading) return;
 
-    const dynamicTargetVal = (() => {
-      const distanceToPain = Math.abs(spotPrice - maxPain);
-      let targetDist = distanceToPain * 0.5;
-      if (symbol === 'NIFTY') {
-        return Math.max(10, Math.min(30, targetDist));
-      } else if (symbol === 'FINNIFTY') {
-        return Math.max(12, Math.min(35, targetDist));
-      } else if (symbol === 'MIDCPNIFTY') {
-        return Math.max(8, Math.min(25, targetDist));
-      } else {
-        return Math.max(20, Math.min(60, targetDist));
-      }
-    })();
-
+    const dynamicTargetVal = 2.0 * atr;
     const targetVal = buyerSignal === 'BUY CALL' ? spotPrice + dynamicTargetVal : spotPrice - dynamicTargetVal;
     
-    const getStoplossAmt = () => {
-      if (symbol === 'NIFTY') return 10;
-      if (symbol === 'FINNIFTY') return 12;
-      if (symbol === 'MIDCPNIFTY') return 8;
-      return 25;
-    };
-    const slAmt = getStoplossAmt();
+    const slAmt = 1.0 * atr;
     const stoplossVal = buyerSignal === 'BUY CALL' 
       ? spotPrice - slAmt 
       : spotPrice + slAmt;
@@ -229,8 +212,8 @@ const OptionDecoder = () => {
           symbol,
           type: buyerSignal === 'BUY CALL' ? 'CALL' : 'PUT',
           entry_price: parseFloat(spotPrice),
-          target_price: parseFloat(targetVal),
-          stoploss_price: parseFloat(stoplossVal),
+          target_price: parseFloat(targetVal.toFixed(2)),
+          stoploss_price: parseFloat(stoplossVal.toFixed(2)),
           source: 'OPTION_CHAIN'
         });
       } catch (e) {
@@ -239,7 +222,7 @@ const OptionDecoder = () => {
     };
 
     saveOptionSignal();
-  }, [buyerSignal, spotPrice, maxPain, symbol, loading]);
+  }, [buyerSignal, spotPrice, symbol, loading, atr]);
 
   if (loading) {
     return <div className="container flex-center" style={{ height: '80vh' }}>Loading Option Decoder Math...</div>;
@@ -247,28 +230,9 @@ const OptionDecoder = () => {
 
   const buyerColor = overallScore.score >= 75 ? 'var(--bullish)' : overallScore.score <= 25 ? 'var(--bearish)' : '#EAB308';
   
-  const distanceToPain = Math.abs(spotPrice - maxPain);
-  let dynamicTarget = distanceToPain * 0.5; 
-  
-  if (symbol === 'NIFTY') {
-    dynamicTarget = Math.max(10, Math.min(30, dynamicTarget));
-  } else if (symbol === 'FINNIFTY') {
-    dynamicTarget = Math.max(12, Math.min(35, dynamicTarget));
-  } else if (symbol === 'MIDCPNIFTY') {
-    dynamicTarget = Math.max(8, Math.min(25, dynamicTarget));
-  } else {
-    dynamicTarget = Math.max(20, Math.min(60, dynamicTarget));
-  }
-  
-  const targetPoints = `${dynamicTarget.toFixed(0)} Points`;
-  
-  const getStoplossPointsStr = () => {
-    if (symbol === 'NIFTY') return '10 Points';
-    if (symbol === 'FINNIFTY') return '12 Points';
-    if (symbol === 'MIDCPNIFTY') return '8 Points';
-    return '25 Points';
-  };
-  const stoplossPoints = getStoplossPointsStr();
+  const dynamicTarget = 2.0 * atr;
+  const targetPoints = `${dynamicTarget.toFixed(1)} Points`;
+  const stoplossPoints = `${(1.0 * atr).toFixed(1)} Points`;
 
   return (
     <div className="container" style={{ padding: '2rem', color: 'white' }}>

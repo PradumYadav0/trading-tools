@@ -34,7 +34,7 @@ const TradingSignals = () => {
       }
 
       if (result.success && result.data) {
-        calculateSignals(result.data, result.spotPrice, chartData);
+        calculateSignals(result.data, result.spotPrice, chartData, result.atr);
       } else {
         setError(result.message || 'Failed to fetch data');
       }
@@ -54,7 +54,7 @@ const TradingSignals = () => {
     return () => clearInterval(interval);
   }, [symbol]);
 
-  const calculateSignals = (ocData, spotPrice, chartData) => {
+  const calculateSignals = (ocData, spotPrice, chartData, apiAtr) => {
     let totalCallOi = 0;
     let totalPutOi = 0;
     let maxCallOi = 0;
@@ -91,6 +91,26 @@ const TradingSignals = () => {
       }
       ema9 = parseFloat(ema.toFixed(2));
       priceAboveEma = spotPrice > ema9;
+    }
+
+    // Calculate ATR from chart data
+    let computedAtr = 0;
+    const atrPeriod = 14;
+    if (chartData.length > atrPeriod) {
+      let trs = [];
+      for (let i = 1; i < chartData.length; i++) {
+        const h_l = chartData[i].high - chartData[i].low;
+        const h_pc = Math.abs(chartData[i].high - chartData[i - 1].close);
+        const l_pc = Math.abs(chartData[i].low - chartData[i - 1].close);
+        trs.push(Math.max(h_l, h_pc, l_pc));
+      }
+      let atr = trs.slice(0, atrPeriod).reduce((a, b) => a + b, 0) / atrPeriod;
+      for (let i = atrPeriod; i < trs.length; i++) {
+        atr = ((atr * (atrPeriod - 1)) + trs[i]) / atrPeriod;
+      }
+      computedAtr = atr;
+    } else {
+      computedAtr = apiAtr || (symbol === 'NIFTY' ? 15 : symbol === 'BANKNIFTY' ? 40 : symbol === 'FINNIFTY' ? 18 : 10);
     }
 
     // Determine Signal
@@ -131,6 +151,20 @@ const TradingSignals = () => {
       recommendation = 'Option Chain is Bearish but Chart is Bullish (Above EMA). Avoid trading.';
     }
 
+    // Calculate dynamic ATR-based target and stoploss (Target: 3.0 * ATR, SL: 1.5 * ATR)
+    let dynamicTarget = 0;
+    let dynamicStoploss = 0;
+    if (signal.includes('BULLISH')) {
+      dynamicTarget = spotPrice + (3.0 * computedAtr);
+      dynamicStoploss = spotPrice - (1.5 * computedAtr);
+    } else if (signal.includes('BEARISH')) {
+      dynamicTarget = spotPrice - (3.0 * computedAtr);
+      dynamicStoploss = spotPrice + (1.5 * computedAtr);
+    } else {
+      dynamicTarget = spotPrice + (3.0 * computedAtr);
+      dynamicStoploss = spotPrice - (1.5 * computedAtr);
+    }
+
     setSignalData({
       spotPrice,
       pcr,
@@ -144,7 +178,10 @@ const TradingSignals = () => {
       totalCallOi,
       totalPutOi,
       ema9,
-      priceAboveEma
+      priceAboveEma,
+      atr: computedAtr,
+      dynamicTarget,
+      dynamicStoploss
     });
   };
 
@@ -161,8 +198,9 @@ const TradingSignals = () => {
           symbol,
           type: signalData.signal.includes('BULLISH') ? 'CALL' : 'PUT',
           entry_price: signalData.spotPrice,
-          target_price: signalData.target,
-          stoploss_price: signalData.stoploss
+          target_price: signalData.dynamicTarget > 0 ? parseFloat(signalData.dynamicTarget.toFixed(2)) : signalData.target,
+          stoploss_price: signalData.dynamicStoploss > 0 ? parseFloat(signalData.dynamicStoploss.toFixed(2)) : signalData.stoploss,
+          source: 'CHART'
         })
       });
       
@@ -285,25 +323,59 @@ const TradingSignals = () => {
           <div className="glass-panel" style={{ padding: '1.5rem' }}>
             <h3 style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>Trade Setup</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.5rem' }}>
                 <span>Spot Price:</span>
                 <span style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>{signalData.spotPrice.toFixed(2)}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: 'var(--bullish)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                  <TrendingUp size={16} /> Target:
-                </span>
-                <span style={{ fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--bullish)' }}>
-                  {signalData.target > 0 ? signalData.target : 'N/A'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: 'var(--bearish)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                  <TrendingDown size={16} /> Stoploss:
-                </span>
-                <span style={{ fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--bearish)' }}>
-                  {signalData.stoploss > 0 ? signalData.stoploss : 'N/A'}
-                </span>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                {/* Dynamic Volatility Setup */}
+                <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  <h4 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent-primary)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <Zap size={14} color="#F59E0B" /> Volatility Setup (ATR)
+                  </h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.85rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--bullish)' }}>Target:</span>
+                      <span style={{ fontWeight: 'bold', color: 'var(--bullish)' }}>
+                        {signalData.dynamicTarget > 0 ? signalData.dynamicTarget.toFixed(2) : 'N/A'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--bearish)' }}>Stoploss:</span>
+                      <span style={{ fontWeight: 'bold', color: 'var(--bearish)' }}>
+                        {signalData.dynamicStoploss > 0 ? signalData.dynamicStoploss.toFixed(2) : 'N/A'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.25rem', textAlign: 'right' }}>
+                      ATR (3.0x / 1.5x): {signalData.atr ? signalData.atr.toFixed(1) : 'N/A'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Major OI Strikes Setup */}
+                <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  <h4 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent-primary)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <TrendingUp size={14} color="#3B82F6" /> Major OI Strikes
+                  </h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.85rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--bullish)' }}>Target (Res):</span>
+                      <span style={{ fontWeight: 'bold', color: 'var(--bullish)' }}>
+                        {signalData.target > 0 ? signalData.target : 'N/A'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--bearish)' }}>Stoploss (Sup):</span>
+                      <span style={{ fontWeight: 'bold', color: 'var(--bearish)' }}>
+                        {signalData.stoploss > 0 ? signalData.stoploss : 'N/A'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.25rem', textAlign: 'right' }}>
+                      Key OI Levels
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

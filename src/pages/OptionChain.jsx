@@ -563,7 +563,7 @@ const OptionChain = () => {
               {/* CALLS | STRIKE | PUTS - Main Group Header */}
               <tr style={{ borderBottom: '2px solid var(--border-color)' }}>
                 <th 
-                  colSpan={showAllColumns ? 4 : 2} 
+                  colSpan={!isMobile ? 4 : (showAllColumns ? 4 : 2)} 
                   style={{ 
                     padding: '0.6rem 1rem', 
                     color: '#ff6b6b', 
@@ -593,7 +593,7 @@ const OptionChain = () => {
                   STRIKE
                 </th>
                 <th 
-                  colSpan={showAllColumns ? 4 : 2} 
+                  colSpan={!isMobile ? 4 : (showAllColumns ? 4 : 2)} 
                   style={{ 
                     padding: '0.6rem 1rem', 
                     color: '#00c805', 

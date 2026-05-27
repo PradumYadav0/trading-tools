@@ -128,18 +128,8 @@ const db = new sqlite3.Database('./option_chain.db', (err) => {
       expiry TEXT,
       data TEXT
     )`, () => {
-      // Clean up off-market hours history records on startup (keeping strictly 9:15 AM to 3:30 PM IST)
-      db.run(`
-        DELETE FROM option_chain_history 
-        WHERE time(timestamp, '+5.5 hours') < '09:15:00' 
-           OR time(timestamp, '+5.5 hours') > '15:30:00'
-      `, function(cleanErr) {
-        if (cleanErr) {
-          console.error('Error cleaning up off-hours history:', cleanErr.message);
-        } else if (this.changes > 0) {
-          console.log(`Cleaned up ${this.changes} off-market hours history records from database.`);
-        }
-      });
+      // Run cleanup on startup
+      cleanupDatabaseHistory();
     });
 
     db.run(`CREATE TABLE IF NOT EXISTS ai_signals (
@@ -165,6 +155,39 @@ const db = new sqlite3.Database('./option_chain.db', (err) => {
     });
   }
 });
+
+// Helper to clean up database history (off-market records and records older than 7 days)
+const cleanupDatabaseHistory = () => {
+  console.log(`[${new Date().toLocaleTimeString()}] Running database history cleanup...`);
+  
+  // Clean up off-market hours history records (keeping strictly 9:15 AM to 3:30 PM IST)
+  db.run(`
+    DELETE FROM option_chain_history 
+    WHERE time(timestamp, '+5.5 hours') < '09:15:00' 
+       OR time(timestamp, '+5.5 hours') > '15:30:00'
+  `, function(cleanErr) {
+    if (cleanErr) {
+      console.error('Error cleaning up off-hours history:', cleanErr.message);
+    } else if (this.changes > 0) {
+      console.log(`Cleaned up ${this.changes} off-market hours history records from database.`);
+    }
+  });
+
+  // Clean up records older than 7 days (7 * 24 hours)
+  db.run(`
+    DELETE FROM option_chain_history 
+    WHERE timestamp < datetime('now', '-7 days')
+  `, function(cleanErr) {
+    if (cleanErr) {
+      console.error('Error cleaning up history older than 7 days:', cleanErr.message);
+    } else if (this.changes > 0) {
+      console.log(`Cleaned up ${this.changes} records older than 7 days from option_chain_history database.`);
+    }
+  });
+};
+
+// Periodic database cleanup every 12 hours
+setInterval(cleanupDatabaseHistory, 12 * 60 * 60 * 1000);
 
 // Cache store to prevent Dhan API rate limit issues
 const dhanCache = {

@@ -1332,6 +1332,14 @@ INSTRUCTIONS FOR WRITING:
 
   } catch (error) {
     console.error('OpenClaw Analyze Error:', error.message);
+    if (error.config) {
+      console.error('OpenClaw Failed Request URL:', error.config.url);
+      console.error('OpenClaw Failed Request Method:', error.config.method);
+    }
+    if (error.response) {
+      console.error('OpenClaw Error Response Status:', error.response.status);
+      console.error('OpenClaw Error Response Data:', JSON.stringify(error.response.data));
+    }
     res.status(500).json({ 
       success: false, 
       message: error.message,

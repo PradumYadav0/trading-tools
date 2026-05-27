@@ -11,8 +11,9 @@ const OpenClawAi = () => {
   const [error, setError] = useState(null);
   
   // Configurations
-  const [pcrWeight, setPcrWeight] = useState(50);
-  const [chartWeight, setChartWeight] = useState(50);
+  const [pcrWeight, setPcrWeight] = useState(40);
+  const [chartWeight, setChartWeight] = useState(40);
+  const [newsWeight, setNewsWeight] = useState(20);
   const [atrMultiplierTarget, setAtrMultiplierTarget] = useState(3.0);
   const [atrMultiplierSl, setAtrMultiplierSl] = useState(1.5);
   const [rsiPeriod, setRsiPeriod] = useState(14);
@@ -37,9 +38,43 @@ const OpenClawAi = () => {
   const [autoAlertsInterval, setAutoAlertsInterval] = useState(5);
   const [autoAlertsMinConfidence, setAutoAlertsMinConfidence] = useState(75);
   const [notificationStatus, setNotificationStatus] = useState({ type: '', message: '' });
+  
+  // Live News feed states
+  const [newsHeadlines, setNewsHeadlines] = useState([]);
+  const [newsLoading, setNewsLoading] = useState(false);
+
+  const fetchLiveNews = async () => {
+    setNewsLoading(true);
+    try {
+      const response = await fetch('/api/openclaw/news');
+      const result = await response.json();
+      if (result.success && result.news) {
+        setNewsHeadlines(result.news);
+      }
+    } catch (e) {
+      console.error('Failed to fetch financial news feed:', e);
+    } finally {
+      setNewsLoading(false);
+    }
+  };
+
+  const getHeadlineSentiment = (title) => {
+    const text = title.toLowerCase();
+    const bullishWords = ['rise', 'gain', 'surge', 'up', 'bull', 'rally', 'climb', 'profit', 'jump', 'green', 'high', 'grows', 'growth', 'positive', 'record', 'nifty hits', 'sensex hits'];
+    const bearishWords = ['fall', 'drop', 'plunge', 'down', 'bear', 'loss', 'crash', 'slip', 'low', 'negative', 'deficit', 'inflation', 'slide', 'slump', 'hit', 'red', 'worry', 'panic', 'rate hike'];
+    
+    let score = 0;
+    bullishWords.forEach(w => { if (text.includes(w)) score++; });
+    bearishWords.forEach(w => { if (text.includes(w)) score--; });
+    
+    if (score > 0) return 'BULLISH';
+    if (score < 0) return 'BEARISH';
+    return 'NEUTRAL';
+  };
 
   // Load configuration from backend on mount (with localStorage fallback migration)
   useEffect(() => {
+    fetchLiveNews();
     const fetchSettings = async () => {
       try {
         const response = await fetch('/api/openclaw/settings');
@@ -50,6 +85,11 @@ const OpenClawAi = () => {
           const dbDiscord = result.settings.discordWebhook || '';
           const dbPhone = result.settings.whatsappPhone || '';
           const dbApiKey = result.settings.whatsappApiKey || '';
+
+          // Sync weight states
+          setPcrWeight(result.settings.pcrWeight !== undefined ? result.settings.pcrWeight : 40);
+          setChartWeight(result.settings.chartWeight !== undefined ? result.settings.chartWeight : 40);
+          setNewsWeight(result.settings.newsWeight !== undefined ? result.settings.newsWeight : 20);
 
           // Check if DB is empty but localStorage has legacy settings
           const localTgToken = localStorage.getItem('openclaw_tg_token') || '';
@@ -77,7 +117,10 @@ const OpenClawAi = () => {
                 whatsappApiKey: localWaApiKey,
                 autoAlertsEnabled: false,
                 autoAlertsInterval: 5,
-                autoAlertsMinConfidence: 75
+                autoAlertsMinConfidence: 75,
+                pcrWeight: 40,
+                chartWeight: 40,
+                newsWeight: 20
               })
             });
           } else {
@@ -108,7 +151,10 @@ const OpenClawAi = () => {
       whatsappApiKey: updated.whatsappApiKey !== undefined ? updated.whatsappApiKey : whatsappApiKey,
       autoAlertsEnabled: updated.autoAlertsEnabled !== undefined ? updated.autoAlertsEnabled : autoAlertsEnabled,
       autoAlertsInterval: updated.autoAlertsInterval !== undefined ? updated.autoAlertsInterval : autoAlertsInterval,
-      autoAlertsMinConfidence: updated.autoAlertsMinConfidence !== undefined ? updated.autoAlertsMinConfidence : autoAlertsMinConfidence
+      autoAlertsMinConfidence: updated.autoAlertsMinConfidence !== undefined ? updated.autoAlertsMinConfidence : autoAlertsMinConfidence,
+      pcrWeight: updated.pcrWeight !== undefined ? updated.pcrWeight : pcrWeight,
+      chartWeight: updated.chartWeight !== undefined ? updated.chartWeight : chartWeight,
+      newsWeight: updated.newsWeight !== undefined ? updated.newsWeight : newsWeight
     };
 
     // Also update localStorage as a backup
@@ -167,6 +213,57 @@ const OpenClawAi = () => {
   const handleAutoAlertsMinConfidenceChange = (val) => {
     setAutoAlertsMinConfidence(val);
     saveSettings({ autoAlertsMinConfidence: val });
+  };
+
+  const handleWeightChange = (type, newVal) => {
+    const value = Math.max(0, Math.min(100, parseInt(newVal, 10) || 0));
+    
+    if (type === 'pcr') {
+      const remaining = 100 - value;
+      const oldSum = chartWeight + newsWeight;
+      let newChart, newNews;
+      if (oldSum > 0) {
+        newChart = Math.round((chartWeight / oldSum) * remaining);
+        newNews = remaining - newChart;
+      } else {
+        newChart = Math.round(remaining / 2);
+        newNews = remaining - newChart;
+      }
+      setPcrWeight(value);
+      setChartWeight(newChart);
+      setNewsWeight(newNews);
+      saveSettings({ pcrWeight: value, chartWeight: newChart, newsWeight: newNews });
+    } else if (type === 'chart') {
+      const remaining = 100 - value;
+      const oldSum = pcrWeight + newsWeight;
+      let newPcr, newNews;
+      if (oldSum > 0) {
+        newPcr = Math.round((pcrWeight / oldSum) * remaining);
+        newNews = remaining - newPcr;
+      } else {
+        newPcr = Math.round(remaining / 2);
+        newNews = remaining - newPcr;
+      }
+      setChartWeight(value);
+      setPcrWeight(newPcr);
+      setNewsWeight(newNews);
+      saveSettings({ pcrWeight: newPcr, chartWeight: value, newsWeight: newNews });
+    } else if (type === 'news') {
+      const remaining = 100 - value;
+      const oldSum = pcrWeight + chartWeight;
+      let newPcr, newChart;
+      if (oldSum > 0) {
+        newPcr = Math.round((pcrWeight / oldSum) * remaining);
+        newChart = remaining - newPcr;
+      } else {
+        newPcr = Math.round(remaining / 2);
+        newChart = remaining - newPcr;
+      }
+      setNewsWeight(value);
+      setPcrWeight(newPcr);
+      setChartWeight(newChart);
+      saveSettings({ pcrWeight: newPcr, chartWeight: newChart, newsWeight: value });
+    }
   };
 
   const sendTestNotification = async () => {
@@ -276,7 +373,10 @@ const OpenClawAi = () => {
       const response = await fetch('/api/openclaw/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol })
+        body: JSON.stringify({ 
+          symbol,
+          weights: { pcrWeight, chartWeight, newsWeight }
+        })
       });
       const result = await response.json();
 
@@ -523,13 +623,10 @@ const OpenClawAi = () => {
                 </div>
                 <input 
                   type="range" 
-                  min="10" 
-                  max="90" 
+                  min="0" 
+                  max="100" 
                   value={pcrWeight} 
-                  onChange={(e) => {
-                    setPcrWeight(e.target.value);
-                    setChartWeight(100 - e.target.value);
-                  }}
+                  onChange={(e) => handleWeightChange('pcr', e.target.value)}
                   style={{ width: '100%', cursor: 'pointer', accentColor: '#a855f7' }}
                 />
               </div>
@@ -541,14 +638,26 @@ const OpenClawAi = () => {
                 </div>
                 <input 
                   type="range" 
-                  min="10" 
-                  max="90" 
+                  min="0" 
+                  max="100" 
                   value={chartWeight} 
-                  onChange={(e) => {
-                    setChartWeight(e.target.value);
-                    setPcrWeight(100 - e.target.value);
-                  }}
+                  onChange={(e) => handleWeightChange('chart', e.target.value)}
                   style={{ width: '100%', cursor: 'pointer', accentColor: '#6366f1' }}
+                />
+              </div>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem', fontSize: '0.85rem' }}>
+                  <span>News Sentiment Agent weight:</span>
+                  <span style={{ color: 'var(--accent-primary)', fontWeight: 'bold' }}>{newsWeight}%</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="100" 
+                  value={newsWeight} 
+                  onChange={(e) => handleWeightChange('news', e.target.value)}
+                  style={{ width: '100%', cursor: 'pointer', accentColor: '#10b981' }}
                 />
               </div>
             </div>
@@ -842,6 +951,123 @@ const OpenClawAi = () => {
             </div>
           </div>
 
+          {/* Live News Sentiment Feed Card */}
+          <div className="glass-panel" style={{ padding: '1.25rem', marginTop: '1.25rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <TrendingUp size={18} style={{ color: '#10b981' }} />
+                <h3 style={{ fontSize: '1rem', margin: 0 }}>Live News Sentiment Feed</h3>
+              </div>
+              <button 
+                onClick={fetchLiveNews} 
+                disabled={newsLoading}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  borderRadius: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.2s'
+                }}
+                title="Refresh News Feed"
+              >
+                <RefreshCw size={14} className={newsLoading ? 'spin' : ''} style={{ color: 'var(--text-secondary)' }} />
+              </button>
+            </div>
+
+            <div style={{ 
+              maxHeight: '280px', 
+              overflowY: 'auto', 
+              display: 'flex', 
+              flexDirection: 'column', 
+              gap: '0.75rem',
+              paddingRight: '0.25rem' 
+            }} className="news-scroll-container">
+              {newsLoading && newsHeadlines.length === 0 ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '2rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                  <RefreshCw size={18} className="spin" style={{ marginRight: '0.5rem' }} /> Loading latest financial headlines...
+                </div>
+              ) : newsHeadlines.length === 0 ? (
+                <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                  No recent financial headlines found.
+                </div>
+              ) : (
+                newsHeadlines.map((item, idx) => {
+                  const sentiment = getHeadlineSentiment(item.title);
+                  let sentimentBg = 'rgba(128,128,128,0.1)';
+                  let sentimentColor = '#8b949e';
+                  let borderClr = 'rgba(255,255,255,0.03)';
+                  
+                  if (sentiment === 'BULLISH') {
+                    sentimentBg = 'rgba(16,185,129,0.1)';
+                    sentimentColor = '#10b981';
+                  } else if (sentiment === 'BEARISH') {
+                    sentimentBg = 'rgba(239,68,68,0.1)';
+                    sentimentColor = '#ef4444';
+                  }
+
+                  return (
+                    <div 
+                      key={idx} 
+                      style={{ 
+                        background: 'rgba(255, 255, 255, 0.01)',
+                        padding: '0.75rem', 
+                        borderRadius: '6px', 
+                        border: `1px solid ${borderClr}`,
+                        display: 'flex', 
+                        flexDirection: 'column', 
+                        gap: '0.4rem',
+                        transition: 'background 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.01)'}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+                        <a 
+                          href={item.link} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          style={{ 
+                            fontSize: '0.82rem', 
+                            color: '#e6edf3', 
+                            textDecoration: 'none',
+                            fontWeight: '500',
+                            lineHeight: '1.4',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden'
+                          }}
+                        >
+                          {item.title}
+                        </a>
+                        <span style={{ 
+                          fontSize: '0.65rem', 
+                          fontWeight: '700', 
+                          padding: '0.15rem 0.4rem', 
+                          borderRadius: '4px',
+                          background: sentimentBg,
+                          color: sentimentColor,
+                          whiteSpace: 'nowrap'
+                        }}>
+                          {sentiment}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
+                        <span>Google News RSS</span>
+                        <span>{new Date(item.pubDate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
         </div>
 
         {/* Right Section - Terminal Output & Recommendation */}
@@ -968,6 +1194,12 @@ const OpenClawAi = () => {
                     <span style={{ fontWeight: 'bold', color: '#6366f1', display: 'block', marginBottom: '0.15rem' }}>Chart Pattern Agent:</span>
                     <span style={{ color: 'var(--text-secondary)' }}>{analysisResult.agentThoughts.chartAgent}</span>
                   </div>
+                  {analysisResult.agentThoughts.newsAgent && (
+                    <div style={{ background: 'rgba(255,255,255,0.01)', padding: '0.6rem 0.8rem', borderRadius: '6px', borderLeft: '3px solid #eab308' }}>
+                      <span style={{ fontWeight: 'bold', color: '#eab308', display: 'block', marginBottom: '0.15rem' }}>News Sentiment Agent:</span>
+                      <span style={{ color: 'var(--text-secondary)' }}>{analysisResult.agentThoughts.newsAgent}</span>
+                    </div>
+                  )}
                   <div style={{ background: 'rgba(255,255,255,0.01)', padding: '0.6rem 0.8rem', borderRadius: '6px', borderLeft: '3px solid #10b981' }}>
                     <span style={{ fontWeight: 'bold', color: '#10b981', display: 'block', marginBottom: '0.15rem' }}>Risk Orchestrator:</span>
                     <span style={{ color: 'var(--text-secondary)' }}>{analysisResult.agentThoughts.riskOrchestrator}</span>

@@ -1080,8 +1080,52 @@ const calculateATR = (data, period = 14) => {
   return parseFloat(atr.toFixed(2));
 };
 
+// Scrapes Google News RSS for Indian Stock Market headlines (free, native, zero external dependencies)
+async function fetchRecentFinancialNews() {
+  try {
+    const url = 'https://news.google.com/rss/search?q=Nifty+OR+Sensex+OR+RBI+OR+market+when:1d&hl=en-IN&gl=IN&ceid=IN:en';
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    });
+
+    const xml = response.data || '';
+    const items = xml.split('<item>');
+    const headlines = [];
+
+    // Extract top 8 headlines
+    for (let i = 1; i < items.length && headlines.length < 8; i++) {
+      const item = items[i];
+      const titleMatch = item.match(/<title>([\s\S]*?)<\/title>/);
+      const linkMatch = item.match(/<link>([\s\S]*?)<\/link>/);
+      const dateMatch = item.match(/<pubDate>([\s\S]*?)<\/pubDate>/);
+
+      if (titleMatch) {
+        let title = titleMatch[1].trim();
+        title = title.replace(/^<!\[CDATA\[([\s\S]*?)\]\]>$/g, '$1').trim();
+        
+        // Clean title (remove publication name at the end)
+        const lastHyphenIndex = title.lastIndexOf(' - ');
+        if (lastHyphenIndex !== -1) {
+          title = title.substring(0, lastHyphenIndex).trim();
+        }
+
+        const link = linkMatch ? linkMatch[1].replace(/^<!\[CDATA\[([\s\S]*?)\]\]>$/g, '$1').trim() : '';
+        const pubDate = dateMatch ? dateMatch[1].replace(/^<!\[CDATA\[([\s\S]*?)\]\]>$/g, '$1').trim() : '';
+
+        headlines.push({ title, link, pubDate });
+      }
+    }
+    return headlines;
+  } catch (error) {
+    console.error('Error fetching financial news RSS:', error.message);
+    return [];
+  }
+}
+
 // Helper function for OpenClaw AI Multi-Agent Analysis
-async function executeOpenClawAnalysis(symbol, expiry = null) {
+async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWeight: 40, chartWeight: 40, newsWeight: 20 }) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error('Gemini API Key missing in settings.');
@@ -1275,11 +1319,27 @@ async function executeOpenClawAnalysis(symbol, expiry = null) {
     putUnwinding = [...nearbyStrikes].sort((a, b) => a.putChgOi - b.putChgOi)[0];
   }
 
+  // Fetch Live Financial News Headlines
+  let headlines = [];
+  try {
+    headlines = await fetchRecentFinancialNews();
+  } catch (err) {
+    console.error('Failed to parse financial news headlines for LLM prompt:', err.message);
+  }
+
   // 4. Construct Multi-Agent Prompt
   const prompt = `You are the 'OpenClaw AI Agent Hub Orchestrator'. You manage three sub-agents to analyze the NIFTY/BANKNIFTY market and issue high-accuracy trading alerts:
 1. **Option Chain Agent**: Analyzes PCR, PCR change velocity, and Call/Put Open Interest blocks (resistance and support).
 2. **Chart Pattern Agent**: Analyzes trend direction (using EMA 9/21 relationship) and momentum (using RSI).
-3. **Risk Orchestrator**: Calculates optimal entry range, stoploss (taking into account swing low and ATR), and target levels.
+3. **News Sentiment Agent**: Analyzes the recent financial news headlines and scores the market mood as BULLISH, BEARISH, or NEUTRAL.
+
+You must weight their importance according to the weights assigned by the user:
+- Option Chain Agent weight: ${weights.pcrWeight}%
+- Chart Pattern Agent weight: ${weights.chartWeight}%
+- News Sentiment Agent weight: ${weights.newsWeight}%
+
+*CRITICAL RULES FOR NEWS SENTIMENT & SAFEGUARDS:*
+- If News Sentiment Agent weight is greater than 0, and you detect a major risk/panic headline (e.g. GDP contraction, war escalation, high interest rate warnings, massive index crashes, inflation surge), you MUST trigger the safety protocol: force "action" to "WAIT" and set "confidence" lower, prioritizing safety over indicators.
 
 Data for ${symbolStr}:
 - Current Spot Price: ${spotPrice}
@@ -1301,10 +1361,14 @@ Data for ${symbolStr}:
   * Call Unwinding (Short Covering / Bullish): Strike ${callUnwinding && callUnwinding.callChgOi < 0 ? callUnwinding.strike : 'N/A'} (ChgOI: ${callUnwinding && callUnwinding.callChgOi < 0 ? callUnwinding.callChgOi : 0})
   * Put Unwinding (Long Liquidation / Bearish): Strike ${putUnwinding && putUnwinding.putChgOi < 0 ? putUnwinding.strike : 'N/A'} (ChgOI: ${putUnwinding && putUnwinding.putChgOi < 0 ? putUnwinding.putChgOi : 0})
 
+- Recent Financial & Stock Market News Headlines:
+${headlines.length > 0 ? headlines.map((h, i) => `  * Headline ${i+1}: "${h.title}"`).join('\n') : '  * No recent headlines available'}
+
 You must return a raw JSON response (without any markdown tags or backticks) in this exact format:
 {
   "action": "CALL" | "PUT" | "WAIT",
   "confidence": <integer percentage between 0 and 100>,
+  "newsSentiment": "BULLISH" | "BEARISH" | "NEUTRAL",
   "buyRange": "<suggested buy range, e.g. '22040 - 22065'>",
   "target1": <number>,
   "target2": <number>,
@@ -1312,6 +1376,7 @@ You must return a raw JSON response (without any markdown tags or backticks) in 
   "agentThoughts": {
     "optionChainAgent": "<Hinglish summary of Option Chain analysis including specific details of writing and unwinding at key strikes>",
     "chartAgent": "<Hinglish summary of technical indicators and chart analysis>",
+    "newsAgent": "<Hinglish summary of financial headlines sentiment and its calculated impact on market mood>",
     "riskOrchestrator": "<Hinglish summary of target and stoploss setting logic based on ATR>"
   },
   "reasoning": [
@@ -1373,7 +1438,22 @@ INSTRUCTIONS FOR WRITING:
 app.post('/api/openclaw/analyze', async (req, res) => {
   try {
     const symbol = req.body.symbol || 'NIFTY';
-    const result = await executeOpenClawAnalysis(symbol, req.body.expiry);
+    const reqWeights = req.body.weights;
+    let weightsObj;
+    if (reqWeights && reqWeights.pcrWeight !== undefined && reqWeights.chartWeight !== undefined && reqWeights.newsWeight !== undefined) {
+      weightsObj = {
+        pcrWeight: parseInt(reqWeights.pcrWeight, 10),
+        chartWeight: parseInt(reqWeights.chartWeight, 10),
+        newsWeight: parseInt(reqWeights.newsWeight, 10)
+      };
+    } else {
+      const settings = await getSystemSettings();
+      const pcrWeight = parseInt(settings['pcr_weight'], 10) || 40;
+      const chartWeight = parseInt(settings['chart_weight'], 10) || 40;
+      const newsWeight = parseInt(settings['news_weight'], 10) || 20;
+      weightsObj = { pcrWeight, chartWeight, newsWeight };
+    }
+    const result = await executeOpenClawAnalysis(symbol, req.body.expiry, weightsObj);
     res.json({
       success: true,
       data: result.data,
@@ -1514,7 +1594,10 @@ app.get('/api/openclaw/settings', (req, res) => {
       whatsappApiKey: '',
       autoAlertsEnabled: false,
       autoAlertsInterval: 5,
-      autoAlertsMinConfidence: 75
+      autoAlertsMinConfidence: 75,
+      pcrWeight: 40,
+      chartWeight: 40,
+      newsWeight: 20
     };
     if (rows) {
       rows.forEach(r => {
@@ -1526,6 +1609,9 @@ app.get('/api/openclaw/settings', (req, res) => {
         if (r.key === 'auto_alerts_enabled') settings.autoAlertsEnabled = r.value === 'true';
         if (r.key === 'auto_alerts_interval') settings.autoAlertsInterval = parseInt(r.value, 10) || 5;
         if (r.key === 'auto_alerts_min_confidence') settings.autoAlertsMinConfidence = parseInt(r.value, 10) || 75;
+        if (r.key === 'pcr_weight') settings.pcrWeight = parseInt(r.value, 10) || 40;
+        if (r.key === 'chart_weight') settings.chartWeight = parseInt(r.value, 10) || 40;
+        if (r.key === 'news_weight') settings.newsWeight = parseInt(r.value, 10) || 20;
       });
     }
     res.json({ success: true, settings });
@@ -1542,7 +1628,10 @@ app.post('/api/openclaw/settings', (req, res) => {
     whatsappApiKey,
     autoAlertsEnabled,
     autoAlertsInterval,
-    autoAlertsMinConfidence
+    autoAlertsMinConfidence,
+    pcrWeight,
+    chartWeight,
+    newsWeight
   } = req.body;
 
   const params = [
@@ -1553,7 +1642,10 @@ app.post('/api/openclaw/settings', (req, res) => {
     { key: 'whatsapp_apikey', val: whatsappApiKey || '' },
     { key: 'auto_alerts_enabled', val: autoAlertsEnabled ? 'true' : 'false' },
     { key: 'auto_alerts_interval', val: String(autoAlertsInterval || 5) },
-    { key: 'auto_alerts_min_confidence', val: String(autoAlertsMinConfidence || 75) }
+    { key: 'auto_alerts_min_confidence', val: String(autoAlertsMinConfidence || 75) },
+    { key: 'pcr_weight', val: String(pcrWeight !== undefined ? pcrWeight : 40) },
+    { key: 'chart_weight', val: String(chartWeight !== undefined ? chartWeight : 40) },
+    { key: 'news_weight', val: String(newsWeight !== undefined ? newsWeight : 20) }
   ];
 
   db.serialize(() => {
@@ -1571,6 +1663,16 @@ app.post('/api/openclaw/settings', (req, res) => {
       res.json({ success: true, message: 'Settings updated successfully' });
     });
   });
+});
+
+// GET Live Financial News Headlines
+app.get('/api/openclaw/news', async (req, res) => {
+  try {
+    const news = await fetchRecentFinancialNews();
+    res.json({ success: true, news });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 // Background Scanner Orchestration Helper
@@ -1611,6 +1713,10 @@ async function triggerOpenClawBackgroundAlerts() {
 
     const interval = parseInt(settings['auto_alerts_interval'], 10) || 5;
     const minConfidence = parseInt(settings['auto_alerts_min_confidence'], 10) || 75;
+    const pcrWeight = parseInt(settings['pcr_weight'], 10) || 40;
+    const chartWeight = parseInt(settings['chart_weight'], 10) || 40;
+    const newsWeight = parseInt(settings['news_weight'], 10) || 20;
+    const weightsObj = { pcrWeight, chartWeight, newsWeight };
 
     // Get current Kolkata/IST hour and minute using Intl formatter
     const formatter = new Intl.DateTimeFormat('en-US', {
@@ -1633,7 +1739,7 @@ async function triggerOpenClawBackgroundAlerts() {
     }
     
     lastOpenClawAlertMinute = minute;
-    console.log(`[OpenClaw Scheduler] Starting auto-scan at ${hour}:${minute} IST (Interval: ${interval}m, Min Confidence: ${minConfidence}%)`);
+    console.log(`[OpenClaw Scheduler] Starting auto-scan at ${hour}:${minute} IST (Interval: ${interval}m, Min Confidence: ${minConfidence}%, Weights: PCR=${pcrWeight}%, Chart=${chartWeight}%, News=${newsWeight}%)`);
 
     const symbols = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
 
@@ -1659,8 +1765,8 @@ async function triggerOpenClawBackgroundAlerts() {
           continue;
         }
 
-        // Run analysis
-        const result = await executeOpenClawAnalysis(symbol);
+        // Run analysis with weights
+        const result = await executeOpenClawAnalysis(symbol, null, weightsObj);
         const actionData = result.data;
         const indicators = result.indicators;
 

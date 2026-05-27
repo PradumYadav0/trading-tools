@@ -30,6 +30,8 @@ const OpenClawAi = () => {
   const [telegramToken, setTelegramToken] = useState(localStorage.getItem('openclaw_tg_token') || '');
   const [telegramChatId, setTelegramChatId] = useState(localStorage.getItem('openclaw_tg_chatid') || '');
   const [discordWebhook, setDiscordWebhook] = useState(localStorage.getItem('openclaw_discord_url') || '');
+  const [whatsappPhone, setWhatsappPhone] = useState(localStorage.getItem('openclaw_wa_phone') || '');
+  const [whatsappApiKey, setWhatsappApiKey] = useState(localStorage.getItem('openclaw_wa_apikey') || '');
   const [notificationStatus, setNotificationStatus] = useState({ type: '', message: '' });
 
   // Load configuration from local storage on mount
@@ -44,6 +46,14 @@ const OpenClawAi = () => {
   useEffect(() => {
     localStorage.setItem('openclaw_discord_url', discordWebhook);
   }, [discordWebhook]);
+
+  useEffect(() => {
+    localStorage.setItem('openclaw_wa_phone', whatsappPhone);
+  }, [whatsappPhone]);
+
+  useEffect(() => {
+    localStorage.setItem('openclaw_wa_apikey', whatsappApiKey);
+  }, [whatsappApiKey]);
 
   const runAnalysis = async () => {
     setLoading(true);
@@ -160,10 +170,24 @@ const OpenClawAi = () => {
       }
     }
 
+    // Dispatch to WhatsApp (CallMeBot) if configured
+    if (whatsappPhone && whatsappApiKey) {
+      attempted++;
+      try {
+        const cleanPhone = whatsappPhone.replace(/[^0-9]/g, '');
+        const waText = encodeURIComponent(messageContent.replace(/\*/g, ''));
+        const waUrl = `https://api.callmebot.com/whatsapp.php?phone=${cleanPhone}&text=${waText}&apikey=${whatsappApiKey}`;
+        await fetch(waUrl, { mode: 'no-cors' });
+        successCount++;
+      } catch (e) {
+        console.error('WhatsApp dispatch error:', e);
+      }
+    }
+
     if (attempted === 0) {
       setNotificationStatus({ 
         type: 'warning', 
-        message: 'Please configure Telegram or Discord webhook settings first.' 
+        message: 'Please configure Telegram, Discord, or WhatsApp settings first.' 
       });
     } else if (successCount === attempted) {
       setNotificationStatus({ 
@@ -469,9 +493,51 @@ const OpenClawAi = () => {
                     color: '#fff',
                     padding: '0.4rem 0.6rem',
                     borderRadius: '6px',
-                    fontSize: '0.8rem'
+                    fontSize: '0.8rem',
+                    marginBottom: '0.75rem'
                   }}
                 />
+              </div>
+
+              <div style={{ borderTop: '1px dashed rgba(255,255,255,0.08)', paddingTop: '0.75rem', marginTop: '0.25rem' }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', color: '#10b981', fontWeight: '700', marginBottom: '0.25rem' }}>WhatsApp Phone Number</label>
+                <input 
+                  type="text" 
+                  placeholder="e.g. 919876543210 (Int. format)"
+                  value={whatsappPhone}
+                  onChange={(e) => setWhatsappPhone(e.target.value)}
+                  style={{
+                    width: '100%',
+                    background: '#1c2128',
+                    border: '1px solid var(--border-color)',
+                    color: '#fff',
+                    padding: '0.4rem 0.6rem',
+                    borderRadius: '6px',
+                    fontSize: '0.8rem',
+                    marginBottom: '0.5rem'
+                  }}
+                />
+
+                <label style={{ display: 'block', fontSize: '0.75rem', color: '#10b981', fontWeight: '700', marginBottom: '0.25rem' }}>CallMeBot API Key</label>
+                <input 
+                  type="password" 
+                  placeholder="Enter API Key"
+                  value={whatsappApiKey}
+                  onChange={(e) => setWhatsappApiKey(e.target.value)}
+                  style={{
+                    width: '100%',
+                    background: '#1c2128',
+                    border: '1px solid var(--border-color)',
+                    color: '#fff',
+                    padding: '0.4rem 0.6rem',
+                    borderRadius: '6px',
+                    fontSize: '0.8rem',
+                    marginBottom: '0.25rem'
+                  }}
+                />
+                <span style={{ display: 'block', fontSize: '0.65rem', color: 'var(--text-secondary)', lineHeight: '1.3' }}>
+                  Send <strong>I allow callmebot to send me messages</strong> to <strong>+34 644 20 28 32</strong> on WhatsApp to get key.
+                </span>
               </div>
             </div>
           </div>

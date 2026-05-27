@@ -153,6 +153,11 @@ const db = new sqlite3.Database('./option_chain.db', (err) => {
         }
       });
     });
+
+    db.run(`CREATE TABLE IF NOT EXISTS system_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    )`);
   }
 });
 
@@ -1075,189 +1080,208 @@ const calculateATR = (data, period = 14) => {
   return parseFloat(atr.toFixed(2));
 };
 
-// Endpoint for OpenClaw AI Multi-Agent Analysis
-app.post('/api/openclaw/analyze', async (req, res) => {
-  try {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return res.status(400).json({ success: false, message: 'Gemini API Key missing in settings.' });
-    }
+// Helper function for OpenClaw AI Multi-Agent Analysis
+async function executeOpenClawAnalysis(symbol, expiry = null) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('Gemini API Key missing in settings.');
+  }
 
-    const symbol = req.body.symbol || 'NIFTY';
-    const scripId = scripMap[symbol];
-    if (!scripId) {
-      return res.status(400).json({ success: false, message: 'Invalid symbol requested' });
-    }
+  const symbolStr = symbol || 'NIFTY';
+  const scripId = scripMap[symbolStr];
+  if (!scripId) {
+    throw new Error('Invalid symbol requested');
+  }
 
-    // 1. Fetch Option Chain Data
-    let spotPrice = 0;
-    let strikesArray = [];
-    let finalExpiry = req.body.expiry;
+  // 1. Fetch Option Chain Data
+  let spotPrice = 0;
+  let strikesArray = [];
+  let finalExpiry = expiry;
 
-    const cacheKey = `${symbol}_${finalExpiry || 'first'}`;
-    const cachedOc = getCachedData('optionChain', cacheKey, isIndianMarketOpen() ? CACHE_DURATION_MS : 3600000);
-    
-    if (cachedOc) {
-      spotPrice = cachedOc.spotPrice;
-      strikesArray = cachedOc.data;
-      finalExpiry = cachedOc.expiry;
-    } else if (!isIndianMarketOpen()) {
-      try {
-        const row = await getLastSavedOptionChain(symbol, finalExpiry);
-        if (row) {
-          spotPrice = row.spot_price;
-          strikesArray = JSON.parse(row.data);
-          finalExpiry = row.expiry;
-        }
-      } catch (dbErr) {
-        console.error('Error fetching option chain for OpenClaw analysis from DB:', dbErr.message);
+  const cacheKey = `${symbolStr}_${finalExpiry || 'first'}`;
+  const cachedOc = getCachedData('optionChain', cacheKey, isIndianMarketOpen() ? CACHE_DURATION_MS : 3600000);
+  
+  if (cachedOc) {
+    spotPrice = cachedOc.spotPrice;
+    strikesArray = cachedOc.data;
+    finalExpiry = cachedOc.expiry;
+  } else if (!isIndianMarketOpen()) {
+    try {
+      const row = await getLastSavedOptionChain(symbolStr, finalExpiry);
+      if (row) {
+        spotPrice = row.spot_price;
+        strikesArray = JSON.parse(row.data);
+        finalExpiry = row.expiry;
       }
+    } catch (dbErr) {
+      console.error('Error fetching option chain for OpenClaw analysis from DB:', dbErr.message);
     }
+  }
 
-    // Fallback to Dhan API if cache/DB empty
-    if (!spotPrice || strikesArray.length === 0) {
-      const expiryResponse = await queuedDhanRequest({
+  // Fallback to Dhan API if cache/DB empty
+  if (!spotPrice || strikesArray.length === 0) {
+    const expiryResponse = await queuedDhanRequest({
+      method: 'post',
+      url: 'https://api.dhan.co/v2/optionchain/expirylist',
+      data: { UnderlyingScrip: scripId, UnderlyingSeg: 'IDX_I' },
+      headers: getDhanHeaders()
+    });
+
+    if (expiryResponse.data.status === 'success' && expiryResponse.data.data.length > 0) {
+      const expiryList = expiryResponse.data.data;
+      finalExpiry = finalExpiry || expiryList[0];
+
+      const ocResponse = await queuedDhanRequest({
         method: 'post',
-        url: 'https://api.dhan.co/v2/optionchain/expirylist',
-        data: { UnderlyingScrip: scripId, UnderlyingSeg: 'IDX_I' },
+        url: 'https://api.dhan.co/v2/optionchain',
+        data: { UnderlyingScrip: scripId, UnderlyingSeg: 'IDX_I', Expiry: finalExpiry },
         headers: getDhanHeaders()
       });
 
-      if (expiryResponse.data.status === 'success' && expiryResponse.data.data.length > 0) {
-        const expiryList = expiryResponse.data.data;
-        finalExpiry = finalExpiry || expiryList[0];
-
-        const ocResponse = await queuedDhanRequest({
-          method: 'post',
-          url: 'https://api.dhan.co/v2/optionchain',
-          data: { UnderlyingScrip: scripId, UnderlyingSeg: 'IDX_I', Expiry: finalExpiry },
-          headers: getDhanHeaders()
-        });
-
-        if (ocResponse.data.status === 'success') {
-          const rawData = ocResponse.data.data;
-          spotPrice = rawData.last_price;
-          const rawOc = rawData.oc;
-          strikesArray = Object.keys(rawOc).map(strikeStr => {
-            const strike = parseFloat(strikeStr);
-            const data = rawOc[strikeStr];
-            return {
-              strike,
-              callOi: data.ce?.oi || 0,
-              callChgOi: (data.ce?.oi || 0) - (data.ce?.previous_oi || 0),
-              callLtp: data.ce?.last_price || 0,
-              callVolume: data.ce?.volume || 0,
-              putVolume: data.pe?.volume || 0,
-              putLtp: data.pe?.last_price || 0,
-              putChgOi: (data.pe?.oi || 0) - (data.pe?.previous_oi || 0),
-              putOi: data.pe?.oi || 0
-            };
-          }).sort((a, b) => a.strike - b.strike);
-        }
+      if (ocResponse.data.status === 'success') {
+        const rawData = ocResponse.data.data;
+        spotPrice = rawData.last_price;
+        const rawOc = rawData.oc;
+        strikesArray = Object.keys(rawOc).map(strikeStr => {
+          const strike = parseFloat(strikeStr);
+          const data = rawOc[strikeStr];
+          return {
+            strike,
+            callOi: data.ce?.oi || 0,
+            callChgOi: (data.ce?.oi || 0) - (data.ce?.previous_oi || 0),
+            callLtp: data.ce?.last_price || 0,
+            callVolume: data.ce?.volume || 0,
+            putVolume: data.pe?.volume || 0,
+            putLtp: data.pe?.last_price || 0,
+            putChgOi: (data.pe?.oi || 0) - (data.pe?.previous_oi || 0),
+            putOi: data.pe?.oi || 0
+          };
+        }).sort((a, b) => a.strike - b.strike);
       }
     }
+  }
 
-    if (!spotPrice || strikesArray.length === 0) {
-      return res.status(400).json({ success: false, message: 'Option chain data currently unavailable.' });
-    }
+  if (!spotPrice || strikesArray.length === 0) {
+    throw new Error('Option chain data currently unavailable.');
+  }
 
-    // 2. Fetch Chart Data (Intraday 5m)
-    let chartCandles = [];
-    const cachedChart = getCachedData('chartsIntraday', `${symbol}_5`, isIndianMarketOpen() ? CACHE_DURATION_MS : 3600000);
-    
-    if (cachedChart && cachedChart.success && cachedChart.data) {
-      chartCandles = cachedChart.data;
-    } else {
-      const toDate = new Date();
-      toDate.setDate(toDate.getDate() + 1);
-      const fromDate = new Date();
-      fromDate.setDate(fromDate.getDate() - 3); // 3 days for enough data to compute 14-period indicators
-      const formatDate = (d) => d.toISOString().split('T')[0];
+  // 2. Fetch Chart Data (Intraday 5m)
+  let chartCandles = [];
+  const cachedChart = getCachedData('chartsIntraday', `${symbolStr}_5`, isIndianMarketOpen() ? CACHE_DURATION_MS : 3600000);
+  
+  if (cachedChart && cachedChart.success && cachedChart.data) {
+    chartCandles = cachedChart.data;
+  } else {
+    const toDate = new Date();
+    toDate.setDate(toDate.getDate() + 1);
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - 3); // 3 days for enough data to compute 14-period indicators
+    const formatDate = (d) => d.toISOString().split('T')[0];
 
-      try {
-        const chartResponse = await queuedDhanRequest({
-          method: 'post',
-          url: 'https://api.dhan.co/v2/charts/intraday',
-          data: {
-            securityId: scripId.toString(),
-            exchangeSegment: 'IDX_I',
-            instrument: 'INDEX',
-            interval: '5',
-            fromDate: formatDate(fromDate),
-            toDate: formatDate(toDate)
-          },
-          headers: getDhanHeaders()
-        });
-
-        const chartData = chartResponse.data.data || chartResponse.data;
-        if (chartData.timestamp) {
-          for (let i = 0; i < chartData.timestamp.length; i++) {
-            chartCandles.push({
-              time: chartData.timestamp[i],
-              open: chartData.open[i],
-              high: chartData.high[i],
-              low: chartData.low[i],
-              close: chartData.close[i]
-            });
-          }
-        }
-      } catch (err) {
-        console.error('Error fetching intraday charts in OpenClaw:', err.message);
-      }
-    }
-
-    // Sort chart candles by time just in case
-    chartCandles = chartCandles.sort((a, b) => a.time - b.time);
-
-    // 3. Calculate Indicators
-    const ema9 = calculateEMA(chartCandles, 9);
-    const ema21 = calculateEMA(chartCandles, 21);
-    const rsi = calculateRSI(chartCandles, 14);
-    const atr = calculateATR(chartCandles, 14) || latestAtrValues[symbol] || 15;
-
-    // Calculate current PCR
-    let totalCallOi = 0;
-    let totalPutOi = 0;
-    strikesArray.forEach(s => {
-      totalCallOi += s.callOi || 0;
-      totalPutOi += s.putOi || 0;
-    });
-    const pcr = totalCallOi > 0 ? parseFloat((totalPutOi / totalCallOi).toFixed(2)) : 0;
-
-    // Fetch PCR history from Database
-    const getHistoricalPcrs = () => {
-      return new Promise((resolve) => {
-        db.all(
-          `SELECT timestamp, data FROM option_chain_history 
-           WHERE symbol = ? 
-           ORDER BY timestamp DESC LIMIT 5`,
-          [symbol],
-          (err, rows) => {
-            if (err || !rows || rows.length < 2) return resolve([]);
-            const pcrs = [];
-            rows.forEach(row => {
-              try {
-                const parsed = JSON.parse(row.data);
-                let cSum = 0, pSum = 0;
-                parsed.forEach(s => { cSum += s.callOi || 0; pSum += s.putOi || 0; });
-                if (cSum > 0) pcrs.push(pSum / cSum);
-              } catch (e) {}
-            });
-            resolve(pcrs);
-          }
-        );
+    try {
+      const chartResponse = await queuedDhanRequest({
+        method: 'post',
+        url: 'https://api.dhan.co/v2/charts/intraday',
+        data: {
+          securityId: scripId.toString(),
+          exchangeSegment: 'IDX_I',
+          instrument: 'INDEX',
+          interval: '5',
+          fromDate: formatDate(fromDate),
+          toDate: formatDate(toDate)
+        },
+        headers: getDhanHeaders()
       });
-    };
 
-    const historicalPcrs = await getHistoricalPcrs();
+      const chartData = chartResponse.data.data || chartResponse.data;
+      if (chartData.timestamp) {
+        for (let i = 0; i < chartData.timestamp.length; i++) {
+          chartCandles.push({
+            time: chartData.timestamp[i],
+            open: chartData.open[i],
+            high: chartData.high[i],
+            low: chartData.low[i],
+            close: chartData.close[i]
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching intraday charts in OpenClaw:', err.message);
+    }
+  }
 
-    // 4. Construct Multi-Agent Prompt
-    const prompt = `You are the 'OpenClaw AI Agent Hub Orchestrator'. You manage three sub-agents to analyze the NIFTY/BANKNIFTY market and issue high-accuracy trading alerts:
+  // Sort chart candles by time just in case
+  chartCandles = chartCandles.sort((a, b) => a.time - b.time);
+
+  // 3. Calculate Indicators
+  const ema9 = calculateEMA(chartCandles, 9);
+  const ema21 = calculateEMA(chartCandles, 21);
+  const rsi = calculateRSI(chartCandles, 14);
+  const atr = calculateATR(chartCandles, 14) || latestAtrValues[symbolStr] || 15;
+
+  // Calculate current PCR
+  let totalCallOi = 0;
+  let totalPutOi = 0;
+  strikesArray.forEach(s => {
+    totalCallOi += s.callOi || 0;
+    totalPutOi += s.putOi || 0;
+  });
+  const pcr = totalCallOi > 0 ? parseFloat((totalPutOi / totalCallOi).toFixed(2)) : 0;
+
+  // Fetch PCR history from Database
+  const getHistoricalPcrs = () => {
+    return new Promise((resolve) => {
+      db.all(
+        `SELECT timestamp, data FROM option_chain_history 
+         WHERE symbol = ? 
+         ORDER BY timestamp DESC LIMIT 5`,
+        [symbolStr],
+        (err, rows) => {
+          if (err || !rows || rows.length < 2) return resolve([]);
+          const pcrs = [];
+          rows.forEach(row => {
+            try {
+              const parsed = JSON.parse(row.data);
+              let cSum = 0, pSum = 0;
+              parsed.forEach(s => { cSum += s.callOi || 0; pSum += s.putOi || 0; });
+              if (cSum > 0) pcrs.push(pSum / cSum);
+            } catch (e) {}
+          });
+          resolve(pcrs);
+        }
+      );
+    });
+  };
+
+  const historicalPcrs = await getHistoricalPcrs();
+
+  // Find key Option Chain metrics (within 2% range of spotPrice)
+  const rangePercent = 0.02;
+  const nearbyStrikes = strikesArray.filter(s => Math.abs(s.strike - spotPrice) <= spotPrice * rangePercent);
+  
+  let resistanceStrike = null;
+  let supportStrike = null;
+  let heavyCallWriting = null;
+  let heavyPutWriting = null;
+  let callUnwinding = null;
+  let putUnwinding = null;
+
+  if (nearbyStrikes.length > 0) {
+    resistanceStrike = [...nearbyStrikes].sort((a, b) => b.callOi - a.callOi)[0];
+    supportStrike = [...nearbyStrikes].sort((a, b) => b.putOi - a.putOi)[0];
+    heavyCallWriting = [...nearbyStrikes].sort((a, b) => b.callChgOi - a.callChgOi)[0];
+    heavyPutWriting = [...nearbyStrikes].sort((a, b) => b.putChgOi - a.putChgOi)[0];
+    callUnwinding = [...nearbyStrikes].sort((a, b) => a.callChgOi - b.callChgOi)[0];
+    putUnwinding = [...nearbyStrikes].sort((a, b) => a.putChgOi - b.putChgOi)[0];
+  }
+
+  // 4. Construct Multi-Agent Prompt
+  const prompt = `You are the 'OpenClaw AI Agent Hub Orchestrator'. You manage three sub-agents to analyze the NIFTY/BANKNIFTY market and issue high-accuracy trading alerts:
 1. **Option Chain Agent**: Analyzes PCR, PCR change velocity, and Call/Put Open Interest blocks (resistance and support).
 2. **Chart Pattern Agent**: Analyzes trend direction (using EMA 9/21 relationship) and momentum (using RSI).
 3. **Risk Orchestrator**: Calculates optimal entry range, stoploss (taking into account swing low and ATR), and target levels.
 
-Data for ${symbol}:
+Data for ${symbolStr}:
 - Current Spot Price: ${spotPrice}
 - Current PCR: ${pcr}
 - PCR values for last few minutes (newest to oldest): ${historicalPcrs.map(v => v.toFixed(2)).join(', ')}
@@ -1269,6 +1293,14 @@ Data for ${symbol}:
   * RSI (14): ${rsi} (${rsi > 70 ? 'Overbought' : rsi < 30 ? 'Oversold' : 'Neutral'})
   * ATR (14): ${atr.toFixed(2)}
 
+- Nearby Strike Option Chain Activity (Spot: ${spotPrice}):
+  * Strongest Resistance Strike: ${resistanceStrike ? resistanceStrike.strike : 'N/A'} (Call OI: ${resistanceStrike ? resistanceStrike.callOi : 0})
+  * Strongest Support Strike: ${supportStrike ? supportStrike.strike : 'N/A'} (Put OI: ${supportStrike ? supportStrike.putOi : 0})
+  * Heavy Call Writing (Bearish pressure): Strike ${heavyCallWriting && heavyCallWriting.callChgOi > 0 ? heavyCallWriting.strike : 'N/A'} (ChgOI: ${heavyCallWriting && heavyCallWriting.callChgOi > 0 ? heavyCallWriting.callChgOi : 0})
+  * Heavy Put Writing (Bullish pressure): Strike ${heavyPutWriting && heavyPutWriting.putChgOi > 0 ? heavyPutWriting.strike : 'N/A'} (ChgOI: ${heavyPutWriting && heavyPutWriting.putChgOi > 0 ? heavyPutWriting.putChgOi : 0})
+  * Call Unwinding (Short Covering / Bullish): Strike ${callUnwinding && callUnwinding.callChgOi < 0 ? callUnwinding.strike : 'N/A'} (ChgOI: ${callUnwinding && callUnwinding.callChgOi < 0 ? callUnwinding.callChgOi : 0})
+  * Put Unwinding (Long Liquidation / Bearish): Strike ${putUnwinding && putUnwinding.putChgOi < 0 ? putUnwinding.strike : 'N/A'} (ChgOI: ${putUnwinding && putUnwinding.putChgOi < 0 ? putUnwinding.putChgOi : 0})
+
 You must return a raw JSON response (without any markdown tags or backticks) in this exact format:
 {
   "action": "CALL" | "PUT" | "WAIT",
@@ -1278,9 +1310,9 @@ You must return a raw JSON response (without any markdown tags or backticks) in 
   "target2": <number>,
   "stoploss": <number>,
   "agentThoughts": {
-    "optionChainAgent": "<Hinglish summary of Option Chain analysis>",
+    "optionChainAgent": "<Hinglish summary of Option Chain analysis including specific details of writing and unwinding at key strikes>",
     "chartAgent": "<Hinglish summary of technical indicators and chart analysis>",
-    "riskOrchestrator": "<Hinglish summary of target and stoploss setting logic>"
+    "riskOrchestrator": "<Hinglish summary of target and stoploss setting logic based on ATR>"
   },
   "reasoning": [
     "<Bullet point 1 in Hinglish explaining trade reason>",
@@ -1296,55 +1328,62 @@ INSTRUCTIONS FOR WRITING:
 - Ensure all numbers (target1, target2, stoploss) are valid numbers.
 - Do NOT wrap in backticks or code blocks. Just output the clean JSON object.`;
 
-    // 5. Call Gemini
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-    const geminiResponse = await axios.post(geminiUrl, {
-      contents: [{ parts: [{ text: prompt }] }]
-    });
+  // 5. Call Gemini
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const geminiResponse = await axios.post(geminiUrl, {
+    contents: [{ parts: [{ text: prompt }] }]
+  });
 
-    const rawText = geminiResponse.data.candidates[0].content.parts[0].text;
-    
-    // Clean response of any markdown formatting
-    let cleanText = rawText.trim();
-    if (cleanText.startsWith('```')) {
-      cleanText = cleanText.replace(/^```[a-zA-Z]*\n/, '').replace(/\n```$/, '').trim();
+  const rawText = geminiResponse.data.candidates[0].content.parts[0].text;
+  
+  // Clean response of any markdown formatting
+  let cleanText = rawText.trim();
+  if (cleanText.startsWith('```')) {
+    cleanText = cleanText.replace(/^```[a-zA-Z]*\n/, '').replace(/\n```$/, '').trim();
+  }
+
+  let parsedResult;
+  try {
+    parsedResult = JSON.parse(cleanText);
+  } catch (parseErr) {
+    console.error('Failed to parse Gemini JSON. Raw text was:', rawText);
+    throw new Error('AI response was not in a valid JSON format');
+  }
+
+  return {
+    data: parsedResult,
+    indicators: {
+      spotPrice,
+      pcr,
+      ema9,
+      ema21,
+      rsi,
+      atr,
+      resistanceStrike: resistanceStrike ? resistanceStrike.strike : null,
+      supportStrike: supportStrike ? supportStrike.strike : null,
+      heavyCallWritingStrike: heavyCallWriting && heavyCallWriting.callChgOi > 0 ? heavyCallWriting.strike : null,
+      heavyPutWritingStrike: heavyPutWriting && heavyPutWriting.putChgOi > 0 ? heavyPutWriting.strike : null,
+      callUnwindingStrike: callUnwinding && callUnwinding.callChgOi < 0 ? callUnwinding.strike : null,
+      putUnwindingStrike: putUnwinding && putUnwinding.putChgOi < 0 ? putUnwinding.strike : null
     }
+  };
+}
 
-    let parsedResult;
-    try {
-      parsedResult = JSON.parse(cleanText);
-    } catch (parseErr) {
-      console.error('Failed to parse Gemini JSON. Raw text was:', rawText);
-      return res.status(500).json({ success: false, message: 'AI response was not in a valid JSON format', raw: rawText });
-    }
-
+// Endpoint for OpenClaw AI Multi-Agent Analysis
+app.post('/api/openclaw/analyze', async (req, res) => {
+  try {
+    const symbol = req.body.symbol || 'NIFTY';
+    const result = await executeOpenClawAnalysis(symbol, req.body.expiry);
     res.json({
       success: true,
-      data: parsedResult,
-      indicators: {
-        spotPrice,
-        pcr,
-        ema9,
-        ema21,
-        rsi,
-        atr
-      }
+      data: result.data,
+      indicators: result.indicators
     });
-
   } catch (error) {
     console.error('OpenClaw Analyze Error:', error.message);
-    if (error.config) {
-      console.error('OpenClaw Failed Request URL:', error.config.url);
-      console.error('OpenClaw Failed Request Method:', error.config.method);
-    }
-    if (error.response) {
-      console.error('OpenClaw Error Response Status:', error.response.status);
-      console.error('OpenClaw Error Response Data:', JSON.stringify(error.response.data));
-    }
     res.status(500).json({ 
       success: false, 
-      message: error.message,
-      details: error.response?.data
+      message: error.message
     });
   }
 });
@@ -1460,6 +1499,269 @@ function writeEnvFile(obj) {
   const content = Object.entries(obj).map(([k, v]) => `${k}=${v}`).join('\n') + '\n';
   fs.writeFileSync(ENV_PATH, content, 'utf8');
 }
+
+// GET OpenClaw settings from SQLite database
+app.get('/api/openclaw/settings', (req, res) => {
+  db.all('SELECT key, value FROM system_settings', [], (err, rows) => {
+    if (err) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
+    const settings = {
+      telegramToken: '',
+      telegramChatId: '',
+      discordWebhook: '',
+      whatsappPhone: '',
+      whatsappApiKey: '',
+      autoAlertsEnabled: false,
+      autoAlertsInterval: 5,
+      autoAlertsMinConfidence: 75
+    };
+    if (rows) {
+      rows.forEach(r => {
+        if (r.key === 'telegram_token') settings.telegramToken = r.value;
+        if (r.key === 'telegram_chat_id') settings.telegramChatId = r.value;
+        if (r.key === 'discord_webhook') settings.discordWebhook = r.value;
+        if (r.key === 'whatsapp_phone') settings.whatsappPhone = r.value;
+        if (r.key === 'whatsapp_apikey') settings.whatsappApiKey = r.value;
+        if (r.key === 'auto_alerts_enabled') settings.autoAlertsEnabled = r.value === 'true';
+        if (r.key === 'auto_alerts_interval') settings.autoAlertsInterval = parseInt(r.value, 10) || 5;
+        if (r.key === 'auto_alerts_min_confidence') settings.autoAlertsMinConfidence = parseInt(r.value, 10) || 75;
+      });
+    }
+    res.json({ success: true, settings });
+  });
+});
+
+// POST to update OpenClaw settings in SQLite database
+app.post('/api/openclaw/settings', (req, res) => {
+  const { 
+    telegramToken, 
+    telegramChatId, 
+    discordWebhook, 
+    whatsappPhone, 
+    whatsappApiKey,
+    autoAlertsEnabled,
+    autoAlertsInterval,
+    autoAlertsMinConfidence
+  } = req.body;
+
+  const params = [
+    { key: 'telegram_token', val: telegramToken || '' },
+    { key: 'telegram_chat_id', val: telegramChatId || '' },
+    { key: 'discord_webhook', val: discordWebhook || '' },
+    { key: 'whatsapp_phone', val: whatsappPhone || '' },
+    { key: 'whatsapp_apikey', val: whatsappApiKey || '' },
+    { key: 'auto_alerts_enabled', val: autoAlertsEnabled ? 'true' : 'false' },
+    { key: 'auto_alerts_interval', val: String(autoAlertsInterval || 5) },
+    { key: 'auto_alerts_min_confidence', val: String(autoAlertsMinConfidence || 75) }
+  ];
+
+  db.serialize(() => {
+    let hasError = false;
+    const stmt = db.prepare(`INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)`);
+    params.forEach(p => {
+      stmt.run(p.key, p.val, (err) => {
+        if (err) hasError = true;
+      });
+    });
+    stmt.finalize((err) => {
+      if (err || hasError) {
+        return res.status(500).json({ success: false, message: 'Failed to save settings to database' });
+      }
+      res.json({ success: true, message: 'Settings updated successfully' });
+    });
+  });
+});
+
+// Background Scanner Orchestration Helper
+function getSystemSettings() {
+  return new Promise((resolve) => {
+    db.all('SELECT key, value FROM system_settings', [], (err, rows) => {
+      if (err || !rows) return resolve({});
+      const settings = {};
+      rows.forEach(r => {
+        settings[r.key] = r.value;
+      });
+      resolve(settings);
+    });
+  });
+}
+
+let lastOpenClawAlertMinute = -1;
+const lastAlertSpotPrices = {
+  NIFTY: 0,
+  BANKNIFTY: 0,
+  FINNIFTY: 0,
+  MIDCPNIFTY: 0
+};
+
+async function triggerOpenClawBackgroundAlerts() {
+  try {
+    // 1. Check if market is open
+    if (!isIndianMarketOpen()) {
+      return;
+    }
+
+    // 2. Fetch system settings
+    const settings = await getSystemSettings();
+    const isEnabled = settings['auto_alerts_enabled'] === 'true';
+    if (!isEnabled) {
+      return;
+    }
+
+    const interval = parseInt(settings['auto_alerts_interval'], 10) || 5;
+    const minConfidence = parseInt(settings['auto_alerts_min_confidence'], 10) || 75;
+
+    // Get current Kolkata/IST hour and minute using Intl formatter
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Kolkata',
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    const parts = formatter.formatToParts(new Date());
+    const hourVal = parts.find(p => p.type === 'hour')?.value;
+    const minuteVal = parts.find(p => p.type === 'minute')?.value;
+    
+    if (!hourVal || !minuteVal) return;
+    const hour = parseInt(hourVal, 10);
+    const minute = parseInt(minuteVal, 10);
+
+    // Run exactly once at the interval boundary
+    if (minute % interval !== 0 || minute === lastOpenClawAlertMinute) {
+      return;
+    }
+    
+    lastOpenClawAlertMinute = minute;
+    console.log(`[OpenClaw Scheduler] Starting auto-scan at ${hour}:${minute} IST (Interval: ${interval}m, Min Confidence: ${minConfidence}%)`);
+
+    const symbols = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
+
+    for (const symbol of symbols) {
+      try {
+        console.log(`[OpenClaw Scheduler] Scanning ${symbol}...`);
+
+        // Check if price has changed to prevent duplicate API hits during holiday/halts
+        let currentSpot = 0;
+        const cacheKey = `${symbol}_first`;
+        const cachedOc = getCachedData('optionChain', cacheKey, 30000);
+        if (cachedOc) {
+          currentSpot = cachedOc.spotPrice;
+        } else {
+          const lastSaved = await getLastSavedOptionChain(symbol);
+          if (lastSaved) {
+            currentSpot = lastSaved.spot_price;
+          }
+        }
+
+        if (currentSpot > 0 && currentSpot === lastAlertSpotPrices[symbol]) {
+          console.log(`[OpenClaw Scheduler] Skipping ${symbol} - Spot price (${currentSpot}) has not changed since last scan (potential holiday or market halt).`);
+          continue;
+        }
+
+        // Run analysis
+        const result = await executeOpenClawAnalysis(symbol);
+        const actionData = result.data;
+        const indicators = result.indicators;
+
+        // Update last spot price
+        lastAlertSpotPrices[symbol] = indicators.spotPrice;
+
+        console.log(`[OpenClaw Scheduler] ${symbol} Scan Completed: Action=${actionData.action}, Confidence=${actionData.confidence}%`);
+
+        if ((actionData.action === 'CALL' || actionData.action === 'PUT') && actionData.confidence >= minConfidence) {
+          console.log(`[OpenClaw Scheduler] Strong signal detected for ${symbol}: ${actionData.action} (${actionData.confidence}%)`);
+          await sendOpenClawNotifications(symbol, actionData, settings);
+          saveOpenClawSignalToDb(symbol, actionData, indicators.spotPrice);
+        }
+      } catch (err) {
+        console.error(`[OpenClaw Scheduler] Error scanning ${symbol}:`, err.message);
+      }
+
+      // 5-second delay to stagger API calls
+      await new Promise(r => setTimeout(r, 5000));
+    }
+  } catch (error) {
+    console.error('[OpenClaw Scheduler] Error in background scanner loop:', error.message);
+  }
+}
+
+async function sendOpenClawNotifications(symbol, actionData, settings) {
+  const messageContent = `🚨 *OpenClaw AI Trade Alert* 🚨\n\n` +
+    `*Symbol*: ${symbol}\n` +
+    `*Action*: ${actionData.action === 'CALL' ? 'BUY CALL / BULLISH' : 'BUY PUT / BEARISH'}\n` +
+    `*Confidence*: ${actionData.confidence}%\n` +
+    `*Buy Range*: ${actionData.buyRange}\n` +
+    `*Target 1*: ${actionData.target1}\n` +
+    `*Target 2*: ${actionData.target2}\n` +
+    `*Stoploss*: ${actionData.stoploss}\n\n` +
+    `*AI Summary*: ${actionData.summary}\n\n` +
+    `🤖 Powered by OpenClaw AI Multi-Agent Engine.`;
+
+  // Telegram
+  const tgToken = settings['telegram_token'];
+  const tgChatId = settings['telegram_chat_id'];
+  if (tgToken && tgChatId) {
+    try {
+      const url = `https://api.telegram.org/bot${tgToken}/sendMessage`;
+      await axios.post(url, {
+        chat_id: tgChatId,
+        text: messageContent,
+        parse_mode: 'Markdown'
+      });
+      console.log(`[Background Alert] Telegram alert dispatched for ${symbol}`);
+    } catch (e) {
+      console.error(`[Background Alert] Telegram dispatch error for ${symbol}:`, e.message);
+    }
+  }
+
+  // Discord
+  const discordWebhook = settings['discord_webhook'];
+  if (discordWebhook) {
+    try {
+      await axios.post(discordWebhook, {
+        content: messageContent.replace(/\*/g, '**')
+      });
+      console.log(`[Background Alert] Discord alert dispatched for ${symbol}`);
+    } catch (e) {
+      console.error(`[Background Alert] Discord dispatch error for ${symbol}:`, e.message);
+    }
+  }
+
+  // WhatsApp
+  const waPhone = settings['whatsapp_phone'];
+  const waApiKey = settings['whatsapp_apikey'];
+  if (waPhone && waApiKey) {
+    try {
+      const cleanPhone = waPhone.replace(/[^0-9]/g, '');
+      const waText = encodeURIComponent(messageContent.replace(/\*/g, ''));
+      const waUrl = `https://api.callmebot.com/whatsapp.php?phone=${cleanPhone}&text=${waText}&apikey=${waApiKey}`;
+      await axios.get(waUrl);
+      console.log(`[Background Alert] WhatsApp alert dispatched for ${symbol}`);
+    } catch (e) {
+      console.error(`[Background Alert] WhatsApp dispatch error for ${symbol}:`, e.message);
+    }
+  }
+}
+
+function saveOpenClawSignalToDb(symbol, actionData, spotPrice) {
+  const signalType = actionData.action === 'CALL' ? 'CALL' : 'PUT';
+  db.run(
+    `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price, source, status) 
+     VALUES (?, ?, ?, ?, ?, 'OPENCLAW', 'PENDING')`,
+    [symbol, signalType, spotPrice, actionData.target1, actionData.stoploss],
+    (err) => {
+      if (err) {
+        console.error(`[Background Alert] Error logging signal for ${symbol} to DB:`, err.message);
+      } else {
+        console.log(`[Background Alert] Saved ${symbol} ${signalType} signal to database for AI Testing backtest tracking.`);
+      }
+    }
+  );
+}
+
+// Scan every minute for interval triggers
+setInterval(triggerOpenClawBackgroundAlerts, 60000);
 
 // GET current settings (masked)
 app.get('/api/settings', (req, res) => {

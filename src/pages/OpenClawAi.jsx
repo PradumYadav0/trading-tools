@@ -27,33 +27,102 @@ const OpenClawAi = () => {
   const [indicatorData, setIndicatorData] = useState(null);
 
   // Webhook Integrations
-  const [telegramToken, setTelegramToken] = useState(localStorage.getItem('openclaw_tg_token') || '');
-  const [telegramChatId, setTelegramChatId] = useState(localStorage.getItem('openclaw_tg_chatid') || '');
-  const [discordWebhook, setDiscordWebhook] = useState(localStorage.getItem('openclaw_discord_url') || '');
-  const [whatsappPhone, setWhatsappPhone] = useState(localStorage.getItem('openclaw_wa_phone') || '');
-  const [whatsappApiKey, setWhatsappApiKey] = useState(localStorage.getItem('openclaw_wa_apikey') || '');
+  // Webhook Integrations (Synced to SQLite DB)
+  const [telegramToken, setTelegramToken] = useState('');
+  const [telegramChatId, setTelegramChatId] = useState('');
+  const [discordWebhook, setDiscordWebhook] = useState('');
+  const [whatsappPhone, setWhatsappPhone] = useState('');
+  const [whatsappApiKey, setWhatsappApiKey] = useState('');
+  const [autoAlertsEnabled, setAutoAlertsEnabled] = useState(false);
+  const [autoAlertsInterval, setAutoAlertsInterval] = useState(5);
+  const [autoAlertsMinConfidence, setAutoAlertsMinConfidence] = useState(75);
   const [notificationStatus, setNotificationStatus] = useState({ type: '', message: '' });
 
-  // Load configuration from local storage on mount
+  // Load configuration from backend on mount
   useEffect(() => {
-    localStorage.setItem('openclaw_tg_token', telegramToken);
-  }, [telegramToken]);
+    const fetchSettings = async () => {
+      try {
+        const response = await fetch('/api/openclaw/settings');
+        const result = await response.json();
+        if (result.success && result.settings) {
+          setTelegramToken(result.settings.telegramToken || '');
+          setTelegramChatId(result.settings.telegramChatId || '');
+          setDiscordWebhook(result.settings.discordWebhook || '');
+          setWhatsappPhone(result.settings.whatsappPhone || '');
+          setWhatsappApiKey(result.settings.whatsappApiKey || '');
+          setAutoAlertsEnabled(result.settings.autoAlertsEnabled || false);
+          setAutoAlertsInterval(result.settings.autoAlertsInterval || 5);
+          setAutoAlertsMinConfidence(result.settings.autoAlertsMinConfidence || 75);
+        }
+      } catch (err) {
+        console.error('Error fetching settings:', err);
+      }
+    };
+    fetchSettings();
+  }, []);
 
-  useEffect(() => {
-    localStorage.setItem('openclaw_tg_chatid', telegramChatId);
-  }, [telegramChatId]);
+  const saveSettings = async (updated) => {
+    const payload = {
+      telegramToken: updated.telegramToken !== undefined ? updated.telegramToken : telegramToken,
+      telegramChatId: updated.telegramChatId !== undefined ? updated.telegramChatId : telegramChatId,
+      discordWebhook: updated.discordWebhook !== undefined ? updated.discordWebhook : discordWebhook,
+      whatsappPhone: updated.whatsappPhone !== undefined ? updated.whatsappPhone : whatsappPhone,
+      whatsappApiKey: updated.whatsappApiKey !== undefined ? updated.whatsappApiKey : whatsappApiKey,
+      autoAlertsEnabled: updated.autoAlertsEnabled !== undefined ? updated.autoAlertsEnabled : autoAlertsEnabled,
+      autoAlertsInterval: updated.autoAlertsInterval !== undefined ? updated.autoAlertsInterval : autoAlertsInterval,
+      autoAlertsMinConfidence: updated.autoAlertsMinConfidence !== undefined ? updated.autoAlertsMinConfidence : autoAlertsMinConfidence
+    };
 
-  useEffect(() => {
-    localStorage.setItem('openclaw_discord_url', discordWebhook);
-  }, [discordWebhook]);
+    try {
+      await fetch('/api/openclaw/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } catch (e) {
+      console.error('Failed to save settings to backend:', e);
+    }
+  };
 
-  useEffect(() => {
-    localStorage.setItem('openclaw_wa_phone', whatsappPhone);
-  }, [whatsappPhone]);
+  const handleTelegramTokenChange = (val) => {
+    setTelegramToken(val);
+    saveSettings({ telegramToken: val });
+  };
+  
+  const handleTelegramChatIdChange = (val) => {
+    setTelegramChatId(val);
+    saveSettings({ telegramChatId: val });
+  };
 
-  useEffect(() => {
-    localStorage.setItem('openclaw_wa_apikey', whatsappApiKey);
-  }, [whatsappApiKey]);
+  const handleDiscordWebhookChange = (val) => {
+    setDiscordWebhook(val);
+    saveSettings({ discordWebhook: val });
+  };
+
+  const handleWhatsappPhoneChange = (val) => {
+    setWhatsappPhone(val);
+    saveSettings({ whatsappPhone: val });
+  };
+
+  const handleWhatsappApiKeyChange = (val) => {
+    setWhatsappApiKey(val);
+    saveSettings({ whatsappApiKey: val });
+  };
+
+  const handleAutoAlertsEnabledChange = (val) => {
+    setAutoAlertsEnabled(val);
+    saveSettings({ autoAlertsEnabled: val });
+  };
+
+  const handleAutoAlertsIntervalChange = (val) => {
+    setAutoAlertsInterval(val);
+    saveSettings({ autoAlertsInterval: val });
+  };
+
+  const handleAutoAlertsMinConfidenceChange = (val) => {
+    setAutoAlertsMinConfidence(val);
+    saveSettings({ autoAlertsMinConfidence: val });
+  };
 
   const runAnalysis = async () => {
     setLoading(true);
@@ -447,13 +516,76 @@ const OpenClawAi = () => {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              
+              {/* Background Auto Alerts Config */}
+              <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', marginBottom: '0.25rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: autoAlertsEnabled ? '#10b981' : 'var(--text-secondary)' }}>
+                    {autoAlertsEnabled ? '● Auto-Alerts: ACTIVE' : '○ Auto-Alerts: OFF'}
+                  </span>
+                  <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '38px', height: '20px' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={autoAlertsEnabled}
+                      onChange={(e) => handleAutoAlertsEnabledChange(e.target.checked)}
+                      style={{ opacity: 0, width: 0, height: 0 }}
+                    />
+                    <span style={{
+                      position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
+                      backgroundColor: autoAlertsEnabled ? '#10b981' : '#30363d',
+                      transition: '.4s', borderRadius: '20px'
+                    }}>
+                      <span style={{
+                        position: 'absolute', content: '""', height: '14px', width: '14px', left: '3px', bottom: '3px',
+                        backgroundColor: 'white', transition: '.4s', borderRadius: '50%',
+                        transform: autoAlertsEnabled ? 'translateX(18px)' : 'translateX(0px)'
+                      }}></span>
+                    </span>
+                  </label>
+                </div>
+
+                {autoAlertsEnabled && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginTop: '0.75rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Scan Interval</label>
+                      <select
+                        value={autoAlertsInterval}
+                        onChange={(e) => handleAutoAlertsIntervalChange(parseInt(e.target.value, 10))}
+                        style={{
+                          width: '100%', background: '#1c2128', border: '1px solid var(--border-color)', color: '#fff',
+                          padding: '0.35rem 0.5rem', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer'
+                        }}
+                      >
+                        <option value="5">5 Minutes</option>
+                        <option value="15">15 Minutes</option>
+                        <option value="30">30 Minutes</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Min Confidence</label>
+                      <input
+                        type="number"
+                        min="50"
+                        max="95"
+                        value={autoAlertsMinConfidence}
+                        onChange={(e) => handleAutoAlertsMinConfidenceChange(parseInt(e.target.value, 10))}
+                        style={{
+                          width: '100%', background: '#1c2128', border: '1px solid var(--border-color)', color: '#fff',
+                          padding: '0.35rem 0.5rem', borderRadius: '6px', fontSize: '0.8rem'
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Telegram Bot Token</label>
                 <input 
                   type="password" 
                   placeholder="Bot API Token"
                   value={telegramToken}
-                  onChange={(e) => setTelegramToken(e.target.value)}
+                  onChange={(e) => handleTelegramTokenChange(e.target.value)}
                   style={{
                     width: '100%',
                     background: '#1c2128',
@@ -472,7 +604,7 @@ const OpenClawAi = () => {
                   type="text" 
                   placeholder="Chat ID (e.g. -100xxx)"
                   value={telegramChatId}
-                  onChange={(e) => setTelegramChatId(e.target.value)}
+                  onChange={(e) => handleTelegramChatIdChange(e.target.value)}
                   style={{
                     width: '100%',
                     background: '#1c2128',
@@ -491,7 +623,7 @@ const OpenClawAi = () => {
                   type="password" 
                   placeholder="https://discord.com/api/webhooks/..."
                   value={discordWebhook}
-                  onChange={(e) => setDiscordWebhook(e.target.value)}
+                  onChange={(e) => handleDiscordWebhookChange(e.target.value)}
                   style={{
                     width: '100%',
                     background: '#1c2128',
@@ -511,7 +643,7 @@ const OpenClawAi = () => {
                   type="text" 
                   placeholder="e.g. 919876543210 (Int. format)"
                   value={whatsappPhone}
-                  onChange={(e) => setWhatsappPhone(e.target.value)}
+                  onChange={(e) => handleWhatsappPhoneChange(e.target.value)}
                   style={{
                     width: '100%',
                     background: '#1c2128',
@@ -529,7 +661,7 @@ const OpenClawAi = () => {
                   type="password" 
                   placeholder="Enter API Key"
                   value={whatsappApiKey}
-                  onChange={(e) => setWhatsappApiKey(e.target.value)}
+                  onChange={(e) => handleWhatsappApiKeyChange(e.target.value)}
                   style={{
                     width: '100%',
                     background: '#1c2128',

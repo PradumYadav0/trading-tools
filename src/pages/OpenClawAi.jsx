@@ -38,21 +38,59 @@ const OpenClawAi = () => {
   const [autoAlertsMinConfidence, setAutoAlertsMinConfidence] = useState(75);
   const [notificationStatus, setNotificationStatus] = useState({ type: '', message: '' });
 
-  // Load configuration from backend on mount
+  // Load configuration from backend on mount (with localStorage fallback migration)
   useEffect(() => {
     const fetchSettings = async () => {
       try {
         const response = await fetch('/api/openclaw/settings');
         const result = await response.json();
         if (result.success && result.settings) {
-          setTelegramToken(result.settings.telegramToken || '');
-          setTelegramChatId(result.settings.telegramChatId || '');
-          setDiscordWebhook(result.settings.discordWebhook || '');
-          setWhatsappPhone(result.settings.whatsappPhone || '');
-          setWhatsappApiKey(result.settings.whatsappApiKey || '');
-          setAutoAlertsEnabled(result.settings.autoAlertsEnabled || false);
-          setAutoAlertsInterval(result.settings.autoAlertsInterval || 5);
-          setAutoAlertsMinConfidence(result.settings.autoAlertsMinConfidence || 75);
+          const dbToken = result.settings.telegramToken || '';
+          const dbChat = result.settings.telegramChatId || '';
+          const dbDiscord = result.settings.discordWebhook || '';
+          const dbPhone = result.settings.whatsappPhone || '';
+          const dbApiKey = result.settings.whatsappApiKey || '';
+
+          // Check if DB is empty but localStorage has legacy settings
+          const localTgToken = localStorage.getItem('openclaw_tg_token') || '';
+          const localTgChatId = localStorage.getItem('openclaw_tg_chatid') || '';
+          const localDiscord = localStorage.getItem('openclaw_discord_url') || '';
+          const localWaPhone = localStorage.getItem('openclaw_wa_phone') || '';
+          const localWaApiKey = localStorage.getItem('openclaw_wa_apikey') || '';
+
+          if (!dbToken && !dbChat && !dbPhone && !dbApiKey && (localTgToken || localTgChatId || localWaPhone)) {
+            // Migrate local to DB
+            setTelegramToken(localTgToken);
+            setTelegramChatId(localTgChatId);
+            setDiscordWebhook(localDiscord);
+            setWhatsappPhone(localWaPhone);
+            setWhatsappApiKey(localWaApiKey);
+            
+            await fetch('/api/openclaw/settings', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                telegramToken: localTgToken,
+                telegramChatId: localTgChatId,
+                discordWebhook: localDiscord,
+                whatsappPhone: localWaPhone,
+                whatsappApiKey: localWaApiKey,
+                autoAlertsEnabled: false,
+                autoAlertsInterval: 5,
+                autoAlertsMinConfidence: 75
+              })
+            });
+          } else {
+            // Use DB values
+            setTelegramToken(dbToken);
+            setTelegramChatId(dbChat);
+            setDiscordWebhook(dbDiscord);
+            setWhatsappPhone(dbPhone);
+            setWhatsappApiKey(dbApiKey);
+            setAutoAlertsEnabled(result.settings.autoAlertsEnabled || false);
+            setAutoAlertsInterval(result.settings.autoAlertsInterval || 5);
+            setAutoAlertsMinConfidence(result.settings.autoAlertsMinConfidence || 75);
+          }
         }
       } catch (err) {
         console.error('Error fetching settings:', err);
@@ -72,6 +110,13 @@ const OpenClawAi = () => {
       autoAlertsInterval: updated.autoAlertsInterval !== undefined ? updated.autoAlertsInterval : autoAlertsInterval,
       autoAlertsMinConfidence: updated.autoAlertsMinConfidence !== undefined ? updated.autoAlertsMinConfidence : autoAlertsMinConfidence
     };
+
+    // Also update localStorage as a backup
+    if (payload.telegramToken) localStorage.setItem('openclaw_tg_token', payload.telegramToken);
+    if (payload.telegramChatId) localStorage.setItem('openclaw_tg_chatid', payload.telegramChatId);
+    if (payload.discordWebhook) localStorage.setItem('openclaw_discord_url', payload.discordWebhook);
+    if (payload.whatsappPhone) localStorage.setItem('openclaw_wa_phone', payload.whatsappPhone);
+    if (payload.whatsappApiKey) localStorage.setItem('openclaw_wa_apikey', payload.whatsappApiKey);
 
     try {
       await fetch('/api/openclaw/settings', {
@@ -122,6 +167,86 @@ const OpenClawAi = () => {
   const handleAutoAlertsMinConfidenceChange = (val) => {
     setAutoAlertsMinConfidence(val);
     saveSettings({ autoAlertsMinConfidence: val });
+  };
+
+  const sendTestNotification = async () => {
+    setNotificationStatus({ type: 'loading', message: 'Sending test alert...' });
+    const testMessage = `🔔 *OpenClaw AI: Connection Test* 🔔\n\n` +
+      `Congratulations! Your alert channel has been successfully connected to the OpenClaw AI Multi-Agent Hub.\n\n` +
+      `📅 Tested on: ${new Date().toLocaleString()}`;
+
+    let successCount = 0;
+    let attempted = 0;
+
+    // Telegram
+    if (telegramToken && telegramChatId) {
+      attempted++;
+      try {
+        const tgUrl = `https://api.telegram.org/bot${telegramToken}/sendMessage`;
+        const res = await fetch(tgUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: telegramChatId,
+            text: testMessage,
+            parse_mode: 'Markdown'
+          })
+        });
+        if (res.ok) successCount++;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // Discord Webhook
+    if (discordWebhook) {
+      attempted++;
+      try {
+        const res = await fetch(discordWebhook, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: testMessage.replace(/\*/g, '**')
+          })
+        });
+        if (res.ok) successCount++;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // WhatsApp (CallMeBot)
+    if (whatsappPhone && whatsappApiKey) {
+      attempted++;
+      try {
+        const cleanPhone = whatsappPhone.replace(/[^0-9]/g, '');
+        const waText = encodeURIComponent(testMessage.replace(/\*/g, ''));
+        const waUrl = `https://api.callmebot.com/whatsapp.php?phone=${cleanPhone}&text=${waText}&apikey=${whatsappApiKey}`;
+        await fetch(waUrl, { mode: 'no-cors' });
+        successCount++;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    if (attempted === 0) {
+      setNotificationStatus({ 
+        type: 'warning', 
+        message: 'Please fill in Telegram or WhatsApp credentials first.' 
+      });
+    } else if (successCount === attempted) {
+      setNotificationStatus({ 
+        type: 'success', 
+        message: `Test alert successfully sent to all ${successCount} channels!` 
+      });
+    } else {
+      setNotificationStatus({ 
+        type: 'error', 
+        message: `Sent to ${successCount}/${attempted} channels. Verify your keys.` 
+      });
+    }
+
+    setTimeout(() => setNotificationStatus({ type: '', message: '' }), 5000);
   };
 
   const runAnalysis = async () => {
@@ -676,6 +801,33 @@ const OpenClawAi = () => {
                 <span style={{ display: 'block', fontSize: '0.65rem', color: 'var(--text-secondary)', lineHeight: '1.3' }}>
                   Send <strong>I allow callmebot to send me messages</strong> to <strong>+34 644 20 28 32</strong> on WhatsApp to get key.
                 </span>
+              </div>
+
+              {/* Test Alert Channels button */}
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.75rem', marginTop: '0.25rem' }}>
+                <button
+                  onClick={sendTestNotification}
+                  disabled={notificationStatus.type === 'loading'}
+                  style={{
+                    width: '100%',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    border: '1px solid var(--border-color)',
+                    color: '#fff',
+                    padding: '0.5rem',
+                    borderRadius: '6px',
+                    fontSize: '0.8rem',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.35rem'
+                  }}
+                >
+                  <Send size={12} />
+                  {notificationStatus.type === 'loading' && notificationStatus.message.includes('test') ? 'Testing...' : 'Test Alert Channels'}
+                </button>
               </div>
             </div>
           </div>

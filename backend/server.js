@@ -796,6 +796,7 @@ app.post('/api/ai-analysis', async (req, res) => {
     }
 
     const symbol = req.body.symbol || 'NIFTY';
+    const scripId = scripMap[symbol];
     
     // 1. Fetch Option Chain Data
     let spotPrice;

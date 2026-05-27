@@ -1125,7 +1125,8 @@ async function fetchRecentFinancialNews() {
 }
 
 // Helper function for OpenClaw AI Multi-Agent Analysis
-async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWeight: 40, chartWeight: 40, newsWeight: 20 }) {
+// Helper function for OpenClaw AI Multi-Agent Analysis
+async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWeight: 40, chartWeight: 40, newsWeight: 20 }, profile = 'intraday_scalper') {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error('Gemini API Key missing in settings.');
@@ -1135,6 +1136,25 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   const scripId = scripMap[symbolStr];
   if (!scripId) {
     throw new Error('Invalid symbol requested');
+  }
+
+  // Define profile settings
+  let primaryInterval = '5';
+  let groupingFactor = 3; // 5m -> 15m (3 candles)
+  let trendTimeframe = '15m';
+
+  if (profile === 'micro_scalper') {
+    primaryInterval = '1';
+    groupingFactor = 5; // 1m -> 5m
+    trendTimeframe = '5m';
+  } else if (profile === 'intraday_scalper') {
+    primaryInterval = '3';
+    groupingFactor = 5; // 3m -> 15m
+    trendTimeframe = '15m';
+  } else { // short_term_trend
+    primaryInterval = '5';
+    groupingFactor = 3; // 5m -> 15m
+    trendTimeframe = '15m';
   }
 
   // 1. Fetch Option Chain Data
@@ -1209,9 +1229,9 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
     throw new Error('Option chain data currently unavailable.');
   }
 
-  // 2. Fetch Chart Data (Intraday 5m)
+  // 2. Fetch Chart Data (Dynamic Primary Timeframe)
   let chartCandles = [];
-  const cachedChart = getCachedData('chartsIntraday', `${symbolStr}_5`, isIndianMarketOpen() ? CACHE_DURATION_MS : 3600000);
+  const cachedChart = getCachedData('chartsIntraday', `${symbolStr}_${primaryInterval}`, isIndianMarketOpen() ? CACHE_DURATION_MS : 3600000);
   
   if (cachedChart && cachedChart.success && cachedChart.data) {
     chartCandles = cachedChart.data;
@@ -1230,7 +1250,7 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
           securityId: scripId.toString(),
           exchangeSegment: 'IDX_I',
           instrument: 'INDEX',
-          interval: '5',
+          interval: primaryInterval,
           fromDate: formatDate(fromDate),
           toDate: formatDate(toDate)
         },
@@ -1250,7 +1270,7 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
         }
       }
     } catch (err) {
-      console.error('Error fetching intraday charts in OpenClaw:', err.message);
+      console.error(`Error fetching intraday charts (${primaryInterval}m) in OpenClaw:`, err.message);
     }
   }
 
@@ -1262,6 +1282,26 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   const ema21 = calculateEMA(chartCandles, 21);
   const rsi = calculateRSI(chartCandles, 14);
   const atr = calculateATR(chartCandles, 14) || latestAtrValues[symbolStr] || 15;
+
+  const lastClose = chartCandles.length > 0 ? chartCandles[chartCandles.length - 1].close : spotPrice;
+  const lastEma9 = ema9.length > 0 ? parseFloat(ema9[ema9.length - 1].toFixed(2)) : lastClose;
+  const lastEma21 = ema21.length > 0 ? parseFloat(ema21[ema21.length - 1].toFixed(2)) : lastClose;
+  const lastRsi = rsi.length > 0 ? parseFloat(rsi[rsi.length - 1].toFixed(2)) : 50;
+
+  // Group into higher timeframe candles for major trend filter
+  const groupedCandles = [];
+  for (let i = 0; i < chartCandles.length; i += groupingFactor) {
+    const chunk = chartCandles.slice(i, i + groupingFactor);
+    if (chunk.length === 0) continue;
+    const open = chunk[0].open;
+    const close = chunk[chunk.length - 1].close;
+    const high = Math.max(...chunk.map(c => c.high));
+    const low = Math.min(...chunk.map(c => c.low));
+    groupedCandles.push({ open, close, high, low });
+  }
+  const trendEma20List = calculateEMA(groupedCandles, 20);
+  const trendEma20 = trendEma20List[groupedCandles.length - 1] || lastClose;
+  const majorTrend = lastClose > trendEma20 ? 'BULLISH' : 'BEARISH';
 
   // Calculate current PCR
   let totalCallOi = 0;
@@ -1319,6 +1359,58 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
     putUnwinding = [...nearbyStrikes].sort((a, b) => a.putChgOi - b.putChgOi)[0];
   }
 
+  // Dynamic Option Strike Selection
+  let atmStrike = 0;
+  let atmCallLtp = 0;
+  let atmPutLtp = 0;
+  let itmStrikeCall = 0;
+  let itmCallLtp = 0;
+  let itmStrikePut = 0;
+  let itmPutLtp = 0;
+  
+  let atmCallName = '';
+  let itmCallName = '';
+  let atmPutName = '';
+  let itmPutName = '';
+
+  if (strikesArray.length > 0) {
+    const atmObj = strikesArray.reduce((prev, curr) => 
+      Math.abs(curr.strike - spotPrice) < Math.abs(prev.strike - spotPrice) ? curr : prev
+    );
+    atmStrike = atmObj.strike;
+    atmCallLtp = atmObj.callLtp;
+    atmPutLtp = atmObj.putLtp;
+
+    const atmIndex = strikesArray.findIndex(s => s.strike === atmStrike);
+    
+    // Call ITM strike (1 strike below ATM)
+    const itmCallObj = atmIndex > 0 ? strikesArray[atmIndex - 1] : atmObj;
+    itmStrikeCall = itmCallObj.strike;
+    itmCallLtp = itmCallObj.callLtp;
+    
+    // Put ITM strike (1 strike above ATM)
+    const itmPutObj = atmIndex < strikesArray.length - 1 ? strikesArray[atmIndex + 1] : atmObj;
+    itmStrikePut = itmPutObj.strike;
+    itmPutLtp = itmPutObj.putLtp;
+
+    const getContractName = (strike, type) => {
+      try {
+        const date = new Date(finalExpiry);
+        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const day = date.getDate();
+        const month = months[date.getMonth()];
+        return `${symbolStr} ${day}-${month} ${strike} ${type}`;
+      } catch (e) {
+        return `${symbolStr} ${finalExpiry} ${strike} ${type}`;
+      }
+    };
+
+    atmCallName = getContractName(atmStrike, 'CE');
+    itmCallName = getContractName(itmStrikeCall, 'CE');
+    atmPutName = getContractName(atmStrike, 'PE');
+    itmPutName = getContractName(itmStrikePut, 'PE');
+  }
+
   // Fetch Live Financial News Headlines
   let headlines = [];
   try {
@@ -1341,17 +1433,26 @@ You must weight their importance according to the weights assigned by the user:
 *CRITICAL RULES FOR NEWS SENTIMENT & SAFEGUARDS:*
 - If News Sentiment Agent weight is greater than 0, and you detect a major risk/panic headline (e.g. GDP contraction, war escalation, high interest rate warnings, massive index crashes, inflation surge), you MUST trigger the safety protocol: force "action" to "WAIT" and set "confidence" lower, prioritizing safety over indicators.
 
+*OPTION TRADING LEVEL SELECTION & HOLDS:*
+- If you decide to issue a "CALL" alert:
+  * Select either the suggested ATM or ITM CALL Option contract (ATM: "${atmCallName}", ITM: "${itmCallName}"). Set \`"suggestedOptionContract"\` to its contract name and \`"optionPremiumLtp"\` to its LTP.
+  * Estimate option target premiums (\`"optionTarget1"\`, \`"optionTarget2"\`) and option stoploss (\`"optionStoploss"\`). Use delta-based scaling: option target/stoploss change should be roughly \`~0.50 * index change\` for ATM and \`~0.60 * index change\` for ITM (e.g., if target1 is index spot + 40 points, option target1 = option LTP + 0.5 * 40 = option LTP + 20).
+- If you decide to issue a "PUT" alert, do the same using the Put option contracts (ATM: "${atmPutName}", ITM: "${itmPutName}").
+- If you issue "WAIT", set \`"suggestedOptionContract"\`, \`"optionPremiumLtp"\`, \`"optionTarget1"\`, \`"optionTarget2"\`, and \`"optionStoploss"\` to null.
+- Set \`"expectedHoldTime"\` to a clear estimated holding duration string (e.g. \`"5 - 15 minutes"\` for micro scalping profiles, \`"15 - 30 minutes"\` for standard scalping, \`"1 - 2 hours"\` for short-term trends). Base this on indicators strength, trend support, and the active profile: "${profile}".
+
 Data for ${symbolStr}:
 - Current Spot Price: ${spotPrice}
 - Current PCR: ${pcr}
 - PCR values for last few minutes (newest to oldest): ${historicalPcrs.map(v => v.toFixed(2)).join(', ')}
-- Technical indicators:
-  * EMA 9: ${ema9}
-  * EMA 21: ${ema21}
-  * Price vs EMA 9: ${spotPrice > ema9 ? 'Above EMA 9' : 'Below EMA 9'}
-  * EMA Crossover Status: ${ema9 > ema21 ? 'EMA 9 is above EMA 21 (Bullish Trend)' : 'EMA 9 is below EMA 21 (Bearish Trend)'}
-  * RSI (14): ${rsi} (${rsi > 70 ? 'Overbought' : rsi < 30 ? 'Oversold' : 'Neutral'})
+- Technical indicators (${primaryInterval}m timeframe):
+  * EMA 9: ${lastEma9}
+  * EMA 21: ${lastEma21}
+  * Price vs EMA 9: ${lastClose > lastEma9 ? 'Above EMA 9' : 'Below EMA 9'}
+  * EMA Crossover Status: ${lastEma9 > lastEma21 ? 'EMA 9 is above EMA 21 (Bullish Trend)' : 'EMA 9 is below EMA 21 (Bearish Trend)'}
+  * RSI (14): ${lastRsi} (${lastRsi > 70 ? 'Overbought' : lastRsi < 30 ? 'Oversold' : 'Neutral'})
   * ATR (14): ${atr.toFixed(2)}
+  * Major Trend (${trendTimeframe} timeframe filter): ${majorTrend}
 
 - Nearby Strike Option Chain Activity (Spot: ${spotPrice}):
   * Strongest Resistance Strike: ${resistanceStrike ? resistanceStrike.strike : 'N/A'} (Call OI: ${resistanceStrike ? resistanceStrike.callOi : 0})
@@ -1373,6 +1474,12 @@ You must return a raw JSON response (without any markdown tags or backticks) in 
   "target1": <number>,
   "target2": <number>,
   "stoploss": <number>,
+  "suggestedOptionContract": "<Contract Name>" | null,
+  "optionPremiumLtp": <number> | null,
+  "optionTarget1": <number> | null,
+  "optionTarget2": <number> | null,
+  "optionStoploss": <number> | null,
+  "expectedHoldTime": "<holding time estimation, e.g., '10 - 15 minutes'>" | null,
   "agentThoughts": {
     "optionChainAgent": "<Hinglish summary of Option Chain analysis including specific details of writing and unwinding at key strikes>",
     "chartAgent": "<Hinglish summary of technical indicators and chart analysis>",
@@ -1390,7 +1497,7 @@ You must return a raw JSON response (without any markdown tags or backticks) in 
 INSTRUCTIONS FOR WRITING:
 - Write the agent thoughts, reasoning, and summary in friendly Hinglish (using English alphabet, e.g. 'Market strong bullish trend me hai').
 - Do NOT use Hindi script (like नमस्ते or बाज़ार).
-- Ensure all numbers (target1, target2, stoploss) are valid numbers.
+- Ensure all numbers (target1, target2, stoploss, optionPremiumLtp, optionTarget1, optionTarget2, optionStoploss) are valid numbers.
 - Do NOT wrap in backticks or code blocks. Just output the clean JSON object.`;
 
   // 5. Call Gemini
@@ -1420,16 +1527,19 @@ INSTRUCTIONS FOR WRITING:
     indicators: {
       spotPrice,
       pcr,
-      ema9,
-      ema21,
-      rsi,
+      ema9: lastEma9,
+      ema21: lastEma21,
+      rsi: lastRsi,
       atr,
       resistanceStrike: resistanceStrike ? resistanceStrike.strike : null,
       supportStrike: supportStrike ? supportStrike.strike : null,
       heavyCallWritingStrike: heavyCallWriting && heavyCallWriting.callChgOi > 0 ? heavyCallWriting.strike : null,
       heavyPutWritingStrike: heavyPutWriting && heavyPutWriting.putChgOi > 0 ? heavyPutWriting.strike : null,
       callUnwindingStrike: callUnwinding && callUnwinding.callChgOi < 0 ? callUnwinding.strike : null,
-      putUnwindingStrike: putUnwinding && putUnwinding.putChgOi < 0 ? putUnwinding.strike : null
+      putUnwindingStrike: putUnwinding && putUnwinding.putChgOi < 0 ? putUnwinding.strike : null,
+      tradingProfile: profile,
+      trendTimeframe,
+      majorTrend
     }
   };
 }
@@ -1440,6 +1550,7 @@ app.post('/api/openclaw/analyze', async (req, res) => {
     const symbol = req.body.symbol || 'NIFTY';
     const reqWeights = req.body.weights;
     let weightsObj;
+    const settings = await getSystemSettings();
     if (reqWeights && reqWeights.pcrWeight !== undefined && reqWeights.chartWeight !== undefined && reqWeights.newsWeight !== undefined) {
       weightsObj = {
         pcrWeight: parseInt(reqWeights.pcrWeight, 10),
@@ -1447,13 +1558,13 @@ app.post('/api/openclaw/analyze', async (req, res) => {
         newsWeight: parseInt(reqWeights.newsWeight, 10)
       };
     } else {
-      const settings = await getSystemSettings();
       const pcrWeight = parseInt(settings['pcr_weight'], 10) || 40;
       const chartWeight = parseInt(settings['chart_weight'], 10) || 40;
       const newsWeight = parseInt(settings['news_weight'], 10) || 20;
       weightsObj = { pcrWeight, chartWeight, newsWeight };
     }
-    const result = await executeOpenClawAnalysis(symbol, req.body.expiry, weightsObj);
+    const profileVal = req.body.profile || settings['trading_profile'] || 'intraday_scalper';
+    const result = await executeOpenClawAnalysis(symbol, req.body.expiry, weightsObj, profileVal);
     res.json({
       success: true,
       data: result.data,
@@ -1597,7 +1708,8 @@ app.get('/api/openclaw/settings', (req, res) => {
       autoAlertsMinConfidence: 75,
       pcrWeight: 40,
       chartWeight: 40,
-      newsWeight: 20
+      newsWeight: 20,
+      tradingProfile: 'intraday_scalper'
     };
     if (rows) {
       rows.forEach(r => {
@@ -1612,6 +1724,7 @@ app.get('/api/openclaw/settings', (req, res) => {
         if (r.key === 'pcr_weight') settings.pcrWeight = parseInt(r.value, 10) || 40;
         if (r.key === 'chart_weight') settings.chartWeight = parseInt(r.value, 10) || 40;
         if (r.key === 'news_weight') settings.newsWeight = parseInt(r.value, 10) || 20;
+        if (r.key === 'trading_profile') settings.tradingProfile = r.value;
       });
     }
     res.json({ success: true, settings });
@@ -1631,7 +1744,8 @@ app.post('/api/openclaw/settings', (req, res) => {
     autoAlertsMinConfidence,
     pcrWeight,
     chartWeight,
-    newsWeight
+    newsWeight,
+    tradingProfile
   } = req.body;
 
   const params = [
@@ -1645,7 +1759,8 @@ app.post('/api/openclaw/settings', (req, res) => {
     { key: 'auto_alerts_min_confidence', val: String(autoAlertsMinConfidence || 75) },
     { key: 'pcr_weight', val: String(pcrWeight !== undefined ? pcrWeight : 40) },
     { key: 'chart_weight', val: String(chartWeight !== undefined ? chartWeight : 40) },
-    { key: 'news_weight', val: String(newsWeight !== undefined ? newsWeight : 20) }
+    { key: 'news_weight', val: String(newsWeight !== undefined ? newsWeight : 20) },
+    { key: 'trading_profile', val: tradingProfile || 'intraday_scalper' }
   ];
 
   db.serialize(() => {
@@ -1766,7 +1881,8 @@ async function triggerOpenClawBackgroundAlerts() {
         }
 
         // Run analysis with weights
-        const result = await executeOpenClawAnalysis(symbol, null, weightsObj);
+        const tradingProfile = settings['trading_profile'] || 'intraday_scalper';
+        const result = await executeOpenClawAnalysis(symbol, null, weightsObj, tradingProfile);
         const actionData = result.data;
         const indicators = result.indicators;
 
@@ -1804,6 +1920,16 @@ async function sendOpenClawNotifications(symbol, actionData, settings, spotPrice
     hour12: true
   }).format(new Date());
 
+  let optionDetails = '';
+  if (actionData.suggestedOptionContract) {
+    optionDetails = `*Option Contract*: ${actionData.suggestedOptionContract}\n` +
+      `*Premium Entry*: ₹${actionData.optionPremiumLtp}\n` +
+      `*Premium Target 1*: ₹${actionData.optionTarget1}\n` +
+      `*Premium Target 2*: ₹${actionData.optionTarget2}\n` +
+      `*Premium Stoploss*: ₹${actionData.optionStoploss}\n` +
+      `*Expected Hold*: ⏳ ${actionData.expectedHoldTime}\n\n`;
+  }
+
   const messageContent = `🚨 *OpenClaw AI Trade Alert* 🚨\n\n` +
     `*Symbol*: ${symbol}\n` +
     `*Action*: ${actionData.action === 'CALL' ? 'BUY CALL / BULLISH' : 'BUY PUT / BEARISH'}\n` +
@@ -1814,6 +1940,7 @@ async function sendOpenClawNotifications(symbol, actionData, settings, spotPrice
     `*Target 2*: ${actionData.target2}\n` +
     `*Stoploss*: ${actionData.stoploss}\n` +
     `*Time (IST)*: ${currentTime}\n\n` +
+    optionDetails +
     `*AI Summary*: ${actionData.summary}\n\n` +
     `🤖 Powered by OpenClaw AI Multi-Agent Engine.`;
 

@@ -18,6 +18,7 @@ const OpenClawAi = () => {
   const [atrMultiplierSl, setAtrMultiplierSl] = useState(1.5);
   const [rsiPeriod, setRsiPeriod] = useState(14);
   const [interval, setIntervalVal] = useState('5');
+  const [tradingProfile, setTradingProfile] = useState('intraday_scalper');
   
   // Terminal Logs State
   const [terminalLogs, setTerminalLogs] = useState([]);
@@ -90,6 +91,7 @@ const OpenClawAi = () => {
           setPcrWeight(result.settings.pcrWeight !== undefined ? result.settings.pcrWeight : 40);
           setChartWeight(result.settings.chartWeight !== undefined ? result.settings.chartWeight : 40);
           setNewsWeight(result.settings.newsWeight !== undefined ? result.settings.newsWeight : 20);
+          setTradingProfile(result.settings.tradingProfile !== undefined ? result.settings.tradingProfile : 'intraday_scalper');
 
           // Check if DB is empty but localStorage has legacy settings
           const localTgToken = localStorage.getItem('openclaw_tg_token') || '';
@@ -154,7 +156,8 @@ const OpenClawAi = () => {
       autoAlertsMinConfidence: updated.autoAlertsMinConfidence !== undefined ? updated.autoAlertsMinConfidence : autoAlertsMinConfidence,
       pcrWeight: updated.pcrWeight !== undefined ? updated.pcrWeight : pcrWeight,
       chartWeight: updated.chartWeight !== undefined ? updated.chartWeight : chartWeight,
-      newsWeight: updated.newsWeight !== undefined ? updated.newsWeight : newsWeight
+      newsWeight: updated.newsWeight !== undefined ? updated.newsWeight : newsWeight,
+      tradingProfile: updated.tradingProfile !== undefined ? updated.tradingProfile : tradingProfile
     };
 
     // Also update localStorage as a backup
@@ -266,6 +269,11 @@ const OpenClawAi = () => {
     }
   };
 
+  const handleProfileChange = (val) => {
+    setTradingProfile(val);
+    saveSettings({ tradingProfile: val });
+  };
+
   const sendTestNotification = async () => {
     setNotificationStatus({ type: 'loading', message: 'Sending test alert...' });
     const testMessage = `🔔 *OpenClaw AI: Connection Test* 🔔\n\n` +
@@ -375,7 +383,8 @@ const OpenClawAi = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           symbol,
-          weights: { pcrWeight, chartWeight, newsWeight }
+          weights: { pcrWeight, chartWeight, newsWeight },
+          profile: tradingProfile
         })
       });
       const result = await response.json();
@@ -668,6 +677,31 @@ const OpenClawAi = () => {
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.5rem' }}>
               <Activity size={18} style={{ color: '#10b981' }} />
               <h3 style={{ fontSize: '1rem', margin: 0 }}>Indicators & Risk Setup</h3>
+            </div>
+
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Active Trading Profile</label>
+              <select 
+                value={tradingProfile}
+                onChange={(e) => handleProfileChange(e.target.value)}
+                style={{
+                  width: '100%',
+                  background: '#1c2128',
+                  border: '1px solid var(--border-color)',
+                  color: '#fff',
+                  padding: '0.45rem 0.5rem',
+                  borderRadius: '6px',
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  borderColor: 'rgba(255, 255, 255, 0.1)',
+                  outline: 'none'
+                }}
+              >
+                <option value="micro_scalper">🚀 Micro-Scalper (Hold: 5-15 mins, 1m/3m charts)</option>
+                <option value="intraday_scalper">📈 Intraday Scalper (Hold: 15-45 mins, 3m/5m charts)</option>
+                <option value="short_term_trend">🎯 Short-Term Trend (Hold: 1-3 hours, 5m/15m charts)</option>
+              </select>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>

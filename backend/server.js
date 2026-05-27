@@ -1671,7 +1671,7 @@ async function triggerOpenClawBackgroundAlerts() {
 
         if ((actionData.action === 'CALL' || actionData.action === 'PUT') && actionData.confidence >= minConfidence) {
           console.log(`[OpenClaw Scheduler] Strong signal detected for ${symbol}: ${actionData.action} (${actionData.confidence}%)`);
-          await sendOpenClawNotifications(symbol, actionData, settings);
+          await sendOpenClawNotifications(symbol, actionData, settings, indicators.spotPrice);
           saveOpenClawSignalToDb(symbol, actionData, indicators.spotPrice);
         }
       } catch (err) {
@@ -1686,15 +1686,28 @@ async function triggerOpenClawBackgroundAlerts() {
   }
 }
 
-async function sendOpenClawNotifications(symbol, actionData, settings) {
+async function sendOpenClawNotifications(symbol, actionData, settings, spotPrice) {
+  const currentTime = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
+  }).format(new Date());
+
   const messageContent = `🚨 *OpenClaw AI Trade Alert* 🚨\n\n` +
     `*Symbol*: ${symbol}\n` +
     `*Action*: ${actionData.action === 'CALL' ? 'BUY CALL / BULLISH' : 'BUY PUT / BEARISH'}\n` +
+    `*Spot Price*: ${spotPrice || 'N/A'}\n` +
     `*Confidence*: ${actionData.confidence}%\n` +
     `*Buy Range*: ${actionData.buyRange}\n` +
     `*Target 1*: ${actionData.target1}\n` +
     `*Target 2*: ${actionData.target2}\n` +
-    `*Stoploss*: ${actionData.stoploss}\n\n` +
+    `*Stoploss*: ${actionData.stoploss}\n` +
+    `*Time (IST)*: ${currentTime}\n\n` +
     `*AI Summary*: ${actionData.summary}\n\n` +
     `🤖 Powered by OpenClaw AI Multi-Agent Engine.`;
 

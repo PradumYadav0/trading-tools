@@ -301,7 +301,7 @@ const OpenClawAi = () => {
       setTerminalStep('done');
 
       // Auto dispatch notifications upon successful run
-      dispatchNotifications(data);
+      dispatchNotifications(data, indicators);
 
     } catch (err) {
       setError(err.message || 'Error occurred during agent analysis');
@@ -312,19 +312,29 @@ const OpenClawAi = () => {
     }
   };
 
-  const dispatchNotifications = async (resultData = null) => {
+  const dispatchNotifications = async (resultData = null, indData = null) => {
     const dataToUse = resultData || analysisResult;
+    const indicatorsToUse = indData || indicatorData;
     if (!dataToUse) return;
     setNotificationStatus({ type: 'loading', message: 'Sending alerts...' });
+
+    const spotVal = indicatorsToUse ? indicatorsToUse.spotPrice : 'N/A';
+    const currentTime = new Date().toLocaleString('en-US', { 
+      timeZone: 'Asia/Kolkata',
+      dateStyle: 'medium',
+      timeStyle: 'medium'
+    });
 
     const messageContent = `🚨 *OpenClaw AI Trade Alert* 🚨\n\n` +
       `*Symbol*: ${symbol}\n` +
       `*Action*: ${dataToUse.action}\n` +
+      `*Spot Price*: ${spotVal}\n` +
       `*Confidence*: ${dataToUse.confidence}%\n` +
       `*Buy Range*: ${dataToUse.buyRange}\n` +
       `*Target 1*: ${dataToUse.target1}\n` +
       `*Target 2*: ${dataToUse.target2}\n` +
-      `*Stoploss*: ${dataToUse.stoploss}\n\n` +
+      `*Stoploss*: ${dataToUse.stoploss}\n` +
+      `*Time (IST)*: ${currentTime}\n\n` +
       `*AI Summary*: ${dataToUse.summary}\n\n` +
       `🤖 Powered by OpenClaw AI Multi-Agent Engine.`;
 

@@ -106,6 +106,9 @@ const OpenClawAi = () => {
       setIndicatorData(indicators);
       setTerminalStep('done');
 
+      // Auto dispatch notifications upon successful run
+      dispatchNotifications(data);
+
     } catch (err) {
       setError(err.message || 'Error occurred during agent analysis');
       await addLog(`❌ Analysis failed: ${err.message}`, 'error', 100);
@@ -115,19 +118,20 @@ const OpenClawAi = () => {
     }
   };
 
-  const dispatchNotifications = async () => {
-    if (!analysisResult) return;
+  const dispatchNotifications = async (resultData = null) => {
+    const dataToUse = resultData || analysisResult;
+    if (!dataToUse) return;
     setNotificationStatus({ type: 'loading', message: 'Sending alerts...' });
 
     const messageContent = `🚨 *OpenClaw AI Trade Alert* 🚨\n\n` +
       `*Symbol*: ${symbol}\n` +
-      `*Action*: ${analysisResult.action}\n` +
-      `*Confidence*: ${analysisResult.confidence}%\n` +
-      `*Buy Range*: ${analysisResult.buyRange}\n` +
-      `*Target 1*: ${analysisResult.target1}\n` +
-      `*Target 2*: ${analysisResult.target2}\n` +
-      `*Stoploss*: ${analysisResult.stoploss}\n\n` +
-      `*AI Summary*: ${analysisResult.summary}\n\n` +
+      `*Action*: ${dataToUse.action}\n` +
+      `*Confidence*: ${dataToUse.confidence}%\n` +
+      `*Buy Range*: ${dataToUse.buyRange}\n` +
+      `*Target 1*: ${dataToUse.target1}\n` +
+      `*Target 2*: ${dataToUse.target2}\n` +
+      `*Stoploss*: ${dataToUse.stoploss}\n\n` +
+      `*AI Summary*: ${dataToUse.summary}\n\n` +
       `🤖 Powered by OpenClaw AI Multi-Agent Engine.`;
 
     let successCount = 0;
@@ -185,10 +189,12 @@ const OpenClawAi = () => {
     }
 
     if (attempted === 0) {
-      setNotificationStatus({ 
-        type: 'warning', 
-        message: 'Please configure Telegram, Discord, or WhatsApp settings first.' 
-      });
+      if (!resultData) {
+        setNotificationStatus({ 
+          type: 'warning', 
+          message: 'Please configure Telegram, Discord, or WhatsApp settings first.' 
+        });
+      }
     } else if (successCount === attempted) {
       setNotificationStatus({ 
         type: 'success', 

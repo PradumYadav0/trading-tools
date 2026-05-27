@@ -1011,6 +1011,335 @@ IMPORTANT INSTRUCTIONS for the tone and format:
   }
 });
 
+// Helper for calculating EMA
+const calculateEMA = (data, period) => {
+  if (data.length < period) return 0;
+  const k = 2 / (period + 1);
+  let ema = data[0].close;
+  for (let i = 1; i < data.length; i++) {
+    ema = (data[i].close * k) + (ema * (1 - k));
+  }
+  return parseFloat(ema.toFixed(2));
+};
+
+// Helper for calculating RSI
+const calculateRSI = (data, period = 14) => {
+  if (data.length <= period) return 50;
+  let gains = 0;
+  let losses = 0;
+
+  for (let i = 1; i <= period; i++) {
+    const diff = data[i].close - data[i - 1].close;
+    if (diff > 0) {
+      gains += diff;
+    } else {
+      losses -= diff;
+    }
+  }
+
+  let avgGain = gains / period;
+  let avgLoss = losses / period;
+
+  for (let i = period + 1; i < data.length; i++) {
+    const diff = data[i].close - data[i - 1].close;
+    if (diff > 0) {
+      avgGain = (avgGain * (period - 1) + diff) / period;
+      avgLoss = (avgLoss * (period - 1)) / period;
+    } else {
+      avgGain = (avgGain * (period - 1)) / period;
+      avgLoss = (avgLoss * (period - 1) - diff) / period;
+    }
+  }
+
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  const rsi = 100 - (100 / (1 + rs));
+  return parseFloat(rsi.toFixed(2));
+};
+
+// Helper for calculating ATR
+const calculateATR = (data, period = 14) => {
+  if (data.length <= period) return 0;
+  let trs = [];
+  for (let i = 1; i < data.length; i++) {
+    const h_l = data[i].high - data[i].low;
+    const h_pc = Math.abs(data[i].high - data[i - 1].close);
+    const l_pc = Math.abs(data[i].low - data[i - 1].close);
+    trs.push(Math.max(h_l, h_pc, l_pc));
+  }
+  let atr = trs.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < trs.length; i++) {
+    atr = ((atr * (period - 1)) + trs[i]) / period;
+  }
+  return parseFloat(atr.toFixed(2));
+};
+
+// Endpoint for OpenClaw AI Multi-Agent Analysis
+app.post('/api/openclaw/analyze', async (req, res) => {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(400).json({ success: false, message: 'Gemini API Key missing in settings.' });
+    }
+
+    const symbol = req.body.symbol || 'NIFTY';
+    const scripId = scripMap[symbol];
+    if (!scripId) {
+      return res.status(400).json({ success: false, message: 'Invalid symbol requested' });
+    }
+
+    // 1. Fetch Option Chain Data
+    let spotPrice = 0;
+    let strikesArray = [];
+    let finalExpiry = req.body.expiry;
+
+    const cacheKey = `${symbol}_${finalExpiry || 'first'}`;
+    const cachedOc = getCachedData('optionChain', cacheKey, isIndianMarketOpen() ? CACHE_DURATION_MS : 3600000);
+    
+    if (cachedOc) {
+      spotPrice = cachedOc.spotPrice;
+      strikesArray = cachedOc.data;
+      finalExpiry = cachedOc.expiry;
+    } else if (!isIndianMarketOpen()) {
+      try {
+        const row = await getLastSavedOptionChain(symbol, finalExpiry);
+        if (row) {
+          spotPrice = row.spot_price;
+          strikesArray = JSON.parse(row.data);
+          finalExpiry = row.expiry;
+        }
+      } catch (dbErr) {
+        console.error('Error fetching option chain for OpenClaw analysis from DB:', dbErr.message);
+      }
+    }
+
+    // Fallback to Dhan API if cache/DB empty
+    if (!spotPrice || strikesArray.length === 0) {
+      const expiryResponse = await queuedDhanRequest({
+        method: 'post',
+        url: 'https://api.dhan.co/v2/optionchain/expirylist',
+        data: { UnderlyingScrip: scripId, UnderlyingSeg: 'IDX_I' },
+        headers: getDhanHeaders()
+      });
+
+      if (expiryResponse.data.status === 'success' && expiryResponse.data.data.length > 0) {
+        const expiryList = expiryResponse.data.data;
+        finalExpiry = finalExpiry || expiryList[0];
+
+        const ocResponse = await queuedDhanRequest({
+          method: 'post',
+          url: 'https://api.dhan.co/v2/optionchain',
+          data: { UnderlyingScrip: scripId, UnderlyingSeg: 'IDX_I', Expiry: finalExpiry },
+          headers: getDhanHeaders()
+        });
+
+        if (ocResponse.data.status === 'success') {
+          const rawData = ocResponse.data.data;
+          spotPrice = rawData.last_price;
+          const rawOc = rawData.oc;
+          strikesArray = Object.keys(rawOc).map(strikeStr => {
+            const strike = parseFloat(strikeStr);
+            const data = rawOc[strikeStr];
+            return {
+              strike,
+              callOi: data.ce?.oi || 0,
+              callChgOi: (data.ce?.oi || 0) - (data.ce?.previous_oi || 0),
+              callLtp: data.ce?.last_price || 0,
+              callVolume: data.ce?.volume || 0,
+              putVolume: data.pe?.volume || 0,
+              putLtp: data.pe?.last_price || 0,
+              putChgOi: (data.pe?.oi || 0) - (data.pe?.previous_oi || 0),
+              putOi: data.pe?.oi || 0
+            };
+          }).sort((a, b) => a.strike - b.strike);
+        }
+      }
+    }
+
+    if (!spotPrice || strikesArray.length === 0) {
+      return res.status(400).json({ success: false, message: 'Option chain data currently unavailable.' });
+    }
+
+    // 2. Fetch Chart Data (Intraday 5m)
+    let chartCandles = [];
+    const cachedChart = getCachedData('chartsIntraday', `${symbol}_5`, isIndianMarketOpen() ? CACHE_DURATION_MS : 3600000);
+    
+    if (cachedChart && cachedChart.success && cachedChart.data) {
+      chartCandles = cachedChart.data;
+    } else {
+      const toDate = new Date();
+      toDate.setDate(toDate.getDate() + 1);
+      const fromDate = new Date();
+      fromDate.setDate(fromDate.getDate() - 3); // 3 days for enough data to compute 14-period indicators
+      const formatDate = (d) => d.toISOString().split('T')[0];
+
+      try {
+        const chartResponse = await queuedDhanRequest({
+          method: 'post',
+          url: 'https://api.dhan.co/v2/charts/intraday',
+          data: {
+            securityId: scripId.toString(),
+            exchangeSegment: 'IDX_I',
+            instrument: 'INDEX',
+            interval: '5',
+            fromDate: formatDate(fromDate),
+            toDate: formatDate(toDate)
+          },
+          headers: getDhanHeaders()
+        });
+
+        const chartData = chartResponse.data.data || chartResponse.data;
+        if (chartData.timestamp) {
+          for (let i = 0; i < chartData.timestamp.length; i++) {
+            chartCandles.push({
+              time: chartData.timestamp[i],
+              open: chartData.open[i],
+              high: chartData.high[i],
+              low: chartData.low[i],
+              close: chartData.close[i]
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching intraday charts in OpenClaw:', err.message);
+      }
+    }
+
+    // Sort chart candles by time just in case
+    chartCandles = chartCandles.sort((a, b) => a.time - b.time);
+
+    // 3. Calculate Indicators
+    const ema9 = calculateEMA(chartCandles, 9);
+    const ema21 = calculateEMA(chartCandles, 21);
+    const rsi = calculateRSI(chartCandles, 14);
+    const atr = calculateATR(chartCandles, 14) || latestAtrValues[symbol] || 15;
+
+    // Calculate current PCR
+    let totalCallOi = 0;
+    let totalPutOi = 0;
+    strikesArray.forEach(s => {
+      totalCallOi += s.callOi || 0;
+      totalPutOi += s.putOi || 0;
+    });
+    const pcr = totalCallOi > 0 ? parseFloat((totalPutOi / totalCallOi).toFixed(2)) : 0;
+
+    // Fetch PCR history from Database
+    const getHistoricalPcrs = () => {
+      return new Promise((resolve) => {
+        db.all(
+          `SELECT timestamp, data FROM option_chain_history 
+           WHERE symbol = ? 
+           ORDER BY timestamp DESC LIMIT 5`,
+          [symbol],
+          (err, rows) => {
+            if (err || !rows || rows.length < 2) return resolve([]);
+            const pcrs = [];
+            rows.forEach(row => {
+              try {
+                const parsed = JSON.parse(row.data);
+                let cSum = 0, pSum = 0;
+                parsed.forEach(s => { cSum += s.callOi || 0; pSum += s.putOi || 0; });
+                if (cSum > 0) pcrs.push(pSum / cSum);
+              } catch (e) {}
+            });
+            resolve(pcrs);
+          }
+        );
+      });
+    };
+
+    const historicalPcrs = await getHistoricalPcrs();
+
+    // 4. Construct Multi-Agent Prompt
+    const prompt = `You are the 'OpenClaw AI Agent Hub Orchestrator'. You manage three sub-agents to analyze the NIFTY/BANKNIFTY market and issue high-accuracy trading alerts:
+1. **Option Chain Agent**: Analyzes PCR, PCR change velocity, and Call/Put Open Interest blocks (resistance and support).
+2. **Chart Pattern Agent**: Analyzes trend direction (using EMA 9/21 relationship) and momentum (using RSI).
+3. **Risk Orchestrator**: Calculates optimal entry range, stoploss (taking into account swing low and ATR), and target levels.
+
+Data for ${symbol}:
+- Current Spot Price: ${spotPrice}
+- Current PCR: ${pcr}
+- PCR values for last few minutes (newest to oldest): ${historicalPcrs.map(v => v.toFixed(2)).join(', ')}
+- Technical indicators:
+  * EMA 9: ${ema9}
+  * EMA 21: ${ema21}
+  * Price vs EMA 9: ${spotPrice > ema9 ? 'Above EMA 9' : 'Below EMA 9'}
+  * EMA Crossover Status: ${ema9 > ema21 ? 'EMA 9 is above EMA 21 (Bullish Trend)' : 'EMA 9 is below EMA 21 (Bearish Trend)'}
+  * RSI (14): ${rsi} (${rsi > 70 ? 'Overbought' : rsi < 30 ? 'Oversold' : 'Neutral'})
+  * ATR (14): ${atr.toFixed(2)}
+
+You must return a raw JSON response (without any markdown tags or backticks) in this exact format:
+{
+  "action": "CALL" | "PUT" | "WAIT",
+  "confidence": <integer percentage between 0 and 100>,
+  "buyRange": "<suggested buy range, e.g. '22040 - 22065'>",
+  "target1": <number>,
+  "target2": <number>,
+  "stoploss": <number>,
+  "agentThoughts": {
+    "optionChainAgent": "<Hinglish summary of Option Chain analysis>",
+    "chartAgent": "<Hinglish summary of technical indicators and chart analysis>",
+    "riskOrchestrator": "<Hinglish summary of target and stoploss setting logic>"
+  },
+  "reasoning": [
+    "<Bullet point 1 in Hinglish explaining trade reason>",
+    "<Bullet point 2 in Hinglish explaining trade reason>",
+    "<Bullet point 3 in Hinglish explaining trade reason>"
+  ],
+  "summary": "<General Hinglish summary for the user>"
+}
+
+INSTRUCTIONS FOR WRITING:
+- Write the agent thoughts, reasoning, and summary in friendly Hinglish (using English alphabet, e.g. 'Market strong bullish trend me hai').
+- Do NOT use Hindi script (like नमस्ते or बाज़ार).
+- Ensure all numbers (target1, target2, stoploss) are valid numbers.
+- Do NOT wrap in backticks or code blocks. Just output the clean JSON object.`;
+
+    // 5. Call Gemini
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const geminiResponse = await axios.post(geminiUrl, {
+      contents: [{ parts: [{ text: prompt }] }]
+    });
+
+    const rawText = geminiResponse.data.candidates[0].content.parts[0].text;
+    
+    // Clean response of any markdown formatting
+    let cleanText = rawText.trim();
+    if (cleanText.startsWith('```')) {
+      cleanText = cleanText.replace(/^```[a-zA-Z]*\n/, '').replace(/\n```$/, '').trim();
+    }
+
+    let parsedResult;
+    try {
+      parsedResult = JSON.parse(cleanText);
+    } catch (parseErr) {
+      console.error('Failed to parse Gemini JSON. Raw text was:', rawText);
+      return res.status(500).json({ success: false, message: 'AI response was not in a valid JSON format', raw: rawText });
+    }
+
+    res.json({
+      success: true,
+      data: parsedResult,
+      indicators: {
+        spotPrice,
+        pcr,
+        ema9,
+        ema21,
+        rsi,
+        atr
+      }
+    });
+
+  } catch (error) {
+    console.error('OpenClaw Analyze Error:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message,
+      details: error.response?.data
+    });
+  }
+});
+
 // Endpoint to save a new AI signal
 app.post('/api/signals', (req, res) => {
   const { symbol, type, entry_price, target_price, stoploss_price, source } = req.body;

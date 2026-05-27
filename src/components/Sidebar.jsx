@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, BarChart2, LineChart, Settings, Zap, X, Brain, TrendingUp, Cpu } from 'lucide-react';
+import { LayoutDashboard, BarChart2, LineChart, Settings, Zap, X, Brain, TrendingUp, Cpu, Bot } from 'lucide-react';
 
 const Sidebar = ({ isOpen, closeSidebar }) => {
   return (
@@ -61,6 +61,12 @@ const Sidebar = ({ isOpen, closeSidebar }) => {
           <NavLink to="/ai-analysis" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={closeSidebar}>
             <Brain size={20} />
             <span>AI Analysis</span>
+          </NavLink>
+        </li>
+        <li className="nav-item">
+          <NavLink to="/openclaw-ai" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={closeSidebar}>
+            <Bot size={20} />
+            <span>OpenClaw AI</span>
           </NavLink>
         </li>
         <li className="nav-item">

@@ -10,6 +10,7 @@ import AiAnalysis from './pages/AiAnalysis';
 import AiTesting from './pages/AiTesting';
 import Settings from './pages/Settings';
 import OptionDecoder from './pages/OptionDecoder';
+import OpenClawAi from './pages/OpenClawAi';
 import './App.css';
 
 function App() {
@@ -50,6 +51,7 @@ function App() {
               <Route path="/ai-analysis" element={<AiAnalysis />} />
               <Route path="/ai-testing" element={<AiTesting />} />
               <Route path="/option-decoder" element={<OptionDecoder />} />
+              <Route path="/openclaw-ai" element={<OpenClawAi />} />
               <Route path="/settings" element={<Settings />} />
             </Routes>
           </div>

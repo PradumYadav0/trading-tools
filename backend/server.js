@@ -1776,6 +1776,8 @@ app.post('/api/openclaw/settings', (req, res) => {
         return res.status(500).json({ success: false, message: 'Failed to save settings to database' });
       }
       res.json({ success: true, message: 'Settings updated successfully' });
+      // Dynamically restart Telegram Bot Listener with new settings
+      startTelegramBotListener();
     });
   });
 });
@@ -2481,13 +2483,200 @@ async function runAllDecoders() {
   }
 }
 
+// Telegram Bot Command Listener (Long Polling)
+let telegramBotInterval = null;
+let lastTelegramUpdateId = 0;
+let currentTelegramToken = '';
+let currentTelegramChatId = '';
+
+async function startTelegramBotListener() {
+  try {
+    const settings = await getSystemSettings();
+    const token = settings['telegram_token'];
+    const chatId = settings['telegram_chat_id'];
+
+    if (!token || !chatId) {
+      if (telegramBotInterval) {
+        clearInterval(telegramBotInterval);
+        telegramBotInterval = null;
+        console.log('[Telegram Bot] Stopped listener: credentials missing.');
+      }
+      return;
+    }
+
+    // If token/chatId didn't change and bot is already running, do nothing
+    if (telegramBotInterval && token === currentTelegramToken && chatId === currentTelegramChatId) {
+      return;
+    }
+
+    // If credentials changed, stop the previous interval
+    if (telegramBotInterval) {
+      clearInterval(telegramBotInterval);
+      telegramBotInterval = null;
+    }
+
+    currentTelegramToken = token;
+    currentTelegramChatId = chatId;
+    lastTelegramUpdateId = 0; // reset offset to get fresh messages
+
+    console.log(`[Telegram Bot] Starting long-polling listener using token: ${token.substring(0, 6)}...`);
+
+    let isPolling = false;
+
+    telegramBotInterval = setInterval(async () => {
+      if (isPolling) return;
+      isPolling = true;
+
+      try {
+        const url = `https://api.telegram.org/bot${currentTelegramToken}/getUpdates?offset=${lastTelegramUpdateId + 1}&timeout=2`;
+        const response = await axios.get(url, { timeout: 5000 });
+        if (response.data && response.data.ok && response.data.result) {
+          const updates = response.data.result;
+          for (const update of updates) {
+            lastTelegramUpdateId = update.update_id;
+            
+            const message = update.message;
+            if (message && message.text && String(message.chat.id) === String(currentTelegramChatId)) {
+              const text = message.text.trim();
+              console.log(`[Telegram Bot] Received command: "${text}" from Chat ID: ${message.chat.id}`);
+              
+              if (text.startsWith('/analyze')) {
+                const parts = text.split(' ');
+                const symbol = (parts[1] || 'NIFTY').toUpperCase();
+                
+                // Reply with typing or status indicator
+                await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                  chat_id: currentTelegramChatId,
+                  text: `⏳ Analyzing *${symbol}* option chain and indicators... Please wait.`,
+                  parse_mode: 'Markdown'
+                });
+
+                try {
+                  const settings = await getSystemSettings();
+                  const pcrWeight = parseInt(settings['pcr_weight'], 10) || 40;
+                  const chartWeight = parseInt(settings['chart_weight'], 10) || 40;
+                  const newsWeight = parseInt(settings['news_weight'], 10) || 20;
+                  const weights = { pcrWeight, chartWeight, newsWeight };
+                  const profile = settings['trading_profile'] || 'intraday_scalper';
+
+                  const result = await executeOpenClawAnalysis(symbol, null, weights, profile);
+                  const actionData = result.data;
+                  const indicators = result.indicators;
+
+                  let optionDetails = '';
+                  if (actionData.suggestedOptionContract) {
+                    optionDetails = `*Option Contract*: ${actionData.suggestedOptionContract}\n` +
+                      `*Premium Entry*: ₹${actionData.optionPremiumLtp}\n` +
+                      `*Premium Target 1*: ₹${actionData.optionTarget1}\n` +
+                      `*Premium Target 2*: ₹${actionData.optionTarget2}\n` +
+                      `*Premium Stoploss*: ₹${actionData.optionStoploss}\n` +
+                      `*Expected Hold*: ⏳ ${actionData.expectedHoldTime}\n\n`;
+                  }
+
+                  const responseMsg = `🚨 *OpenClaw AI Trade Alert* 🚨\n\n` +
+                    `*Symbol*: ${symbol}\n` +
+                    `*Action*: ${actionData.action === 'CALL' ? 'BUY CALL / BULLISH' : actionData.action === 'PUT' ? 'BUY PUT / BEARISH' : 'WAIT / NEUTRAL'}\n` +
+                    `*Spot Price*: ${indicators.spotPrice || 'N/A'}\n` +
+                    `*Confidence*: ${actionData.confidence}%\n` +
+                    `*Buy Range*: ${actionData.buyRange}\n` +
+                    `*Target 1*: ${actionData.target1}\n` +
+                    `*Target 2*: ${actionData.target2}\n` +
+                    `*Stoploss*: ${actionData.stoploss}\n` +
+                    `*Time (IST)*: ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}\n\n` +
+                    optionDetails +
+                    `*AI Summary*: ${actionData.summary}\n\n` +
+                    `🤖 Powered by OpenClaw AI Multi-Agent Engine.`;
+
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: responseMsg,
+                    parse_mode: 'Markdown'
+                  });
+
+                  // Log to DB for Live Tracker
+                  if (actionData.action === 'CALL' || actionData.action === 'PUT') {
+                    saveOpenClawSignalToDb(symbol, actionData, indicators.spotPrice);
+                  }
+                } catch (analysisErr) {
+                  console.error('[Telegram Bot] Analysis error:', analysisErr.message);
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: `❌ Analysis failed: ${analysisErr.message}`
+                  });
+                }
+              } else if (text.startsWith('/status')) {
+                // Fetch active PENDING OpenClaw trades
+                db.all(`SELECT * FROM ai_signals WHERE source = 'OPENCLAW' AND status = 'PENDING' ORDER BY created_at DESC`, [], async (err, rows) => {
+                  if (err) {
+                    await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                      chat_id: currentTelegramChatId,
+                      text: `❌ Error checking signals: ${err.message}`
+                    });
+                    return;
+                  }
+
+                  if (!rows || rows.length === 0) {
+                    await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                      chat_id: currentTelegramChatId,
+                      text: `ℹ️ No active OpenClaw trades currently under watch.`
+                    });
+                    return;
+                  }
+
+                  let statusMsg = `📋 *Active OpenClaw Trades Under Watch:* \n\n`;
+                  rows.forEach((row, index) => {
+                    const spot = latestSpotPrices[row.symbol] || row.entry_price;
+                    statusMsg += `${index + 1}. *${row.symbol} ${row.type}*\n` +
+                      `  • Entry: ${row.entry_price.toFixed(2)}\n` +
+                      `  • Target: ${row.target_price.toFixed(2)}\n` +
+                      `  • Stoploss: ${row.stoploss_price.toFixed(2)}\n` +
+                      `  • Current Spot: ${spot.toFixed(2)}\n` +
+                      `  • Status: ⏳ MONITORING\n\n`;
+                  });
+
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: statusMsg,
+                    parse_mode: 'Markdown'
+                  });
+                });
+              } else if (text.startsWith('/help') || text.startsWith('/start')) {
+                const helpMsg = `🤖 *OpenClaw AI Bot Commands:* \n\n` +
+                  `• \`/analyze NIFTY\` - Runs options and technical agent analysis for NIFTY.\n` +
+                  `• \`/analyze BANKNIFTY\` - Runs analysis for BANKNIFTY.\n` +
+                  `• \`/analyze FINNIFTY\` - Runs analysis for FINNIFTY.\n` +
+                  `• \`/analyze MIDCPNIFTY\` - Runs analysis for MIDCPNIFTY.\n` +
+                  `• \`/status\` - Shows active pending trades and their target/SL status.\n` +
+                  `• \`/help\` - Show this help menu.`;
+                await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                  chat_id: currentTelegramChatId,
+                  text: helpMsg,
+                  parse_mode: 'Markdown'
+                });
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[Telegram Bot] Long-polling error:', err.message);
+      } finally {
+        isPolling = false;
+      }
+    }, 5000);
+
+  } catch (err) {
+    console.error('[Telegram Bot] Failed to initialize listener:', err.message);
+  }
+}
+
 // Run unified decoder every 1 minute
 setInterval(runAllDecoders, 60000);
 
-// Run immediately on startup (wait 5s for token to be generated)
+// Run immediately on startup (wait 6s to allow process environment to load)
 setTimeout(() => {
   runAllDecoders();
-}, 5000);
+  startTelegramBotListener();
+}, 6000);
 
 app.listen(PORT, () => {
   console.log(`Backend server running on port ${PORT}`);

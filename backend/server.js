@@ -502,10 +502,12 @@ app.get('/api/option-chain', async (req, res) => {
         callChgOi: data.ce?.oi - data.ce?.previous_oi || 0, 
         callLtp: data.ce?.last_price || 0,
         callVolume: data.ce?.volume || 0,
+        callIv: data.ce?.implied_volatility || data.ce?.iv || 0,
         putVolume: data.pe?.volume || 0,
         putLtp: data.pe?.last_price || 0,
         putChgOi: data.pe?.oi - data.pe?.previous_oi || 0,
         putOi: data.pe?.oi || 0,
+        putIv: data.pe?.implied_volatility || data.pe?.iv || 0,
         updateStatus: null
       };
     }).sort((a, b) => a.strike - b.strike);
@@ -877,10 +879,12 @@ app.post('/api/ai-analysis', async (req, res) => {
           callChgOi: (data.ce?.oi || 0) - (data.ce?.previous_oi || 0), 
           callLtp: data.ce?.last_price || 0,
           callVolume: data.ce?.volume || 0,
+          callIv: data.ce?.implied_volatility || data.ce?.iv || 0,
           putVolume: data.pe?.volume || 0,
           putLtp: data.pe?.last_price || 0,
           putChgOi: (data.pe?.oi || 0) - (data.pe?.previous_oi || 0),
-          putOi: data.pe?.oi || 0
+          putOi: data.pe?.oi || 0,
+          putIv: data.pe?.implied_volatility || data.pe?.iv || 0
         };
       }).sort((a, b) => a.strike - b.strike);
     }
@@ -1215,10 +1219,12 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
             callChgOi: (data.ce?.oi || 0) - (data.ce?.previous_oi || 0),
             callLtp: data.ce?.last_price || 0,
             callVolume: data.ce?.volume || 0,
+            callIv: data.ce?.implied_volatility || data.ce?.iv || 0,
             putVolume: data.pe?.volume || 0,
             putLtp: data.pe?.last_price || 0,
             putChgOi: (data.pe?.oi || 0) - (data.pe?.previous_oi || 0),
-            putOi: data.pe?.oi || 0
+            putOi: data.pe?.oi || 0,
+            putIv: data.pe?.implied_volatility || data.pe?.iv || 0
           };
         }).sort((a, b) => a.strike - b.strike);
       }
@@ -1269,13 +1275,62 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
           });
         }
       }
+      setCachedData('chartsIntraday', `${symbolStr}_${primaryInterval}`, { success: true, data: chartCandles });
     } catch (err) {
       console.error(`Error fetching intraday charts (${primaryInterval}m) in OpenClaw:`, err.message);
     }
   }
 
+  // 2b. Fetch 1-Hour Chart Data (for 1H EMA 20 Trend Confirmation)
+  let hourCandles = [];
+  const cachedHourChart = getCachedData('chartsIntraday', `${symbolStr}_60`, isIndianMarketOpen() ? CACHE_DURATION_MS : 3600000);
+  
+  if (cachedHourChart && cachedHourChart.success && cachedHourChart.data) {
+    hourCandles = cachedHourChart.data;
+  } else {
+    const toDate = new Date();
+    toDate.setDate(toDate.getDate() + 1);
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - 10); // 10 days to ensure enough candles for 1-Hour EMA 20
+    const formatDate = (d) => d.toISOString().split('T')[0];
+
+    try {
+      const chartResponse = await queuedDhanRequest({
+        method: 'post',
+        url: 'https://api.dhan.co/v2/charts/intraday',
+        data: {
+          securityId: scripId.toString(),
+          exchangeSegment: 'IDX_I',
+          instrument: 'INDEX',
+          interval: '60',
+          fromDate: formatDate(fromDate),
+          toDate: formatDate(toDate)
+        },
+        headers: getDhanHeaders()
+      });
+
+      const chartData = chartResponse.data.data || chartResponse.data;
+      if (chartData.timestamp) {
+        for (let i = 0; i < chartData.timestamp.length; i++) {
+          hourCandles.push({
+            time: chartData.timestamp[i],
+            open: chartData.open[i],
+            high: chartData.high[i],
+            low: chartData.low[i],
+            close: chartData.close[i]
+          });
+        }
+      }
+      hourCandles = hourCandles.sort((a, b) => a.time - b.time);
+      setCachedData('chartsIntraday', `${symbolStr}_60`, { success: true, data: hourCandles });
+    } catch (err) {
+      console.error(`Error fetching 1-Hour charts for OpenClaw:`, err.message);
+    }
+  }
+
   // Sort chart candles by time just in case
   chartCandles = chartCandles.sort((a, b) => a.time - b.time);
+  hourCandles = hourCandles.sort((a, b) => a.time - b.time);
 
   // 3. Calculate Indicators
   const ema9 = calculateEMA(chartCandles, 9);
@@ -1287,6 +1342,12 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   const lastEma9 = ema9.length > 0 ? parseFloat(ema9[ema9.length - 1].toFixed(2)) : lastClose;
   const lastEma21 = ema21.length > 0 ? parseFloat(ema21[ema21.length - 1].toFixed(2)) : lastClose;
   const lastRsi = rsi.length > 0 ? parseFloat(rsi[rsi.length - 1].toFixed(2)) : 50;
+
+  // Calculate 1-Hour EMA 20 Trend Filter
+  const hourEma20List = calculateEMA(hourCandles, 20);
+  const lastHourClose = hourCandles.length > 0 ? hourCandles[hourCandles.length - 1].close : spotPrice;
+  const lastHourEma20 = hourEma20List.length > 0 ? parseFloat(hourEma20List[hourEma20List.length - 1].toFixed(2)) : lastHourClose;
+  const hourlyTrend = hourCandles.length > 0 ? (lastHourClose > lastHourEma20 ? 'BULLISH' : 'BEARISH') : 'NEUTRAL';
 
   // Group into higher timeframe candles for major trend filter
   const groupedCandles = [];
@@ -1321,11 +1382,15 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
          ORDER BY timestamp DESC LIMIT 5`,
         [symbolStr],
         (err, rows) => {
-          if (err || !rows || rows.length < 2) return resolve([]);
+          if (err) {
+            console.error('Error fetching historical PCRs:', err.message);
+            resolve([]);
+            return;
+          }
           const pcrs = [];
-          rows.forEach(row => {
+          rows.forEach(r => {
             try {
-              const parsed = JSON.parse(row.data);
+              const parsed = JSON.parse(r.data);
               let cSum = 0, pSum = 0;
               parsed.forEach(s => { cSum += s.callOi || 0; pSum += s.putOi || 0; });
               if (cSum > 0) pcrs.push(pSum / cSum);
@@ -1372,6 +1437,16 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   let itmCallName = '';
   let atmPutName = '';
   let itmPutName = '';
+  let averageIv = 0;
+  let atmCallIv = 0;
+  let atmPutIv = 0;
+
+  let shortCoveringDetected = false;
+  let longUnwindingDetected = false;
+  let unwindingDetails = {
+    callUnwindingStrikes: [],
+    putUnwindingStrikes: []
+  };
 
   if (strikesArray.length > 0) {
     const atmObj = strikesArray.reduce((prev, curr) => 
@@ -1380,6 +1455,9 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
     atmStrike = atmObj.strike;
     atmCallLtp = atmObj.callLtp;
     atmPutLtp = atmObj.putLtp;
+    atmCallIv = atmObj.callIv || 0;
+    atmPutIv = atmObj.putIv || 0;
+    averageIv = (atmCallIv + atmPutIv) / 2;
 
     const atmIndex = strikesArray.findIndex(s => s.strike === atmStrike);
     
@@ -1409,6 +1487,29 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
     itmCallName = getContractName(itmStrikeCall, 'CE');
     atmPutName = getContractName(atmStrike, 'PE');
     itmPutName = getContractName(itmStrikePut, 'PE');
+
+    // Calculate Near ATM Unwinding (±3 strikes around ATM)
+    if (atmIndex !== -1) {
+      const startIndex = Math.max(0, atmIndex - 3);
+      const endIndex = Math.min(strikesArray.length - 1, atmIndex + 3);
+      for (let i = startIndex; i <= endIndex; i++) {
+        const strikeData = strikesArray[i];
+        if (strikeData.callChgOi < 0) {
+          shortCoveringDetected = true;
+          unwindingDetails.callUnwindingStrikes.push({
+            strike: strikeData.strike,
+            chgOi: strikeData.callChgOi
+          });
+        }
+        if (strikeData.putChgOi < 0) {
+          longUnwindingDetected = true;
+          unwindingDetails.putUnwindingStrikes.push({
+            strike: strikeData.strike,
+            chgOi: strikeData.putChgOi
+          });
+        }
+      }
+    }
   }
 
   // Fetch Live Financial News Headlines
@@ -1433,6 +1534,13 @@ You must weight their importance according to the weights assigned by the user:
 *CRITICAL RULES FOR NEWS SENTIMENT & SAFEGUARDS:*
 - If News Sentiment Agent weight is greater than 0, and you detect a major risk/panic headline (e.g. GDP contraction, war escalation, high interest rate warnings, massive index crashes, inflation surge), you MUST trigger the safety protocol: force "action" to "WAIT" and set "confidence" lower, prioritizing safety over indicators.
 
+*MULTI-TIMEFRAME TREND CONFIRMATION & ALIGNMENT:*
+- You are provided with a 1-Hour chart trend confirmation ("hourlyTrend"): "${hourlyTrend}".
+- Ideally:
+  * For a CALL trade (Bullish setup), the 1-Hour trend should be BULLISH.
+  * For a PUT trade (Bearish setup), the 1-Hour trend should be BEARISH.
+- If the primary chart indicators suggest a trade but the 1-Hour trend conflicts (e.g., trying to buy Call when 1-Hour trend is BEARISH, or trying to buy Put when 1-Hour trend is BULLISH), you should be highly conservative: either output "WAIT" or significantly reduce the "confidence" score (e.g., below 65%). Explain this alignment decision in your thoughts.
+
 *OPTION TRADING LEVEL SELECTION & HOLDS:*
 - If you decide to issue a "CALL" alert:
   * Select either the suggested ATM or ITM CALL Option contract (ATM: "${atmCallName}", ITM: "${itmCallName}"). Set \`"suggestedOptionContract"\` to its contract name and \`"optionPremiumLtp"\` to its LTP.
@@ -1440,6 +1548,9 @@ You must weight their importance according to the weights assigned by the user:
 - If you decide to issue a "PUT" alert, do the same using the Put option contracts (ATM: "${atmPutName}", ITM: "${itmPutName}").
 - If you issue "WAIT", set \`"suggestedOptionContract"\`, \`"optionPremiumLtp"\`, \`"optionTarget1"\`, \`"optionTarget2"\`, and \`"optionStoploss"\` to null.
 - Set \`"expectedHoldTime"\` to a clear estimated holding duration string (e.g. \`"5 - 15 minutes"\` for micro scalping profiles, \`"15 - 30 minutes"\` for standard scalping, \`"1 - 2 hours"\` for short-term trends). Base this on indicators strength, trend support, and the active profile: "${profile}".
+
+*TRAILING STOPLOSS RULES:*
+- You MUST provide explicit rules on when and how to trail the stoploss in the \`"trailingStoploss"\` field (e.g., "Trail stoploss to cost price once Target 1 is hit, then trail by 15 points for every 20 points spot movement", or "Trail by 10 points for every 15 points gain in option premium"). Make the trailing stoploss rules highly practical for active scalping/trading.
 
 Data for ${symbolStr}:
 - Current Spot Price: ${spotPrice}
@@ -1453,6 +1564,7 @@ Data for ${symbolStr}:
   * RSI (14): ${lastRsi} (${lastRsi > 70 ? 'Overbought' : lastRsi < 30 ? 'Oversold' : 'Neutral'})
   * ATR (14): ${atr.toFixed(2)}
   * Major Trend (${trendTimeframe} timeframe filter): ${majorTrend}
+  * 1-Hour Chart Trend filter: ${hourlyTrend} (EMA 20 at ${lastHourEma20}, Price at ${lastHourClose})
 
 - Nearby Strike Option Chain Activity (Spot: ${spotPrice}):
   * Strongest Resistance Strike: ${resistanceStrike ? resistanceStrike.strike : 'N/A'} (Call OI: ${resistanceStrike ? resistanceStrike.callOi : 0})
@@ -1461,6 +1573,9 @@ Data for ${symbolStr}:
   * Heavy Put Writing (Bullish pressure): Strike ${heavyPutWriting && heavyPutWriting.putChgOi > 0 ? heavyPutWriting.strike : 'N/A'} (ChgOI: ${heavyPutWriting && heavyPutWriting.putChgOi > 0 ? heavyPutWriting.putChgOi : 0})
   * Call Unwinding (Short Covering / Bullish): Strike ${callUnwinding && callUnwinding.callChgOi < 0 ? callUnwinding.strike : 'N/A'} (ChgOI: ${callUnwinding && callUnwinding.callChgOi < 0 ? callUnwinding.callChgOi : 0})
   * Put Unwinding (Long Liquidation / Bearish): Strike ${putUnwinding && putUnwinding.putChgOi < 0 ? putUnwinding.strike : 'N/A'} (ChgOI: ${putUnwinding && putUnwinding.putChgOi < 0 ? putUnwinding.putChgOi : 0})
+  * Short Covering (Call Unwinding) Active: ${shortCoveringDetected ? 'YES' : 'NO'}
+  * Long Unwinding (Put Unwinding) Active: ${longUnwindingDetected ? 'YES' : 'NO'}
+  * ATM Implied Volatility: Average ${averageIv ? averageIv.toFixed(1) + '%' : 'N/A'} (Call: ${atmCallIv}%, Put: ${atmPutIv}%)
 
 - Recent Financial & Stock Market News Headlines:
 ${headlines.length > 0 ? headlines.map((h, i) => `  * Headline ${i+1}: "${h.title}"`).join('\n') : '  * No recent headlines available'}
@@ -1479,12 +1594,13 @@ You must return a raw JSON response (without any markdown tags or backticks) in 
   "optionTarget1": <number> | null,
   "optionTarget2": <number> | null,
   "optionStoploss": <number> | null,
+  "trailingStoploss": "<trailing stoploss rule, e.g., 'Trail to Cost when Target 1 is hit, then trail by 10 points' or null if WAIT>" | null,
   "expectedHoldTime": "<holding time estimation, e.g., '10 - 15 minutes'>" | null,
   "agentThoughts": {
-    "optionChainAgent": "<Hinglish summary of Option Chain analysis including specific details of writing and unwinding at key strikes>",
-    "chartAgent": "<Hinglish summary of technical indicators and chart analysis>",
-    "newsAgent": "<Hinglish summary of financial headlines sentiment and its calculated impact on market mood>",
-    "riskOrchestrator": "<Hinglish summary of target and stoploss setting logic based on ATR>"
+    "optionChainAgent": "<Hinglish summary of Option Chain, ATM IV, and Short Covering/Long Unwinding details>",
+    "chartAgent": "<Hinglish summary of 1H Trend alignment and chart indicators>",
+    "newsAgent": "<Hinglish summary of financial headlines sentiment>",
+    "riskOrchestrator": "<Hinglish summary of target, stoploss, and trailing stoploss settings>"
   },
   "reasoning": [
     "<Bullet point 1 in Hinglish explaining trade reason>",
@@ -1539,7 +1655,11 @@ INSTRUCTIONS FOR WRITING:
       putUnwindingStrike: putUnwinding && putUnwinding.putChgOi < 0 ? putUnwinding.strike : null,
       tradingProfile: profile,
       trendTimeframe,
-      majorTrend
+      majorTrend,
+      hourlyTrend,
+      averageIv,
+      shortCoveringDetected,
+      longUnwindingDetected
     }
   };
 }
@@ -1927,7 +2047,7 @@ async function triggerOpenClawBackgroundAlerts() {
 
         if ((actionData.action === 'CALL' || actionData.action === 'PUT') && actionData.confidence >= minConfidence) {
           console.log(`[OpenClaw Scheduler] Strong signal detected for ${symbol}: ${actionData.action} (${actionData.confidence}%)`);
-          await sendOpenClawNotifications(symbol, actionData, settings, indicators.spotPrice);
+          await sendOpenClawNotifications(symbol, actionData, settings, indicators);
           saveOpenClawSignalToDb(symbol, actionData, indicators.spotPrice);
         }
       } catch (err) {
@@ -1942,7 +2062,11 @@ async function triggerOpenClawBackgroundAlerts() {
   }
 }
 
-async function sendOpenClawNotifications(symbol, actionData, settings, spotPrice) {
+async function sendOpenClawNotifications(symbol, actionData, settings, indicators) {
+  const spotPrice = indicators.spotPrice || 'N/A';
+  const hourlyTrend = indicators.hourlyTrend || 'N/A';
+  const averageIv = indicators.averageIv || 0;
+
   const currentTime = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Kolkata',
     year: 'numeric',
@@ -1961,14 +2085,17 @@ async function sendOpenClawNotifications(symbol, actionData, settings, spotPrice
       `*Premium Target 1*: ₹${actionData.optionTarget1}\n` +
       `*Premium Target 2*: ₹${actionData.optionTarget2}\n` +
       `*Premium Stoploss*: ₹${actionData.optionStoploss}\n` +
-      `*Expected Hold*: ⏳ ${actionData.expectedHoldTime}\n\n`;
+      `*Expected Hold*: ⏳ ${actionData.expectedHoldTime}\n` +
+      `*Trailing SL*: 📈 ${actionData.trailingStoploss || 'N/A'}\n\n`;
   }
 
   const messageContent = `🚨 *OpenClaw AI Trade Alert* 🚨\n\n` +
     `*Symbol*: ${symbol}\n` +
     `*Action*: ${actionData.action === 'CALL' ? 'BUY CALL / BULLISH' : 'BUY PUT / BEARISH'}\n` +
-    `*Spot Price*: ${spotPrice || 'N/A'}\n` +
+    `*Spot Price*: ${spotPrice}\n` +
     `*Confidence*: ${actionData.confidence}%\n` +
+    `*1H Trend*: ${hourlyTrend}\n` +
+    `*ATM IV*: ${averageIv ? averageIv.toFixed(1) + '%' : 'N/A'}\n` +
     `*Buy Range*: ${actionData.buyRange}\n` +
     `*Target 1*: ${actionData.target1}\n` +
     `*Target 2*: ${actionData.target2}\n` +
@@ -2187,10 +2314,12 @@ async function runAllDecoders() {
           callChgOi: (data.ce?.oi || 0) - (data.ce?.previous_oi || 0), 
           callLtp: data.ce?.last_price || 0,
           callVolume: data.ce?.volume || 0,
+          callIv: data.ce?.implied_volatility || data.ce?.iv || 0,
           putVolume: data.pe?.volume || 0,
           putLtp: data.pe?.last_price || 0,
           putChgOi: (data.pe?.oi || 0) - (data.pe?.previous_oi || 0),
           putOi: data.pe?.oi || 0,
+          putIv: data.pe?.implied_volatility || data.pe?.iv || 0,
           updateStatus: null
         };
       }).sort((a, b) => a.strike - b.strike);
@@ -2602,7 +2731,8 @@ async function startTelegramBotListener() {
                       `*Premium Target 1*: ₹${actionData.optionTarget1}\n` +
                       `*Premium Target 2*: ₹${actionData.optionTarget2}\n` +
                       `*Premium Stoploss*: ₹${actionData.optionStoploss}\n` +
-                      `*Expected Hold*: ⏳ ${actionData.expectedHoldTime}\n\n`;
+                      `*Expected Hold*: ⏳ ${actionData.expectedHoldTime}\n` +
+                      `*Trailing SL*: 📈 ${actionData.trailingStoploss || 'N/A'}\n\n`;
                   }
 
                   const responseMsg = `🚨 *OpenClaw AI Trade Alert* 🚨\n\n` +
@@ -2610,6 +2740,8 @@ async function startTelegramBotListener() {
                     `*Action*: ${actionData.action === 'CALL' ? 'BUY CALL / BULLISH' : actionData.action === 'PUT' ? 'BUY PUT / BEARISH' : 'WAIT / NEUTRAL'}\n` +
                     `*Spot Price*: ${indicators.spotPrice || 'N/A'}\n` +
                     `*Confidence*: ${actionData.confidence}%\n` +
+                    `*1H Trend*: ${indicators.hourlyTrend || 'N/A'}\n` +
+                    `*ATM IV*: ${indicators.averageIv ? indicators.averageIv.toFixed(1) + '%' : 'N/A'}\n` +
                     `*Buy Range*: ${actionData.buyRange}\n` +
                     `*Target 1*: ${actionData.target1}\n` +
                     `*Target 2*: ${actionData.target2}\n` +

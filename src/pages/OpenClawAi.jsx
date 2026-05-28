@@ -1274,6 +1274,105 @@ const OpenClawAi = () => {
                 </div>
               </div>
 
+              {/* 1H Trend, ATM IV, and OI Unwinding Badge Bar */}
+              {indicatorData && (
+                <div style={{ 
+                  display: 'flex', 
+                  gap: '0.75rem', 
+                  flexWrap: 'wrap', 
+                  marginBottom: '1.25rem',
+                  padding: '0.75rem',
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(255, 255, 255, 0.05)'
+                }}>
+                  <div style={{ flex: '1 1 120px' }}>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.15rem' }}>1H Trend Confirm</span>
+                    <span style={{ 
+                      fontSize: '0.85rem', 
+                      fontWeight: '700', 
+                      color: indicatorData.hourlyTrend === 'BULLISH' ? 'var(--bullish)' : indicatorData.hourlyTrend === 'BEARISH' ? 'var(--bearish)' : '#eab308' 
+                    }}>
+                      {indicatorData.hourlyTrend || 'NEUTRAL'}
+                    </span>
+                  </div>
+                  <div style={{ flex: '1 1 120px' }}>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.15rem' }}>ATM Implied Volatility</span>
+                    <span style={{ fontSize: '0.85rem', fontWeight: '700', color: '#6366f1' }}>
+                      {indicatorData.averageIv ? indicatorData.averageIv.toFixed(1) + '%' : 'N/A'}
+                    </span>
+                  </div>
+                  <div style={{ flex: '1 1 180px' }}>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.15rem' }}>Option OI Unwinding</span>
+                    <div style={{ display: 'flex', gap: '0.35rem', marginTop: '0.15rem' }}>
+                      {indicatorData.shortCoveringDetected ? (
+                        <span style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', fontWeight: '600' }}>Short Covering</span>
+                      ) : null}
+                      {indicatorData.longUnwindingDetected ? (
+                        <span style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem', borderRadius: '4px', background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', fontWeight: '600' }}>Long Unwinding</span>
+                      ) : null}
+                      {!indicatorData.shortCoveringDetected && !indicatorData.longUnwindingDetected ? (
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>No Unwinding</span>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Option Contract Details Card */}
+              {analysisResult.suggestedOptionContract && (
+                <div style={{
+                  marginBottom: '1.25rem',
+                  padding: '1rem',
+                  borderRadius: '10px',
+                  background: analysisResult.action === 'CALL' ? 'rgba(0, 200, 5, 0.03)' : 'rgba(239, 68, 68, 0.03)',
+                  border: `1px dashed ${analysisResult.action === 'CALL' ? 'rgba(0, 200, 5, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`
+                }}>
+                  <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '0.9rem', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>🎯 Suggested Contract: <strong style={{ color: 'var(--accent-primary)' }}>{analysisResult.suggestedOptionContract}</strong></span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>LTP: ₹{analysisResult.optionPremiumLtp}</span>
+                  </h4>
+                  <div className="coordinates-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: '0.75rem', marginBottom: '0px' }}>
+                    <div className="coordinate-item" style={{ background: 'transparent', padding: '0.25rem 0' }}>
+                      <span className="coord-label" style={{ fontSize: '0.65rem' }}>Premium Target 1</span>
+                      <span className="coord-value" style={{ fontSize: '1.1rem', color: 'var(--bullish)' }}>₹{analysisResult.optionTarget1}</span>
+                    </div>
+                    <div className="coordinate-item" style={{ background: 'transparent', padding: '0.25rem 0' }}>
+                      <span className="coord-label" style={{ fontSize: '0.65rem' }}>Premium Target 2</span>
+                      <span className="coord-value" style={{ fontSize: '1.1rem', color: 'var(--bullish)' }}>₹{analysisResult.optionTarget2}</span>
+                    </div>
+                    <div className="coordinate-item" style={{ background: 'transparent', padding: '0.25rem 0' }}>
+                      <span className="coord-label" style={{ fontSize: '0.65rem' }}>Premium Stoploss</span>
+                      <span className="coord-value" style={{ fontSize: '1.1rem', color: 'var(--bearish)' }}>₹{analysisResult.optionStoploss}</span>
+                    </div>
+                    {analysisResult.expectedHoldTime && (
+                      <div className="coordinate-item" style={{ background: 'transparent', padding: '0.25rem 0' }}>
+                        <span className="coord-label" style={{ fontSize: '0.65rem' }}>Expected Hold</span>
+                        <span className="coord-value" style={{ fontSize: '0.95rem', color: '#fff' }}>⏳ {analysisResult.expectedHoldTime}</span>
+                      </div>
+                    )}
+                  </div>
+                  {analysisResult.trailingStoploss && (
+                    <div style={{
+                      marginTop: '0.75rem',
+                      paddingTop: '0.75rem',
+                      borderTop: '1px solid rgba(255, 255, 255, 0.05)',
+                      fontSize: '0.8rem',
+                      color: 'var(--text-secondary)',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '0.35rem'
+                    }}>
+                      <TrendingUp size={14} style={{ color: '#10b981', flexShrink: 0, marginTop: '0.1rem' }} />
+                      <div>
+                        <strong style={{ color: '#fff' }}>Trailing Stoploss: </strong>
+                        {analysisResult.trailingStoploss}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Sub-Agent Thoughts Accordion */}
               <div style={{ marginBottom: '1.25rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1rem' }}>
                 <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '0.9rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>

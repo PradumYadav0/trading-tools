@@ -576,7 +576,8 @@ const AiTesting = () => {
             No signals captured for the current view yet. Active background tracker is analyzing indices...
           </div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '850px' }}>
+          <div style={{ maxHeight: '520px', overflowY: 'auto', paddingRight: '0.25rem' }} className="signals-table-container">
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '850px' }}>
             <thead>
               <tr style={{ borderBottom: '2px solid rgba(255,255,255,0.08)', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
                 <th style={{ padding: '1rem 0.75rem' }}>Timestamp</th>
@@ -684,6 +685,7 @@ const AiTesting = () => {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
@@ -694,6 +696,21 @@ const AiTesting = () => {
         }
         .table-row-hover:hover {
           background: rgba(255, 255, 255, 0.02);
+        }
+        .signals-table-container::-webkit-scrollbar {
+          width: 6px;
+          height: 6px;
+        }
+        .signals-table-container::-webkit-scrollbar-track {
+          background: rgba(255, 255, 255, 0.01);
+          border-radius: 4px;
+        }
+        .signals-table-container::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 4px;
+        }
+        .signals-table-container::-webkit-scrollbar-thumb:hover {
+          background: rgba(99, 102, 241, 0.3);
         }
       `}</style>
     </div>

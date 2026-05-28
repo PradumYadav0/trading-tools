@@ -981,7 +981,7 @@ const OpenClawAi = () => {
                   }}
                 />
                 <span style={{ display: 'block', fontSize: '0.65rem', color: 'var(--text-secondary)', lineHeight: '1.3' }}>
-                  Send <strong>I allow callmebot to send me messages</strong> to <strong>+34 644 20 28 32</strong> on WhatsApp to get key.
+                  Send <strong>I allow callmebot to send me messages</strong> to <strong>+34 623 78 64 49</strong> (or check callmebot.com) on WhatsApp to get key.
                 </span>
               </div>
 

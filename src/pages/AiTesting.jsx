@@ -12,7 +12,8 @@ import {
   TrendingUp as BullishIcon, 
   Brain, 
   Compass, 
-  Layers 
+  Layers,
+  Trash2
 } from 'lucide-react';
 import { getIstDateString } from '../utils/market';
 
@@ -42,6 +43,38 @@ const AiTesting = () => {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const deleteSignal = async (id) => {
+    if (!confirm('Are you sure you want to delete this signal log?')) return;
+    try {
+      const response = await fetch(`/api/signals/${id}`, { method: 'DELETE' });
+      const result = await response.json();
+      if (result.success) {
+        fetchSignals();
+      } else {
+        alert('Failed to delete: ' + result.message);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error deleting signal');
+    }
+  };
+
+  const clearAllSignals = async () => {
+    if (!confirm('WARNING: Are you sure you want to delete ALL signals history? This cannot be undone.')) return;
+    try {
+      const response = await fetch('/api/signals', { method: 'DELETE' });
+      const result = await response.json();
+      if (result.success) {
+        fetchSignals();
+      } else {
+        alert('Failed to clear logs: ' + result.message);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error clearing signals');
     }
   };
 
@@ -168,28 +201,51 @@ const AiTesting = () => {
           </p>
         </div>
 
-        <button 
-          onClick={fetchSignals}
-          disabled={loading}
-          className="btn-primary"
-          style={{ 
-            background: 'var(--primary-color)', 
-            color: 'white', 
-            border: 'none', 
-            padding: '0.65rem 1.25rem', 
-            borderRadius: '10px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            fontWeight: '600',
-            transition: 'all 0.2s',
-            boxShadow: '0 4px 12px rgba(99, 102, 241, 0.2)'
-          }}
-        >
-          <RefreshCw size={16} className={loading ? 'spin' : ''} />
-          Refresh & Sync Data
-        </button>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          <button 
+            onClick={clearAllSignals}
+            disabled={loading || signals.length === 0}
+            style={{ 
+              background: 'rgba(239, 68, 68, 0.1)', 
+              color: '#FCA5A5', 
+              border: '1px solid rgba(239, 68, 68, 0.3)', 
+              padding: '0.65rem 1.25rem', 
+              borderRadius: '10px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              fontWeight: '600',
+              transition: 'all 0.2s'
+            }}
+          >
+            <Trash2 size={16} />
+            Clear All History
+          </button>
+
+          <button 
+            onClick={fetchSignals}
+            disabled={loading}
+            className="btn-primary"
+            style={{ 
+              background: 'var(--primary-color)', 
+              color: 'white', 
+              border: 'none', 
+              padding: '0.65rem 1.25rem', 
+              borderRadius: '10px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              fontWeight: '600',
+              transition: 'all 0.2s',
+              boxShadow: '0 4px 12px rgba(99, 102, 241, 0.2)'
+            }}
+          >
+            <RefreshCw size={16} className={loading ? 'spin' : ''} />
+            Refresh & Sync Data
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -588,6 +644,7 @@ const AiTesting = () => {
                 <th style={{ padding: '1rem 0.75rem' }}>Target Price</th>
                 <th style={{ padding: '1rem 0.75rem' }}>Stop Loss</th>
                 <th style={{ padding: '1rem 0.75rem' }}>Status</th>
+                <th style={{ padding: '1rem 0.75rem', textAlign: 'center' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -679,6 +736,28 @@ const AiTesting = () => {
                         {signal.status === 'PENDING' && <Clock size={15} />}
                         {signal.status}
                       </span>
+                    </td>
+                    <td style={{ padding: '1rem 0.75rem', textAlign: 'center' }}>
+                      <button
+                        onClick={() => deleteSignal(signal.id)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#F87171',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          borderRadius: '4px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'all 0.2s'
+                        }}
+                        title="Delete Signal Log"
+                        onMouseEnter={(e) => e.currentTarget.style.color = '#EF4444'}
+                        onMouseLeave={(e) => e.currentTarget.style.color = '#F87171'}
+                      >
+                        <Trash2 size={15} />
+                      </button>
                     </td>
                   </tr>
                 );

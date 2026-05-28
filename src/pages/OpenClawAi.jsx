@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Bot, Cpu, Sliders, Play, RefreshCw, Send, CheckCircle, 
   AlertTriangle, ShieldCheck, Terminal, HelpCircle, 
-  TrendingUp, Activity, Bell, Info 
+  TrendingUp, Activity, Bell, Info, Trash2
 } from 'lucide-react';
 
 const OpenClawAi = () => {
@@ -74,6 +74,22 @@ const OpenClawAi = () => {
       console.error('Failed to fetch openclaw signals:', e);
     } finally {
       setSignalsLoading(false);
+    }
+  };
+
+  const deleteSignal = async (id) => {
+    if (!confirm('Are you sure you want to delete this trade log?')) return;
+    try {
+      const response = await fetch(`/api/signals/${id}`, { method: 'DELETE' });
+      const result = await response.json();
+      if (result.success) {
+        fetchSignals();
+      } else {
+        alert('Failed to delete: ' + result.message);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error deleting trade log');
     }
   };
 
@@ -1478,7 +1494,7 @@ const OpenClawAi = () => {
                 No OpenClaw trades tracked yet. Run manual analysis and click "Save to AI Testing" or enable "Auto-Alerts" to populate this tracker.
               </div>
             ) : (
-              <div style={{ overflowX: 'auto' }}>
+              <div style={{ maxHeight: '400px', overflowY: 'auto', overflowX: 'auto', paddingRight: '0.25rem' }} className="signals-table-container">
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '700px', fontSize: '0.85rem' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-secondary)' }}>
@@ -1489,10 +1505,11 @@ const OpenClawAi = () => {
                       <th style={{ padding: '0.75rem 0.5rem' }}>Target</th>
                       <th style={{ padding: '0.75rem 0.5rem' }}>Stoploss</th>
                       <th style={{ padding: '0.75rem 0.5rem' }}>Status</th>
+                      <th style={{ padding: '0.75rem 0.5rem', textAlign: 'center' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {[...openClawSignals].slice(0, 10).map((signal) => {
+                    {[...openClawSignals].slice(0, 20).map((signal) => {
                       const dateStr = signal.created_at.endsWith('Z') || signal.created_at.endsWith('UTC') ? signal.created_at : signal.created_at + ' UTC';
                       const formattedTime = new Date(dateStr).toLocaleString('en-IN', {
                         timeZone: 'Asia/Kolkata',
@@ -1525,6 +1542,28 @@ const OpenClawAi = () => {
                               {signal.status}
                             </span>
                           </td>
+                          <td style={{ padding: '0.75rem 0.5rem', textAlign: 'center' }}>
+                            <button
+                              onClick={() => deleteSignal(signal.id)}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: '#F87171',
+                                cursor: 'pointer',
+                                padding: '4px',
+                                borderRadius: '4px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'all 0.2s'
+                              }}
+                              title="Delete Log"
+                              onMouseEnter={(e) => e.currentTarget.style.color = '#EF4444'}
+                              onMouseLeave={(e) => e.currentTarget.style.color = '#F87171'}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </td>
                         </tr>
                       );
                     })}
@@ -1537,6 +1576,21 @@ const OpenClawAi = () => {
       })()}
 
       <style>{`
+        .signals-table-container::-webkit-scrollbar {
+          width: 6px;
+          height: 6px;
+        }
+        .signals-table-container::-webkit-scrollbar-track {
+          background: rgba(255, 255, 255, 0.01);
+          border-radius: 4px;
+        }
+        .signals-table-container::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 4px;
+        }
+        .signals-table-container::-webkit-scrollbar-thumb:hover {
+          background: rgba(99, 102, 241, 0.3);
+        }
         .workspace-grid {
           display: grid;
           grid-template-columns: 4fr 6fr;

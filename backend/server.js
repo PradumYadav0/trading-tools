@@ -1601,6 +1601,29 @@ app.post('/api/signals', (req, res) => {
   });
 });
 
+// Endpoint to delete a single signal by ID
+app.delete('/api/signals/:id', (req, res) => {
+  const id = req.params.id;
+  db.run(`DELETE FROM ai_signals WHERE id = ?`, [id], function(err) {
+    if (err) {
+      console.error('Error deleting signal:', err.message);
+      return res.status(500).json({ success: false, message: err.message });
+    }
+    res.json({ success: true, message: 'Signal deleted successfully' });
+  });
+});
+
+// Endpoint to clear/delete all signals
+app.delete('/api/signals', (req, res) => {
+  db.run(`DELETE FROM ai_signals`, [], function(err) {
+    if (err) {
+      console.error('Error clearing signals:', err.message);
+      return res.status(500).json({ success: false, message: err.message });
+    }
+    res.json({ success: true, message: 'All signals cleared successfully' });
+  });
+});
+
 // Function to update PENDING signals in background using latestSpotPrices cache
 const updatePendingSignals = () => {
   return new Promise((resolve, reject) => {

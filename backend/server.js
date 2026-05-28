@@ -1443,6 +1443,7 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
 
   let shortCoveringDetected = false;
   let longUnwindingDetected = false;
+  let nearbyStrikesOiData = [];
   let unwindingDetails = {
     callUnwindingStrikes: [],
     putUnwindingStrikes: []
@@ -1488,29 +1489,46 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
     atmPutName = getContractName(atmStrike, 'PE');
     itmPutName = getContractName(itmStrikePut, 'PE');
 
-    // Calculate Near ATM Unwinding (±3 strikes around ATM)
+    // Calculate Near ATM Unwinding & Multi-Strike OI details (±10 strikes around ATM)
     if (atmIndex !== -1) {
-      const startIndex = Math.max(0, atmIndex - 3);
-      const endIndex = Math.min(strikesArray.length - 1, atmIndex + 3);
+      const startIndex = Math.max(0, atmIndex - 10);
+      const endIndex = Math.min(strikesArray.length - 1, atmIndex + 10);
       for (let i = startIndex; i <= endIndex; i++) {
         const strikeData = strikesArray[i];
-        if (strikeData.callChgOi < 0) {
-          shortCoveringDetected = true;
-          unwindingDetails.callUnwindingStrikes.push({
-            strike: strikeData.strike,
-            chgOi: strikeData.callChgOi
-          });
-        }
-        if (strikeData.putChgOi < 0) {
-          longUnwindingDetected = true;
-          unwindingDetails.putUnwindingStrikes.push({
-            strike: strikeData.strike,
-            chgOi: strikeData.putChgOi
-          });
+        
+        nearbyStrikesOiData.push({
+          strike: strikeData.strike,
+          callChgOi: strikeData.callChgOi || 0,
+          putChgOi: strikeData.putChgOi || 0,
+          callOi: strikeData.callOi || 0,
+          putOi: strikeData.putOi || 0
+        });
+
+        // Use a closer window (±5 strikes) for the immediate Short Covering/Long Unwinding alerts
+        const distFromAtm = Math.abs(i - atmIndex);
+        if (distFromAtm <= 5) {
+          if (strikeData.callChgOi < 0) {
+            shortCoveringDetected = true;
+            unwindingDetails.callUnwindingStrikes.push({
+              strike: strikeData.strike,
+              chgOi: strikeData.callChgOi
+            });
+          }
+          if (strikeData.putChgOi < 0) {
+            longUnwindingDetected = true;
+            unwindingDetails.putUnwindingStrikes.push({
+              strike: strikeData.strike,
+              chgOi: strikeData.putChgOi
+            });
+          }
         }
       }
     }
   }
+
+  const nearbyStrikesPromptDetails = nearbyStrikesOiData.map(s => 
+    `  * Strike ${s.strike}: Call ChgOI = ${s.callChgOi}, Put ChgOI = ${s.putChgOi} (Call TotalOI = ${s.callOi}, Put TotalOI = ${s.putOi})`
+  ).join('\n');
 
   // Fetch Live Financial News Headlines
   let headlines = [];
@@ -1576,6 +1594,9 @@ Data for ${symbolStr}:
   * Short Covering (Call Unwinding) Active: ${shortCoveringDetected ? 'YES' : 'NO'}
   * Long Unwinding (Put Unwinding) Active: ${longUnwindingDetected ? 'YES' : 'NO'}
   * ATM Implied Volatility: Average ${averageIv ? averageIv.toFixed(1) + '%' : 'N/A'} (Call: ${atmCallIv}%, Put: ${atmPutIv}%)
+
+- Full 20-Strike Change in OI Activity (ATM ±10 strikes):
+${nearbyStrikesPromptDetails}
 
 - Recent Financial & Stock Market News Headlines:
 ${headlines.length > 0 ? headlines.map((h, i) => `  * Headline ${i+1}: "${h.title}"`).join('\n') : '  * No recent headlines available'}
@@ -1659,7 +1680,8 @@ INSTRUCTIONS FOR WRITING:
       hourlyTrend,
       averageIv,
       shortCoveringDetected,
-      longUnwindingDetected
+      longUnwindingDetected,
+      nearbyStrikesOiData
     }
   };
 }

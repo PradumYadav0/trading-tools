@@ -40,6 +40,16 @@ const OpenClawAi = () => {
   const [autoAlertsMinConfidence, setAutoAlertsMinConfidence] = useState(75);
   const [notificationStatus, setNotificationStatus] = useState({ type: '', message: '' });
   
+  const formatOi = (val) => {
+    if (!val || val === 0) return '0';
+    const sign = val > 0 ? '+' : '';
+    const absVal = Math.abs(val);
+    if (absVal >= 10000000) return sign + (val / 10000000).toFixed(2) + 'Cr';
+    if (absVal >= 100000) return sign + (val / 100000).toFixed(2) + 'L';
+    if (absVal >= 1000) return sign + (val / 1000).toFixed(1) + 'K';
+    return sign + val;
+  };
+
   // Live News feed states
   const [newsHeadlines, setNewsHeadlines] = useState([]);
   const [newsLoading, setNewsLoading] = useState(false);
@@ -1370,6 +1380,83 @@ const OpenClawAi = () => {
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Multi-Strike Change in OI Table */}
+              {indicatorData && indicatorData.nearbyStrikesOiData && indicatorData.nearbyStrikesOiData.length > 0 && (
+                <div style={{ 
+                  marginBottom: '1.25rem', 
+                  borderTop: '1px solid rgba(255,255,255,0.05)', 
+                  paddingTop: '1rem' 
+                }}>
+                  <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '0.9rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <Activity size={14} style={{ color: 'var(--accent-primary)' }} /> 20-Strike Change in OI (ATM ±10)
+                  </h4>
+                  
+                  <div style={{ 
+                    maxHeight: '220px', 
+                    overflowY: 'auto', 
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255,255,255,0.05)',
+                    background: 'rgba(0,0,0,0.2)'
+                  }} className="custom-scrollbar">
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem', textAlign: 'center' }}>
+                      <thead>
+                        <tr style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid rgba(255,255,255,0.08)', position: 'sticky', top: 0, zIndex: 1 }}>
+                          <th style={{ padding: '0.4rem', color: 'var(--text-secondary)' }}>Call Chg OI</th>
+                          <th style={{ padding: '0.4rem', color: '#fff', fontWeight: 'bold' }}>Strike</th>
+                          <th style={{ padding: '0.4rem', color: 'var(--text-secondary)' }}>Put Chg OI</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {indicatorData.nearbyStrikesOiData.map((s, idx) => {
+                          const isAtm = Math.abs(s.strike - indicatorData.spotPrice) === Math.min(...indicatorData.nearbyStrikesOiData.map(st => Math.abs(st.strike - indicatorData.spotPrice)));
+                          
+                          // Call Change OI styles (Negative is Short Covering = Bullish = Green)
+                          let callChgStyle = { padding: '0.4rem', fontWeight: '500' };
+                          if (s.callChgOi < 0) {
+                            callChgStyle.color = '#10b981'; // Green
+                            callChgStyle.background = 'rgba(16, 185, 129, 0.05)';
+                          } else if (s.callChgOi > 0) {
+                            callChgStyle.color = '#ef4444'; // Red
+                          } else {
+                            callChgStyle.color = 'var(--text-secondary)';
+                          }
+
+                          // Put Change OI styles (Negative is Long Unwinding = Bearish = Red)
+                          let putChgStyle = { padding: '0.4rem', fontWeight: '500' };
+                          if (s.putChgOi < 0) {
+                            putChgStyle.color = '#ef4444'; // Red
+                            putChgStyle.background = 'rgba(239, 68, 68, 0.05)';
+                          } else if (s.putChgOi > 0) {
+                            putChgStyle.color = '#10b981'; // Green
+                          } else {
+                            putChgStyle.color = 'var(--text-secondary)';
+                          }
+
+                          return (
+                            <tr key={idx} style={{ 
+                              borderBottom: '1px solid rgba(255,255,255,0.02)',
+                              background: isAtm ? 'rgba(168, 85, 247, 0.08)' : 'transparent',
+                              fontWeight: isAtm ? 'bold' : 'normal'
+                            }}>
+                              <td style={callChgStyle}>{formatOi(s.callChgOi)}</td>
+                              <td style={{ 
+                                padding: '0.4rem', 
+                                borderLeft: '1px solid rgba(255,255,255,0.02)', 
+                                borderRight: '1px solid rgba(255,255,255,0.02)',
+                                color: isAtm ? 'var(--accent-primary)' : '#fff'
+                              }}>
+                                {s.strike} {isAtm && <span style={{ fontSize: '0.65rem', padding: '0.05rem 0.2rem', borderRadius: '3px', background: 'var(--accent-primary)', color: '#fff', marginLeft: '0.2rem' }}>ATM</span>}
+                              </td>
+                              <td style={putChgStyle}>{formatOi(s.putChgOi)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 

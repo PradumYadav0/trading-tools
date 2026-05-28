@@ -1615,12 +1615,21 @@ app.delete('/api/signals/:id', (req, res) => {
 
 // Endpoint to clear/delete all signals
 app.delete('/api/signals', (req, res) => {
-  db.run(`DELETE FROM ai_signals`, [], function(err) {
+  const sourceFilter = req.query.source;
+  let query = `DELETE FROM ai_signals`;
+  
+  if (sourceFilter === 'OPENCLAW') {
+    query += ` WHERE source = 'OPENCLAW'`;
+  } else if (sourceFilter === 'AI_TESTING') {
+    query += ` WHERE source != 'OPENCLAW'`;
+  }
+
+  db.run(query, [], function(err) {
     if (err) {
       console.error('Error clearing signals:', err.message);
       return res.status(500).json({ success: false, message: err.message });
     }
-    res.json({ success: true, message: 'All signals cleared successfully' });
+    res.json({ success: true, message: 'All selected signals cleared successfully' });
   });
 });
 

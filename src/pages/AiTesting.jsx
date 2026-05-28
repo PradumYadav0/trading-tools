@@ -34,7 +34,8 @@ const AiTesting = () => {
       const response = await fetch('/api/signals');
       const result = await response.json();
       if (result.success) {
-        setSignals(result.data);
+        const aiSignals = result.data.filter(s => s.source !== 'OPENCLAW');
+        setSignals(aiSignals);
       } else {
         setError(result.message || 'Failed to fetch signals');
       }
@@ -65,7 +66,7 @@ const AiTesting = () => {
   const clearAllSignals = async () => {
     if (!confirm('WARNING: Are you sure you want to delete ALL signals history? This cannot be undone.')) return;
     try {
-      const response = await fetch('/api/signals', { method: 'DELETE' });
+      const response = await fetch('/api/signals?source=AI_TESTING', { method: 'DELETE' });
       const result = await response.json();
       if (result.success) {
         fetchSignals();

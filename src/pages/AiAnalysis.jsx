@@ -49,7 +49,7 @@ const AiAnalysis = () => {
       <div style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>AI Market Analyst</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Powered by Gemini 2.0 Flash - Analysis of Chart & Option Chain</p>
+          <p style={{ color: 'var(--text-secondary)' }}>Powered by Gemini 3.1 Flash Lite - Analysis of Chart & Option Chain</p>
         </div>
 
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>

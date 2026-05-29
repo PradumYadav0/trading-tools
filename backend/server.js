@@ -408,7 +408,7 @@ app.get('/api/option-chain', async (req, res) => {
   const cacheKey = `${symbol}_${expiryToUse || 'first'}`;
 
   // If market is closed, check cache first with a longer duration (1 hour)
-  const duration = isIndianMarketOpen() ? CACHE_DURATION_MS : 3600000; // 1 hour
+  const duration = isIndianMarketOpen() ? 300000 : 3600000; // 5 mins during live, 1 hour closed
   const cached = getCachedData('optionChain', cacheKey, duration);
   if (cached) {
     return res.json(cached);
@@ -632,7 +632,7 @@ app.get('/api/charts/intraday', async (req, res) => {
   const cacheKey = `${symbol}_${interval}`;
 
   // If market is closed, cache for 1 hour
-  const duration = isIndianMarketOpen() ? CACHE_DURATION_MS : 3600000; // 1 hour
+  const duration = isIndianMarketOpen() ? 300000 : 3600000; // 5 mins during live, 1 hour closed
   const cached = getCachedData('chartsIntraday', cacheKey, duration);
   if (cached) {
     return res.json(cached);
@@ -813,7 +813,7 @@ app.post('/api/ai-analysis', async (req, res) => {
 
     // Check cache or DB first (especially when market is closed)
     const cacheKey = `${symbol}_${finalExpiry || 'first'}`;
-    const cachedOc = getCachedData('optionChain', cacheKey, isIndianMarketOpen() ? CACHE_DURATION_MS : 3600000);
+    const cachedOc = getCachedData('optionChain', cacheKey, isIndianMarketOpen() ? 300000 : 3600000);
     
     if (cachedOc) {
       spotPrice = cachedOc.spotPrice;
@@ -891,7 +891,7 @@ app.post('/api/ai-analysis', async (req, res) => {
 
     // 2. Fetch Chart Data (Last 30 candles of 5 min)
     let chartCandles = [];
-    const cachedChart = getCachedData('chartsIntraday', `${symbol}_5`, isIndianMarketOpen() ? CACHE_DURATION_MS : 3600000);
+    const cachedChart = getCachedData('chartsIntraday', `${symbol}_5`, isIndianMarketOpen() ? 300000 : 3600000);
     
     if (cachedChart && cachedChart.success && cachedChart.data) {
       chartCandles = cachedChart.data;
@@ -1167,7 +1167,7 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   let finalExpiry = expiry;
 
   const cacheKey = `${symbolStr}_${finalExpiry || 'first'}`;
-  const cachedOc = getCachedData('optionChain', cacheKey, isIndianMarketOpen() ? CACHE_DURATION_MS : 3600000);
+  const cachedOc = getCachedData('optionChain', cacheKey, isIndianMarketOpen() ? 300000 : 3600000);
   
   if (cachedOc) {
     spotPrice = cachedOc.spotPrice;
@@ -1237,7 +1237,7 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
 
   // 2. Fetch Chart Data (Dynamic Primary Timeframe)
   let chartCandles = [];
-  const cachedChart = getCachedData('chartsIntraday', `${symbolStr}_${primaryInterval}`, isIndianMarketOpen() ? CACHE_DURATION_MS : 3600000);
+  const cachedChart = getCachedData('chartsIntraday', `${symbolStr}_${primaryInterval}`, isIndianMarketOpen() ? 300000 : 3600000);
   
   if (cachedChart && cachedChart.success && cachedChart.data) {
     chartCandles = cachedChart.data;
@@ -1283,7 +1283,7 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
 
   // 2b. Fetch 1-Hour Chart Data (for 1H EMA 20 Trend Confirmation)
   let hourCandles = [];
-  const cachedHourChart = getCachedData('chartsIntraday', `${symbolStr}_60`, isIndianMarketOpen() ? CACHE_DURATION_MS : 3600000);
+  const cachedHourChart = getCachedData('chartsIntraday', `${symbolStr}_60`, isIndianMarketOpen() ? 300000 : 3600000);
   
   if (cachedHourChart && cachedHourChart.success && cachedHourChart.data) {
     hourCandles = cachedHourChart.data;
@@ -2041,7 +2041,7 @@ async function triggerOpenClawBackgroundAlerts() {
         // Check if price has changed to prevent duplicate API hits during holiday/halts
         let currentSpot = 0;
         const cacheKey = `${symbol}_first`;
-        const cachedOc = getCachedData('optionChain', cacheKey, 30000);
+        const cachedOc = getCachedData('optionChain', cacheKey, 300000);
         if (cachedOc) {
           currentSpot = cachedOc.spotPrice;
         } else {
@@ -2076,8 +2076,8 @@ async function triggerOpenClawBackgroundAlerts() {
         console.error(`[OpenClaw Scheduler] Error scanning ${symbol}:`, err.message);
       }
 
-      // 5-second delay to stagger API calls
-      await new Promise(r => setTimeout(r, 5000));
+      // 50ms delay to yield thread
+      await new Promise(r => setTimeout(r, 50));
     }
   } catch (error) {
     console.error('[OpenClaw Scheduler] Error in background scanner loop:', error.message);
@@ -2189,8 +2189,8 @@ function saveOpenClawSignalToDb(symbol, actionData, spotPrice) {
   );
 }
 
-// Scan every minute for interval triggers
-setInterval(triggerOpenClawBackgroundAlerts, 60000);
+// Scan alert interval is triggered inside syncMarketData()
+// setInterval(triggerOpenClawBackgroundAlerts, 60000);
 
 // GET current settings (masked)
 app.get('/api/settings', (req, res) => {
@@ -2270,24 +2270,23 @@ app.post('/api/settings/refresh-token', async (req, res) => {
   }
 });
 
-// Background Signal Generator: Unified High-Accuracy Decoder
-// Computes Option Chain (OI Decode + PCR Velocity + Max Pain + Concentration), 
-// Chart Analysis (5m EMA9/20, RSI, MACD, PCR, VWAP, ATR Dynamic S/R, plus 15m Major Trend Confirmation),
-// and convergence-based HYBRID signals to maximize win rate.
-async function runAllDecoders() {
+// Unified Background Synchronizer to fetch all data for active indices and update cache & DB.
+const syncMarketData = async () => {
   if (!isIndianMarketOpen()) {
+    console.log(`[Sync Worker] Market is closed. Skipping live sync.`);
     return;
   }
   const symbols = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
+  console.log(`[Sync Worker] Starting unified market data sync...`);
   
   for (const symbol of symbols) {
     try {
-      // Space out requests to avoid Dhan API rate limits (429)
-      await new Promise(resolve => setTimeout(resolve, 3000));
-
       const token = dhanAccessToken;
       const clientId = process.env.DHAN_CLIENT_ID;
-      if (!token || !clientId) continue;
+      if (!token || !clientId) {
+        console.log(`[Sync Worker] Skip ${symbol}: Dhan credentials missing.`);
+        continue;
+      }
 
       const scripId = scripMap[symbol];
       if (!scripId) continue;
@@ -2346,8 +2345,171 @@ async function runAllDecoders() {
         };
       }).sort((a, b) => a.strike - b.strike);
 
-      // Save to Database for history using duplicate check
+      // Save option chain to database
       await checkAndSaveOptionChain(symbol, spotPrice, expiry, strikesArray);
+
+      // Update cache
+      const cacheKey = `${symbol}_first`;
+      const result = { 
+        success: true, 
+        spotPrice,
+        expiry: expiry,
+        expiryList: expiryResponse.data.data,
+        data: strikesArray,
+        atr: latestAtrValues[symbol] || (symbol === 'NIFTY' ? 15 : symbol === 'BANKNIFTY' ? 40 : symbol === 'FINNIFTY' ? 18 : 10)
+      };
+      setCachedData('optionChain', cacheKey, result);
+      // Also cache for specific expiry
+      setCachedData('optionChain', `${symbol}_${expiry}`, result);
+
+      // 2. FETCH 5M CHART CANDLES
+      const toDate = new Date();
+      toDate.setDate(toDate.getDate() + 1);
+      const fromDate = new Date();
+      fromDate.setDate(fromDate.getDate() - 3); 
+      const formatDate = (d) => d.toISOString().split('T')[0];
+
+      const chartResponse = await queuedDhanRequest({
+        method: 'post',
+        url: 'https://api.dhan.co/v2/charts/intraday',
+        data: {
+          securityId: scripId.toString(),
+          exchangeSegment: 'IDX_I',
+          instrument: 'INDEX',
+          interval: '5',
+          fromDate: formatDate(fromDate),
+          toDate: formatDate(toDate)
+        },
+        headers: getDhanHeaders()
+      });
+
+      if (chartResponse.data.status === 'success' || chartResponse.data.open) {
+        const chartData = chartResponse.data.data || chartResponse.data;
+        const chartCandles = [];
+        if (chartData.timestamp) {
+          for (let i = 0; i < chartData.timestamp.length; i++) {
+            chartCandles.push({
+              time: chartData.timestamp[i],
+              open: chartData.open[i],
+              high: chartData.high[i],
+              low: chartData.low[i],
+              close: chartData.close[i],
+              volume: chartData.volume ? chartData.volume[i] : 1
+            });
+          }
+        }
+        setCachedData('chartsIntraday', `${symbol}_5`, { success: true, data: chartCandles });
+      }
+
+      // 3. FETCH 3M CHART CANDLES
+      const chartResponse3 = await queuedDhanRequest({
+        method: 'post',
+        url: 'https://api.dhan.co/v2/charts/intraday',
+        data: {
+          securityId: scripId.toString(),
+          exchangeSegment: 'IDX_I',
+          instrument: 'INDEX',
+          interval: '3',
+          fromDate: formatDate(fromDate),
+          toDate: formatDate(toDate)
+        },
+        headers: getDhanHeaders()
+      });
+
+      if (chartResponse3.data.status === 'success' || chartResponse3.data.open) {
+        const chartData = chartResponse3.data.data || chartResponse3.data;
+        const chartCandles = [];
+        if (chartData.timestamp) {
+          for (let i = 0; i < chartData.timestamp.length; i++) {
+            chartCandles.push({
+              time: chartData.timestamp[i],
+              open: chartData.open[i],
+              high: chartData.high[i],
+              low: chartData.low[i],
+              close: chartData.close[i],
+              volume: chartData.volume ? chartData.volume[i] : 1
+            });
+          }
+        }
+        setCachedData('chartsIntraday', `${symbol}_3`, { success: true, data: chartCandles });
+      }
+
+      // 4. FETCH 1-Hour Chart Candles
+      const fromDate10 = new Date();
+      fromDate10.setDate(fromDate10.getDate() - 10);
+      const chartResponse60 = await queuedDhanRequest({
+        method: 'post',
+        url: 'https://api.dhan.co/v2/charts/intraday',
+        data: {
+          securityId: scripId.toString(),
+          exchangeSegment: 'IDX_I',
+          instrument: 'INDEX',
+          interval: '60',
+          fromDate: formatDate(fromDate10),
+          toDate: formatDate(toDate)
+        },
+        headers: getDhanHeaders()
+      });
+
+      if (chartResponse60.data.status === 'success' || chartResponse60.data.open) {
+        const chartData = chartResponse60.data.data || chartResponse60.data;
+        const hourCandles = [];
+        if (chartData.timestamp) {
+          for (let i = 0; i < chartData.timestamp.length; i++) {
+            hourCandles.push({
+              time: chartData.timestamp[i],
+              open: chartData.open[i],
+              high: chartData.high[i],
+              low: chartData.low[i],
+              close: chartData.close[i],
+              volume: chartData.volume ? chartData.volume[i] : 1
+            });
+          }
+        }
+        setCachedData('chartsIntraday', `${symbol}_60`, { success: true, data: hourCandles });
+      }
+
+      console.log(`[Sync Worker] Successfully synchronized data for ${symbol}`);
+      
+      // Delay to avoid hitting Dhan API rate limits within loop
+      await new Promise(r => setTimeout(r, 2000));
+
+    } catch (err) {
+      console.error(`[Sync Worker] Sync failed for ${symbol}:`, err.message);
+    }
+  }
+
+  // After sync finishes, run calculations using cached data
+  try {
+    console.log(`[Sync Worker] Launching background decoders and alerts checker...`);
+    await runAllDecoders();
+    await triggerOpenClawBackgroundAlerts();
+  } catch (decErr) {
+    console.error(`[Sync Worker] Error running calculations:`, decErr.message);
+  }
+};
+
+// Background Signal Generator: Unified High-Accuracy Decoder
+async function runAllDecoders() {
+  const symbols = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
+  
+  for (const symbol of symbols) {
+    try {
+      // Get from cache
+      const cacheKey = `${symbol}_first`;
+      const cached = getCachedData('optionChain', cacheKey, 300000); 
+      if (!cached) {
+        console.log(`[Decoder] No cached option chain for ${symbol}, skipping.`);
+        continue;
+      }
+      
+      const spotPrice = cached.spotPrice;
+      const expiry = cached.expiry;
+      const strikesArray = cached.data;
+      
+      if (latestSpotPrices.hasOwnProperty(symbol)) {
+        latestSpotPrices[symbol] = spotPrice;
+      }
       
       // A. Calculate PCR
       const totalCallOi = strikesArray.reduce((sum, row) => sum + row.callOi, 0);
@@ -2427,42 +2589,14 @@ async function runAllDecoders() {
       if (optionScore >= 75) optionSignal = 'CALL';
       else if (optionScore <= 25) optionSignal = 'PUT';
 
-      // 2. FETCH 5M CHART CANDLES
-      const toDate = new Date();
-      toDate.setDate(toDate.getDate() + 1);
-      const fromDate = new Date();
-      fromDate.setDate(fromDate.getDate() - 3); 
-      const formatDate = (d) => d.toISOString().split('T')[0];
-      
-      const chartPayload = {
-        securityId: scripId.toString(),
-        exchangeSegment: 'IDX_I',
-        instrument: 'INDEX',
-        interval: '5',
-        fromDate: formatDate(fromDate),
-        toDate: formatDate(toDate)
-      };
-      
-      const chartResponse = await queuedDhanRequest({
-        method: 'post',
-        url: 'https://api.dhan.co/v2/charts/intraday',
-        data: chartPayload,
-        headers: getDhanHeaders()
-      });
-      
-      if (chartResponse.data.status !== 'success' && !chartResponse.data.open) continue;
-      const chartData = chartResponse.data.data || chartResponse.data;
-      if (!chartData.timestamp || chartData.timestamp.length < 30) continue;
-      
-      const candles5m = [];
-      for (let i = 0; i < chartData.timestamp.length; i++) {
-        candles5m.push({
-          close: chartData.close[i],
-          high: chartData.high[i],
-          low: chartData.low[i],
-          open: chartData.open[i]
-        });
+      // Get cached chart candles
+      const cachedChart = getCachedData('chartsIntraday', `${symbol}_5`, 300000);
+      if (!cachedChart || !cachedChart.data || cachedChart.data.length < 30) {
+        console.log(`[Decoder] No cached chart data for ${symbol}, skipping decoder calculation.`);
+        continue;
       }
+      
+      const candles5m = cachedChart.data;
 
       // Group into 15m candles for Trend Filter
       const candles15m = [];
@@ -2855,12 +2989,12 @@ async function startTelegramBotListener() {
   }
 }
 
-// Run unified decoder every 1 minute
-setInterval(runAllDecoders, 60000);
+// Run unified sync every 1 minute
+setInterval(syncMarketData, 60000);
 
 // Run immediately on startup (wait 6s to allow process environment to load)
 setTimeout(() => {
-  runAllDecoders();
+  syncMarketData();
   startTelegramBotListener();
 }, 6000);
 

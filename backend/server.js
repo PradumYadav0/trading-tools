@@ -982,7 +982,7 @@ IMPORTANT INSTRUCTIONS for the tone and format:
 - Explain it in a simple way, like an expert friend giving advice.`;
 
     // Call Gemini API
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
     
     const parts = [{ text: prompt }];
     
@@ -1708,7 +1708,7 @@ INSTRUCTIONS FOR WRITING:
   }
 
   // 5. Call Gemini
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
   const geminiResponse = await axios.post(geminiUrl, {
     contents: [{ parts: [{ text: prompt }] }]
   });

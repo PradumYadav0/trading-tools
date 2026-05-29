@@ -1130,7 +1130,7 @@ async function fetchRecentFinancialNews() {
 
 // Helper function for OpenClaw AI Multi-Agent Analysis
 // Helper function for OpenClaw AI Multi-Agent Analysis
-async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWeight: 40, chartWeight: 40, newsWeight: 20 }, profile = 'intraday_scalper') {
+async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWeight: 40, chartWeight: 40, newsWeight: 20 }, profile = 'intraday_scalper', isBackground = false) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error('Gemini API Key missing in settings.');
@@ -1637,6 +1637,76 @@ INSTRUCTIONS FOR WRITING:
 - Ensure all numbers (target1, target2, stoploss, optionPremiumLtp, optionTarget1, optionTarget2, optionStoploss) are valid numbers.
 - Do NOT wrap in backticks or code blocks. Just output the clean JSON object.`;
 
+  // Pre-filtering check for background alerts to save Gemini API key quota
+  if (isBackground) {
+    let hasPotentialSignal = false;
+    
+    // Simple consensus checks
+    const isEmaBullish = lastEma9 > lastEma21 && lastClose > lastEma21;
+    const isEmaBearish = lastEma9 < lastEma21 && lastClose < lastEma21;
+    
+    // For a CALL alert, we want a bullish chart trend and a reasonable PCR support
+    if (isEmaBullish && pcr >= 0.85 && (hourlyTrend === 'BULLISH' || hourlyTrend === 'NEUTRAL')) {
+      hasPotentialSignal = true;
+    }
+    // For a PUT alert, we want a bearish chart trend and a reasonable PCR resistance
+    else if (isEmaBearish && pcr <= 1.15 && (hourlyTrend === 'BEARISH' || hourlyTrend === 'NEUTRAL')) {
+      hasPotentialSignal = true;
+    }
+    
+    if (!hasPotentialSignal) {
+      console.log(`[OpenClaw Background] Indicators do not align for trade on ${symbolStr} (PCR: ${pcr}, EMA Trend: ${isEmaBullish ? 'Bullish' : isEmaBearish ? 'Bearish' : 'Neutral'}, 1H Trend: ${hourlyTrend}). Skipping Gemini API call to save quota.`);
+      return {
+        data: {
+          action: "WAIT",
+          confidence: 50,
+          newsSentiment: "NEUTRAL",
+          buyRange: "N/A",
+          target1: null,
+          target2: null,
+          stoploss: null,
+          suggestedOptionContract: null,
+          optionPremiumLtp: null,
+          optionTarget1: null,
+          optionTarget2: null,
+          optionStoploss: null,
+          trailingStoploss: null,
+          expectedHoldTime: null,
+          agentThoughts: {
+            optionChainAgent: "Indicators do not align for trade.",
+            chartAgent: "1H Trend and EMA do not confirm momentum.",
+            newsAgent: "Sentiment is neutral.",
+            riskOrchestrator: "Wait setup."
+          },
+          reasoning: ["Indicators are neutral or conflicting.", "Wait for clear momentum alignment."],
+          summary: "Market is sideways or indicators are not aligned. Trading signals are on hold."
+        },
+        indicators: {
+          spotPrice,
+          pcr,
+          ema9: lastEma9,
+          ema21: lastEma21,
+          rsi: lastRsi,
+          atr,
+          resistanceStrike: resistanceStrike ? resistanceStrike.strike : null,
+          supportStrike: supportStrike ? supportStrike.strike : null,
+          heavyCallWritingStrike: heavyCallWriting && heavyCallWriting.callChgOi > 0 ? heavyCallWriting.strike : null,
+          heavyPutWritingStrike: heavyPutWriting && heavyPutWriting.putChgOi > 0 ? heavyPutWriting.strike : null,
+          callUnwindingStrike: callUnwinding && callUnwinding.callChgOi < 0 ? callUnwinding.strike : null,
+          putUnwindingStrike: putUnwinding && putUnwinding.putChgOi < 0 ? putUnwinding.strike : null,
+          tradingProfile: profile,
+          trendTimeframe,
+          majorTrend,
+          hourlyTrend,
+          averageIv,
+          shortCoveringDetected,
+          longUnwindingDetected,
+          nearbyStrikesOiData
+        }
+      };
+    }
+  }
+
   // 5. Call Gemini
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
   const geminiResponse = await axios.post(geminiUrl, {
@@ -2066,7 +2136,7 @@ async function triggerOpenClawBackgroundAlerts() {
 
         // Run analysis with weights
         const tradingProfile = settings['trading_profile'] || 'intraday_scalper';
-        const result = await executeOpenClawAnalysis(symbol, null, weightsObj, tradingProfile);
+        const result = await executeOpenClawAnalysis(symbol, null, weightsObj, tradingProfile, true);
         const actionData = result.data;
         const indicators = result.indicators;
 

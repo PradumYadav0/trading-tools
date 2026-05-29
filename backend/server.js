@@ -1714,9 +1714,17 @@ app.post('/api/openclaw/analyze', async (req, res) => {
     });
   } catch (error) {
     console.error('OpenClaw Analyze Error:', error.message);
+    if (error.response) {
+      console.error('OpenClaw error response status:', error.response.status);
+      console.error('OpenClaw error response headers:', error.response.headers);
+      console.error('OpenClaw error response data:', JSON.stringify(error.response.data));
+    } else {
+      console.error('OpenClaw error details (no response):', error.stack);
+    }
     res.status(500).json({ 
       success: false, 
-      message: error.message
+      message: error.message,
+      details: error.response?.data
     });
   }
 });

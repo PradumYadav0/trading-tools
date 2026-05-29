@@ -2696,12 +2696,13 @@ async function runAllDecoders() {
 
       // VWAP Calculation
       let vwap = lastCandle.close;
-      if (chartData.volume && chartData.volume.length > 0) {
+      if (candles5m && candles5m.length > 0) {
         let vwapSum = 0;
         let volSum = 0;
         for (let i = Math.max(0, len5 - 50); i < len5; i++) {
-          const typPrice = (chartData.high[i] + chartData.low[i] + chartData.close[i]) / 3;
-          const vol = chartData.volume[i] || 1;
+          const c = candles5m[i];
+          const typPrice = (c.high + c.low + c.close) / 3;
+          const vol = c.volume || 1;
           vwapSum += typPrice * vol;
           volSum += vol;
         }

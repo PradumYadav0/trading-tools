@@ -2084,8 +2084,8 @@ async function triggerOpenClawBackgroundAlerts() {
         console.error(`[OpenClaw Scheduler] Error scanning ${symbol}:`, err.message);
       }
 
-      // 50ms delay to yield thread
-      await new Promise(r => setTimeout(r, 50));
+      // 10-second delay between symbols to avoid concurrent Gemini API rate limits (429)
+      await new Promise(r => setTimeout(r, 10000));
     }
   } catch (error) {
     console.error('[OpenClaw Scheduler] Error in background scanner loop:', error.message);
@@ -2278,10 +2278,17 @@ app.post('/api/settings/refresh-token', async (req, res) => {
   }
 });
 
+let isSyncing = false;
 // Unified Background Synchronizer to fetch all data for active indices and update cache & DB.
 const syncMarketData = async () => {
+  if (isSyncing) {
+    console.log(`[Sync Worker] Sync is already in progress. Skipping execution.`);
+    return;
+  }
+  isSyncing = true;
   if (!isIndianMarketOpen()) {
     console.log(`[Sync Worker] Market is closed. Skipping live sync.`);
+    isSyncing = false;
     return;
   }
   const symbols = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
@@ -2479,8 +2486,8 @@ const syncMarketData = async () => {
 
       console.log(`[Sync Worker] Successfully synchronized data for ${symbol}`);
       
-      // Delay to avoid hitting Dhan API rate limits within loop
-      await new Promise(r => setTimeout(r, 2000));
+      // Delay to avoid hitting Dhan API rate limits within loop (2.5 seconds spacing)
+      await new Promise(r => setTimeout(r, 2500));
 
     } catch (err) {
       console.error(`[Sync Worker] Sync failed for ${symbol}:`, err.message);
@@ -2494,6 +2501,8 @@ const syncMarketData = async () => {
     await triggerOpenClawBackgroundAlerts();
   } catch (decErr) {
     console.error(`[Sync Worker] Error running calculations:`, decErr.message);
+  } finally {
+    isSyncing = false;
   }
 };
 

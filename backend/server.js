@@ -289,9 +289,31 @@ const parseDhanTimestamp = (ts) => {
   return 0;
 };
 
-// Helper to check if Indian Stock Market is open strictly for live trading hours (Monday to Friday, 9:15 AM to 3:30 PM IST)
+const indianHolidays = [
+  // 2025 Holidays
+  '2025-01-26', '2025-03-14', '2025-03-31', '2025-04-10', '2025-04-14',
+  '2025-04-18', '2025-05-01', '2025-06-06', '2025-07-05', '2025-08-15',
+  '2025-09-05', '2025-10-02', '2025-10-23', '2025-11-01', '2025-11-05',
+  '2025-12-25',
+  
+  // 2026 Holidays
+  '2026-01-26', '2026-03-03', '2026-03-26', '2026-03-31', '2026-04-03',
+  '2026-04-14', '2026-05-01', '2026-05-28', '2026-06-26', '2026-09-14',
+  '2026-10-02', '2026-10-20', '2026-11-10', '2026-11-24', '2026-12-25'
+];
+
+// Helper to check if Indian Stock Market is open strictly for live trading hours (Monday to Friday, 9:15 AM to 3:30 PM IST, excluding NSE holidays)
 const isIndianMarketOpen = () => {
   try {
+    const todayStr = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(new Date());
+
+    if (indianHolidays.includes(todayStr)) return false;
+
     const formatter = new Intl.DateTimeFormat('en-US', {
       timeZone: 'Asia/Kolkata',
       hour12: false,
@@ -318,6 +340,14 @@ const isIndianMarketOpen = () => {
     const now = new Date();
     const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
     const ist = new Date(utc + (3600000 * 5.5));
+    const todayStr = new Intl.DateTimeFormat('en-CA', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(ist);
+
+    if (indianHolidays.includes(todayStr)) return false;
+
     const day = ist.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
     const hours = ist.getHours();
     const minutes = ist.getMinutes();

@@ -16,6 +16,7 @@
   height: 100vh;
   z-index: 10;
   transition: left 0.3s ease;
+  overflow-y: auto;
 }
 
 .main-content {

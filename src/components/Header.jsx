@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { Bell, User, Search, Wifi, WifiOff, Menu } from 'lucide-react';
+import React, { useState, useEffect, useContext } from 'react';
+import { Bell, User, Search, Wifi, WifiOff, Menu, LogOut } from 'lucide-react';
 import { getMarketStatus } from '../utils/market';
+import { AuthContext } from '../App';
 
 const Header = ({ toggleSidebar }) => {
+  const { logout, username } = useContext(AuthContext);
   const [marketStatus, setMarketStatus] = useState({ isOpen: false, reason: 'Checking...' });
 
   useEffect(() => {
@@ -103,15 +105,39 @@ const Header = ({ toggleSidebar }) => {
             display: 'flex', 
             alignItems: 'center', 
             gap: '0.5rem', 
-            cursor: 'pointer',
             background: 'rgba(255, 255, 255, 0.03)',
             padding: '0.35rem 0.75rem',
             borderRadius: '10px',
             border: '1px solid var(--border-color)'
           }}>
             <User size={18} color="var(--text-secondary)" />
-            <span style={{ fontSize: '0.9rem', fontWeight: '500', display: 'none' /* Hidden on mobile */ }}>Trader</span>
+            <span style={{ fontSize: '0.9rem', fontWeight: '500' }}>{username || 'Trader'}</span>
           </div>
+
+          <button 
+            onClick={logout}
+            style={{ 
+              background: 'rgba(239, 68, 68, 0.1)', 
+              border: '1px solid rgba(239, 68, 68, 0.2)', 
+              color: '#ef4444', 
+              cursor: 'pointer',
+              padding: '0.35rem 0.75rem',
+              borderRadius: '10px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.25rem',
+              fontSize: '0.85rem',
+              fontWeight: '600',
+              transition: 'var(--transition-smooth)'
+            }}
+            title="Sign Out"
+            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)'}
+            onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'}
+          >
+            <LogOut size={16} />
+            <span style={{ display: 'none' }}>Logout</span>
+          </button>
         </div>
       </div>
     </header>

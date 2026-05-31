@@ -182,6 +182,17 @@ const db = new sqlite3.Database('./option_chain.db', (err) => {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE,
+      password_hash TEXT,
+      salt TEXT,
+      security_question TEXT,
+      security_answer_hash TEXT,
+      security_answer_salt TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
   }
 });
 
@@ -217,6 +228,211 @@ const cleanupDatabaseHistory = () => {
 
 // Periodic database cleanup every 12 hours
 setInterval(cleanupDatabaseHistory, 12 * 60 * 60 * 1000);
+
+// ─── Authentication System & Password Reset ──────────────────────────────────
+const crypto = require('crypto');
+
+// Generate salt and hash
+const hashPassword = (password) => {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
+  return { salt, hash };
+};
+
+// Verify hash
+const verifyPassword = (password, salt, hash) => {
+  const verifyHash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
+  return verifyHash === hash;
+};
+
+// Session store
+const activeSessions = new Map(); // token -> { username, expiresAt }
+const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+const createSession = (username) => {
+  const token = crypto.randomUUID();
+  const expiresAt = Date.now() + SESSION_EXPIRY_MS;
+  activeSessions.set(token, { username, expiresAt });
+  return token;
+};
+
+const verifySession = (token) => {
+  const session = activeSessions.get(token);
+  if (!session) return null;
+  if (Date.now() > session.expiresAt) {
+    activeSessions.delete(token);
+    return null;
+  }
+  return session.username;
+};
+
+const authMiddleware = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  if (!authHeader) {
+    return res.status(401).json({ success: false, message: 'Authorization token missing.' });
+  }
+  const token = authHeader.startsWith('Bearer ') ? authHeader.substring(7) : authHeader;
+  const username = verifySession(token);
+  if (!username) {
+    return res.status(401).json({ success: false, message: 'Invalid or expired session.' });
+  }
+  req.username = username;
+  next();
+};
+
+// Auth: Check setup
+app.get('/api/auth/check-setup', (req, res) => {
+  db.get(`SELECT COUNT(*) as count FROM users`, [], (err, row) => {
+    if (err) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
+    const isSetup = row.count > 0;
+    res.json({ success: true, isSetup });
+  });
+});
+
+// Auth: Register (first time only)
+app.post('/api/auth/register', (req, res) => {
+  const { username, password, securityQuestion, securityAnswer } = req.body;
+  if (!username || !password || !securityQuestion || !securityAnswer) {
+    return res.status(400).json({ success: false, message: 'All fields are required.' });
+  }
+
+  // Ensure no users exist yet
+  db.get(`SELECT COUNT(*) as count FROM users`, [], (err, row) => {
+    if (err) return res.status(500).json({ success: false, message: err.message });
+    if (row.count > 0) {
+      return res.status(403).json({ success: false, message: 'Registration is disabled. Admin user already exists.' });
+    }
+
+    const pwdInfo = hashPassword(password);
+    const ansInfo = hashPassword(securityAnswer.toLowerCase().trim());
+
+    db.run(
+      `INSERT INTO users (username, password_hash, salt, security_question, security_answer_hash, security_answer_salt) VALUES (?, ?, ?, ?, ?, ?)`,
+      [username.trim(), pwdInfo.hash, pwdInfo.salt, securityQuestion.trim(), ansInfo.hash, ansInfo.salt],
+      function(insErr) {
+        if (insErr) {
+          return res.status(500).json({ success: false, message: insErr.message });
+        }
+        // Auto-login upon registration
+        const token = createSession(username.trim());
+        res.json({ success: true, token, username: username.trim() });
+      }
+    );
+  });
+});
+
+// Auth: Login
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ success: false, message: 'Username and password are required.' });
+  }
+
+  db.get(`SELECT * FROM users WHERE username = ?`, [username.trim()], (err, user) => {
+    if (err) return res.status(500).json({ success: false, message: err.message });
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Invalid username or password.' });
+    }
+
+    const isValid = verifyPassword(password, user.salt, user.password_hash);
+    if (!isValid) {
+      return res.status(401).json({ success: false, message: 'Invalid username or password.' });
+    }
+
+    const token = createSession(user.username);
+    res.json({ success: true, token, username: user.username });
+  });
+});
+
+// Auth: Logout
+app.post('/api/auth/logout', (req, res) => {
+  const authHeader = req.headers['authorization'];
+  if (authHeader) {
+    const token = authHeader.startsWith('Bearer ') ? authHeader.substring(7) : authHeader;
+    activeSessions.delete(token);
+  }
+  res.json({ success: true });
+});
+
+// Auth: Forgot password question
+app.post('/api/auth/forgot-password-question', (req, res) => {
+  const { username } = req.body;
+  if (!username) {
+    return res.status(400).json({ success: false, message: 'Username is required.' });
+  }
+
+  db.get(`SELECT security_question FROM users WHERE username = ?`, [username.trim()], (err, user) => {
+    if (err) return res.status(500).json({ success: false, message: err.message });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    res.json({ success: true, question: user.security_question });
+  });
+});
+
+// Auth: Reset password
+app.post('/api/auth/reset-password', (req, res) => {
+  const { username, securityAnswer, newPassword } = req.body;
+  if (!username || !securityAnswer || !newPassword) {
+    return res.status(400).json({ success: false, message: 'All fields are required.' });
+  }
+
+  db.get(`SELECT * FROM users WHERE username = ?`, [username.trim()], (err, user) => {
+    if (err) return res.status(500).json({ success: false, message: err.message });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    const isAnswerValid = verifyPassword(
+      securityAnswer.toLowerCase().trim(),
+      user.security_answer_salt,
+      user.security_answer_hash
+    );
+
+    if (!isAnswerValid) {
+      return res.status(401).json({ success: false, message: 'Incorrect security answer.' });
+    }
+
+    // Reset password
+    const pwdInfo = hashPassword(newPassword);
+    db.run(
+      `UPDATE users SET password_hash = ?, salt = ? WHERE id = ?`,
+      [pwdInfo.hash, pwdInfo.salt, user.id],
+      function(updErr) {
+        if (updErr) {
+          return res.status(500).json({ success: false, message: updErr.message });
+        }
+        
+        // Auto-login upon reset
+        const token = createSession(user.username);
+        res.json({ success: true, token, username: user.username });
+      }
+    );
+  });
+});
+
+// Global API Route Protection Middleware
+app.use('/api', (req, res, next) => {
+  const publicPaths = [
+    '/auth/check-setup',
+    '/auth/register',
+    '/auth/login',
+    '/auth/forgot-password-question',
+    '/auth/reset-password'
+  ];
+
+  // Strip query parameters for matching
+  const path = req.path.split('?')[0];
+
+  if (publicPaths.includes(path)) {
+    return next();
+  }
+
+  return authMiddleware(req, res, next);
+});
 
 // Cache store to prevent Dhan API rate limit issues
 const dhanCache = {

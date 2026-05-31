@@ -3038,13 +3038,115 @@ async function startTelegramBotListener() {
                     parse_mode: 'Markdown'
                   });
                 });
+              } else if (text.startsWith('/alerts')) {
+                const parts = text.split(' ');
+                const status = (parts[1] || '').toLowerCase();
+                if (status === 'on' || status === 'off') {
+                  const dbVal = status === 'on' ? 'true' : 'false';
+                  db.run(`INSERT OR REPLACE INTO system_settings (key, value) VALUES ('auto_alerts_enabled', ?)`, [dbVal], async (err) => {
+                    let replyText = err 
+                      ? `❌ Failed to update alert settings: ${err.message}` 
+                      : `🔔 Automatic background alerts are now turned *${status.toUpperCase()}*.`;
+                    await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                      chat_id: currentTelegramChatId,
+                      text: replyText,
+                      parse_mode: 'Markdown'
+                    });
+                  });
+                } else {
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: `⚠️ Usage: \`/alerts on\` or \`/alerts off\``,
+                    parse_mode: 'Markdown'
+                  });
+                }
+              } else if (text.startsWith('/profile')) {
+                const parts = text.split(' ');
+                const profile = parts[1] || '';
+                const validProfiles = ['micro_scalper', 'intraday_scalper', 'short_term_trend'];
+                if (validProfiles.includes(profile)) {
+                  db.run(`INSERT OR REPLACE INTO system_settings (key, value) VALUES ('trading_profile', ?)`, [profile], async (err) => {
+                    let replyText = err 
+                      ? `❌ Failed to update trading profile: ${err.message}` 
+                      : `⚙️ Trading profile successfully updated to *${profile.toUpperCase()}*.`;
+                    await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                      chat_id: currentTelegramChatId,
+                      text: replyText,
+                      parse_mode: 'Markdown'
+                    });
+                  });
+                } else {
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: `⚠️ Usage: \`/profile [type]\`\nAvailable types:\n• \`micro_scalper\`\n• \`intraday_scalper\`\n• \`short_term_trend\``,
+                    parse_mode: 'Markdown'
+                  });
+                }
+              } else if (text.startsWith('/exit')) {
+                const parts = text.split(' ');
+                const symbol = (parts[1] || '').toUpperCase();
+                if (symbol) {
+                  db.run(
+                    `UPDATE ai_signals 
+                     SET status = 'CLOSED', updated_at = CURRENT_TIMESTAMP 
+                     WHERE symbol = ? AND status = 'PENDING' AND source = 'OPENCLAW'`,
+                    [symbol],
+                    async function (err) {
+                      let replyText;
+                      if (err) {
+                        replyText = `❌ Error exiting trade: ${err.message}`;
+                      } else if (this.changes > 0) {
+                        replyText = `⏹️ Active *${symbol}* trade has been closed manually in database tracker.`;
+                      } else {
+                        replyText = `ℹ️ No active pending trade found for *${symbol}*.`;
+                      }
+                      await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                        chat_id: currentTelegramChatId,
+                        text: replyText,
+                        parse_mode: 'Markdown'
+                      });
+                    }
+                  );
+                } else {
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: `⚠️ Usage: \`/exit [SYMBOL]\` (e.g. \`/exit NIFTY\`)`,
+                    parse_mode: 'Markdown'
+                  });
+                }
+              } else if (text.startsWith('/news')) {
+                try {
+                  const headlines = await fetchRecentFinancialNews();
+                  if (headlines && headlines.length > 0) {
+                    let newsMsg = `📰 *Top Financial Headlines:* \n\n`;
+                    headlines.forEach((h, index) => {
+                      newsMsg += `${index + 1}. *${h.title}*\n`;
+                    });
+                    await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                      chat_id: currentTelegramChatId,
+                      text: newsMsg,
+                      parse_mode: 'Markdown'
+                    });
+                  } else {
+                    await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                      chat_id: currentTelegramChatId,
+                      text: `ℹ️ No recent financial headlines found.`
+                    });
+                  }
+                } catch (err) {
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: `❌ Failed to fetch news: ${err.message}`
+                  });
+                }
               } else if (text.startsWith('/help') || text.startsWith('/start')) {
                 const helpMsg = `🤖 *OpenClaw AI Bot Commands:* \n\n` +
-                  `• \`/analyze NIFTY\` - Runs options and technical agent analysis for NIFTY.\n` +
-                  `• \`/analyze BANKNIFTY\` - Runs analysis for BANKNIFTY.\n` +
-                  `• \`/analyze FINNIFTY\` - Runs analysis for FINNIFTY.\n` +
-                  `• \`/analyze MIDCPNIFTY\` - Runs analysis for MIDCPNIFTY.\n` +
+                  `• \`/analyze NIFTY\` - Runs options and technical agent analysis.\n` +
                   `• \`/status\` - Shows active pending trades and their target/SL status.\n` +
+                  `• \`/alerts on/off\` - Enable/Disable automatic background alerts.\n` +
+                  `• \`/profile [type]\` - Set active profile (\`micro_scalper\`, \`intraday_scalper\`, \`short_term_trend\`).\n` +
+                  `• \`/exit [SYMBOL]\` - Close an active trade in the database manually.\n` +
+                  `• \`/news\` - Get recent financial market headlines.\n` +
                   `• \`/help\` - Show this help menu.`;
                 await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
                   chat_id: currentTelegramChatId,

@@ -981,8 +981,8 @@ IMPORTANT INSTRUCTIONS for the tone and format:
 - Do NOT use markdown formatting like ###, **, or *. Just use simple plain text with line breaks for spacing.
 - Explain it in a simple way, like an expert friend giving advice.`;
 
-    // Call Gemini API
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`;
+    // Call Gemini API (using low-cost gemini-1.5-flash-8b)
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key=${apiKey}`;
     
     const parts = [{ text: prompt }];
     
@@ -1137,6 +1137,25 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   }
 
   const symbolStr = symbol || 'NIFTY';
+
+  // Fetch active pending signal for this symbol from SQLite DB (Memory Technique)
+  const getActiveSignal = () => {
+    return new Promise((resolve) => {
+      db.get(
+        `SELECT id, type, entry_price, target_price, stoploss_price, created_at 
+         FROM ai_signals 
+         WHERE symbol = ? AND status = 'PENDING' AND source = 'OPENCLAW'
+         ORDER BY id DESC LIMIT 1`,
+        [symbolStr],
+        (err, row) => {
+          if (err) resolve(null);
+          else resolve(row);
+        }
+      );
+    });
+  };
+
+  const activeSignal = await getActiveSignal();
   const scripId = scripMap[symbolStr];
   if (!scripId) {
     throw new Error('Invalid symbol requested');
@@ -1538,7 +1557,27 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
     console.error('Failed to parse financial news headlines for LLM prompt:', err.message);
   }
 
-  // 4. Construct Multi-Agent Prompt
+  // 4. Construct Multi-Agent Prompt (Including Active Trade Memory check)
+  let memorySection = "";
+  if (activeSignal) {
+    memorySection = `
+*ACTIVE TRADE MEMORY (ACTIVE STATE):*
+- There is currently a PENDING trade running for ${symbolStr} from a previous alert:
+  * Type: ${activeSignal.type} (Buy ${activeSignal.type})
+  * Entry Spot Price: ${activeSignal.entry_price}
+  * Target Spot Price: ${activeSignal.target_price}
+  * Stoploss Spot Price: ${activeSignal.stoploss_price}
+  * Opened at: ${activeSignal.created_at}
+
+*INSTRUCTIONS FOR MANAGING ACTIVE TRADE:*
+- Since a trade is already active, evaluate if we should:
+  1. "WAIT" (Keep holding the trade, no change needed).
+  2. "CALL" or "PUT" (Only if the trend has completely reversed and you want to close this trade and enter a fresh opposite trade).
+  3. "WAIT" but suggest a Trailing Stoploss in the "trailingStoploss" field (e.g. "Trail stoploss to cost price" or "Trail stoploss to X").
+- If the current spot price (\${spotPrice}) has crossed the active target or stoploss, or if you decide it's time to exit early due to trend change, explain this in your reasoning and thoughts.
+`;
+  }
+
   const prompt = `You are the 'OpenClaw AI Agent Hub Orchestrator'. You manage three sub-agents to analyze the NIFTY/BANKNIFTY market and issue high-accuracy trading alerts:
 1. **Option Chain Agent**: Analyzes PCR, PCR change velocity, and Call/Put Open Interest blocks (resistance and support).
 2. **Chart Pattern Agent**: Analyzes trend direction (using EMA 9/21 relationship) and momentum (using RSI).
@@ -1569,6 +1608,8 @@ You must weight their importance according to the weights assigned by the user:
 
 *TRAILING STOPLOSS RULES:*
 - You MUST provide explicit rules on when and how to trail the stoploss in the \`"trailingStoploss"\` field (e.g., "Trail stoploss to cost price once Target 1 is hit, then trail by 15 points for every 20 points spot movement", or "Trail by 10 points for every 15 points gain in option premium"). Make the trailing stoploss rules highly practical for active scalping/trading.
+
+${memorySection}
 
 Data for ${symbolStr}:
 - Current Spot Price: ${spotPrice}
@@ -1637,78 +1678,13 @@ INSTRUCTIONS FOR WRITING:
 - Ensure all numbers (target1, target2, stoploss, optionPremiumLtp, optionTarget1, optionTarget2, optionStoploss) are valid numbers.
 - Do NOT wrap in backticks or code blocks. Just output the clean JSON object.`;
 
-  // Pre-filtering check for background alerts to save Gemini API key quota
+  // Pre-filtering check bypassed by user request to ensure Gemini is called on every interval
   if (isBackground) {
-    let hasPotentialSignal = false;
-    
-    // Simple consensus checks
-    const isEmaBullish = lastEma9 > lastEma21 && lastClose > lastEma21;
-    const isEmaBearish = lastEma9 < lastEma21 && lastClose < lastEma21;
-    
-    // For a CALL alert, we want a bullish chart trend and a reasonable PCR support
-    if (isEmaBullish && pcr >= 0.85 && (hourlyTrend === 'BULLISH' || hourlyTrend === 'NEUTRAL')) {
-      hasPotentialSignal = true;
-    }
-    // For a PUT alert, we want a bearish chart trend and a reasonable PCR resistance
-    else if (isEmaBearish && pcr <= 1.15 && (hourlyTrend === 'BEARISH' || hourlyTrend === 'NEUTRAL')) {
-      hasPotentialSignal = true;
-    }
-    
-    if (!hasPotentialSignal) {
-      console.log(`[OpenClaw Background] Indicators do not align for trade on ${symbolStr} (PCR: ${pcr}, EMA Trend: ${isEmaBullish ? 'Bullish' : isEmaBearish ? 'Bearish' : 'Neutral'}, 1H Trend: ${hourlyTrend}). Skipping Gemini API call to save quota.`);
-      return {
-        data: {
-          action: "WAIT",
-          confidence: 50,
-          newsSentiment: "NEUTRAL",
-          buyRange: "N/A",
-          target1: null,
-          target2: null,
-          stoploss: null,
-          suggestedOptionContract: null,
-          optionPremiumLtp: null,
-          optionTarget1: null,
-          optionTarget2: null,
-          optionStoploss: null,
-          trailingStoploss: null,
-          expectedHoldTime: null,
-          agentThoughts: {
-            optionChainAgent: "Indicators do not align for trade.",
-            chartAgent: "1H Trend and EMA do not confirm momentum.",
-            newsAgent: "Sentiment is neutral.",
-            riskOrchestrator: "Wait setup."
-          },
-          reasoning: ["Indicators are neutral or conflicting.", "Wait for clear momentum alignment."],
-          summary: "Market is sideways or indicators are not aligned. Trading signals are on hold."
-        },
-        indicators: {
-          spotPrice,
-          pcr,
-          ema9: lastEma9,
-          ema21: lastEma21,
-          rsi: lastRsi,
-          atr,
-          resistanceStrike: resistanceStrike ? resistanceStrike.strike : null,
-          supportStrike: supportStrike ? supportStrike.strike : null,
-          heavyCallWritingStrike: heavyCallWriting && heavyCallWriting.callChgOi > 0 ? heavyCallWriting.strike : null,
-          heavyPutWritingStrike: heavyPutWriting && heavyPutWriting.putChgOi > 0 ? heavyPutWriting.strike : null,
-          callUnwindingStrike: callUnwinding && callUnwinding.callChgOi < 0 ? callUnwinding.strike : null,
-          putUnwindingStrike: putUnwinding && putUnwinding.putChgOi < 0 ? putUnwinding.strike : null,
-          tradingProfile: profile,
-          trendTimeframe,
-          majorTrend,
-          hourlyTrend,
-          averageIv,
-          shortCoveringDetected,
-          longUnwindingDetected,
-          nearbyStrikesOiData
-        }
-      };
-    }
+    console.log(`[OpenClaw Background] Pre-filtering safeguard is bypassed. Executing Gemini API analysis for ${symbolStr}...`);
   }
 
-  // 5. Call Gemini
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`;
+  // 5. Call Gemini (using low-cost gemini-1.5-flash-8b)
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key=${apiKey}`;
   const geminiResponse = await axios.post(geminiUrl, {
     contents: [{ parts: [{ text: prompt }] }]
   });

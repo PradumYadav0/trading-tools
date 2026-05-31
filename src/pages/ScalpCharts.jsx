@@ -15,7 +15,7 @@ const ScalpCharts = () => {
 
   // Page state
   const [symbol, setSymbol] = useState('NIFTY');
-  const [interval, setInterval] = useState('5');
+  const [chartInterval, setChartInterval] = useState('5');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   
@@ -31,9 +31,9 @@ const ScalpCharts = () => {
     setError(null);
     try {
       // 1. Fetch Chart Data
-      const chartUrl = interval === 'D'
+      const chartUrl = chartInterval === 'D'
         ? `/api/charts/historical?symbol=${symbol}`
-        : `/api/charts/intraday?symbol=${symbol}&interval=${interval}`;
+        : `/api/charts/intraday?symbol=${symbol}&interval=${chartInterval}`;
       
       const chartResponse = await axios.get(chartUrl);
       if (chartResponse.data.success && chartResponse.data.data && chartResponse.data.data.length > 0) {
@@ -154,14 +154,14 @@ const ScalpCharts = () => {
   // Fetch data on symbol/interval changes
   useEffect(() => {
     fetchData();
-    const intervalId = setInterval(() => {
+    const intervalId = window.setInterval(() => {
       if (isMarketOpen()) {
         fetchData();
       }
     }, 15000); // Live update every 15s during market open
     
-    return () => clearInterval(intervalId);
-  }, [symbol, interval]);
+    return () => window.clearInterval(intervalId);
+  }, [symbol, chartInterval]);
 
   // Handle overlay of horizontal price levels when selected signal changes
   useEffect(() => {
@@ -321,8 +321,8 @@ const ScalpCharts = () => {
           </select>
 
           <select 
-            value={interval} 
-            onChange={(e) => setInterval(e.target.value)}
+            value={chartInterval} 
+            onChange={(e) => setChartInterval(e.target.value)}
             style={{ padding: '0.5rem 1rem', background: '#1c2128', color: 'white', border: '1px solid var(--border-color)', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}
           >
             <option value="1">1 Min</option>
@@ -392,7 +392,7 @@ const ScalpCharts = () => {
         <div className="glass-panel" style={{ padding: '1rem', position: 'relative' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', padding: '0 0.5rem' }}>
             <span style={{ fontSize: '0.9rem', fontWeight: 'bold', color: 'var(--text-secondary)' }}>
-              {symbol} {interval === 'D' ? 'Daily' : `${interval}m`} Spot Price: {spotPrice ? `₹${spotPrice.toFixed(2)}` : 'Loading...'}
+              {symbol} {chartInterval === 'D' ? 'Daily' : `${chartInterval}m`} Spot Price: {spotPrice ? `₹${spotPrice.toFixed(2)}` : 'Loading...'}
             </span>
             <button 
               onClick={toggleFullScreen}

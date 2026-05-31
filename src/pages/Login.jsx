@@ -6,46 +6,21 @@ import {
 } from 'lucide-react';
 
 const Login = ({ onLoginSuccess }) => {
-  // Modes: 'login' | 'register' | 'forgot_user' | 'forgot_question'
+  // Modes: 'login' | 'forgot_user' | 'forgot_otp'
   const [mode, setMode] = useState('login');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   
-  // Login / Register Form Fields
+  // Login Form Fields
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [securityQuestion, setSecurityQuestion] = useState('What was your first school name?');
-  const [securityAnswer, setSecurityAnswer] = useState('');
 
   // Password Recovery Fields
   const [recoveryUser, setRecoveryUser] = useState('');
-  const [recoveryQuestion, setRecoveryQuestion] = useState('');
-  const [recoveryAnswer, setRecoveryAnswer] = useState('');
+  const [otp, setOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
-
-  // Check if system requires initial admin registration
-  const checkSetupStatus = async () => {
-    try {
-      const res = await axios.get('/api/auth/check-setup');
-      if (res.data.success) {
-        if (!res.data.isSetup) {
-          setMode('register');
-        } else {
-          setMode('login');
-        }
-      }
-    } catch (e) {
-      console.error(e);
-      setError('Could not connect to the authentication server.');
-    }
-  };
-
-  useEffect(() => {
-    checkSetupStatus();
-  }, []);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -71,48 +46,7 @@ const Login = ({ onLoginSuccess }) => {
     }
   };
 
-  const handleRegister = async (e) => {
-    e.preventDefault();
-    setError(null);
-    setSuccess(null);
-
-    if (!username || !password || !securityAnswer) {
-      setError('Please fill in all fields.');
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      setError('Passwords do not match.');
-      return;
-    }
-
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters long.');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const res = await axios.post('/api/auth/register', {
-        username,
-        password,
-        securityQuestion,
-        securityAnswer
-      });
-      if (res.data.success) {
-        setSuccess('Administrator account created!');
-        if (onLoginSuccess) {
-          onLoginSuccess(res.data.token, res.data.username);
-        }
-      }
-    } catch (err) {
-      setError(err.response?.data?.message || 'Setup registration failed.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleFindAccount = async (e) => {
+  const handleSendOtp = async (e) => {
     e.preventDefault();
     if (!recoveryUser) {
       setError('Please enter your username.');
@@ -121,25 +55,26 @@ const Login = ({ onLoginSuccess }) => {
 
     setLoading(true);
     setError(null);
+    setSuccess(null);
     try {
-      const res = await axios.post('/api/auth/forgot-password-question', { username: recoveryUser });
+      const res = await axios.post('/api/auth/forgot-password-email', { username: recoveryUser });
       if (res.data.success) {
-        setRecoveryQuestion(res.data.question);
-        setMode('forgot_question');
+        setSuccess(res.data.message || 'OTP sent successfully.');
+        setMode('forgot_otp');
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Account not found.');
+      setError(err.response?.data?.message || 'Account not found or OTP sending failed.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleResetPassword = async (e) => {
+  const handleResetPasswordOtp = async (e) => {
     e.preventDefault();
     setError(null);
     setSuccess(null);
 
-    if (!recoveryAnswer || !newPassword) {
+    if (!otp || !newPassword) {
       setError('Please fill in all fields.');
       return;
     }
@@ -156,9 +91,9 @@ const Login = ({ onLoginSuccess }) => {
 
     setLoading(true);
     try {
-      const res = await axios.post('/api/auth/reset-password', {
+      const res = await axios.post('/api/auth/verify-otp-reset', {
         username: recoveryUser,
-        securityAnswer: recoveryAnswer,
+        otp: otp.trim(),
         newPassword: newPassword
       });
       if (res.data.success) {
@@ -168,7 +103,7 @@ const Login = ({ onLoginSuccess }) => {
         }
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Incorrect security answer.');
+      setError(err.response?.data?.message || 'Incorrect OTP code or OTP expired.');
     } finally {
       setLoading(false);
     }
@@ -209,7 +144,7 @@ const Login = ({ onLoginSuccess }) => {
           </div>
           <h2 style={{ fontSize: '1.5rem', margin: 0, fontWeight: '700' }}>TradeSuggest</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.25rem' }}>
-            {mode === 'register' ? 'Initial Setup: Create Admin Account' : 'Secure Algorithmic Trading Hub'}
+            Secure Algorithmic Trading Hub
           </p>
         </div>
 
@@ -259,7 +194,7 @@ const Login = ({ onLoginSuccess }) => {
                 <User size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                 <input 
                   type="text" 
-                  placeholder="Enter administrator username" 
+                  placeholder="Enter username" 
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   required
@@ -310,136 +245,25 @@ const Login = ({ onLoginSuccess }) => {
             <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
               <button 
                 type="button" 
-                onClick={() => { setError(null); setMode('forgot_user'); }}
+                onClick={() => { setError(null); setSuccess(null); setMode('forgot_user'); }}
                 style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '0.8rem', cursor: 'pointer', textDecoration: 'underline' }}
               >
-                Forgot Password? Recovery Question
+                Forgot Password? Reset via Email OTP
               </button>
             </div>
           </form>
         )}
 
-        {/* MODE: REGISTER (FIRST SETUP) */}
-        {mode === 'register' && (
-          <form onSubmit={handleRegister} style={{ display: 'grid', gap: '1.25rem' }}>
-            <div style={{ background: 'rgba(99, 102, 241, 0.05)', border: '1px solid rgba(99, 102, 241, 0.15)', padding: '0.75rem', borderRadius: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-              <ShieldAlert size={14} style={{ display: 'inline', marginRight: '4px', color: 'var(--accent-primary)' }} />
-              Welcome! No users are configured in the system database yet. Choose your admin credentials and set a security question to secure the terminal.
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', fontWeight: '600' }}>Admin Username</label>
-              <div style={{ position: 'relative' }}>
-                <User size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                <input 
-                  type="text" 
-                  placeholder="e.g. admin" 
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  required
-                  style={{ width: '100%', padding: '0.65rem 1rem 0.65rem 2.5rem', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: 'white', borderRadius: '8px', outline: 'none' }}
-                />
-              </div>
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', fontWeight: '600' }}>Password</label>
-              <div style={{ position: 'relative' }}>
-                <Lock size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                <input 
-                  type="password" 
-                  placeholder="Minimum 6 characters" 
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  style={{ width: '100%', padding: '0.65rem 1rem 0.65rem 2.5rem', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: 'white', borderRadius: '8px', outline: 'none' }}
-                />
-              </div>
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', fontWeight: '600' }}>Confirm Password</label>
-              <div style={{ position: 'relative' }}>
-                <Lock size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                <input 
-                  type="password" 
-                  placeholder="Retype password" 
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  required
-                  style={{ width: '100%', padding: '0.65rem 1rem 0.65rem 2.5rem', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: 'white', borderRadius: '8px', outline: 'none' }}
-                />
-              </div>
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', fontWeight: '600' }}>Select Security Question (for password reset)</label>
-              <div style={{ position: 'relative' }}>
-                <HelpCircle size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                <select 
-                  value={securityQuestion}
-                  onChange={(e) => setSecurityQuestion(e.target.value)}
-                  style={{ width: '100%', padding: '0.65rem 1rem 0.65rem 2.5rem', background: '#1c2128', border: '1px solid var(--border-color)', color: 'white', borderRadius: '8px', outline: 'none', cursor: 'pointer' }}
-                >
-                  <option value="What was your first school name?">What was your first school name?</option>
-                  <option value="What city were you born in?">What city were you born in?</option>
-                  <option value="What is your pet name?">What is your pet name?</option>
-                  <option value="What was the model of your first car?">What was the model of your first car?</option>
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', fontWeight: '600' }}>Answer to Security Question</label>
-              <div style={{ position: 'relative' }}>
-                <Key size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                <input 
-                  type="text" 
-                  placeholder="Answer is case-insensitive" 
-                  value={securityAnswer}
-                  onChange={(e) => setSecurityAnswer(e.target.value)}
-                  required
-                  style={{ width: '100%', padding: '0.65rem 1rem 0.65rem 2.5rem', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: 'white', borderRadius: '8px', outline: 'none' }}
-                />
-              </div>
-            </div>
-
-            <button 
-              type="submit" 
-              disabled={loading}
-              style={{
-                width: '100%',
-                background: 'linear-gradient(135deg, var(--accent-primary) 0%, #4f46e5 100%)',
-                color: 'white',
-                border: 'none',
-                padding: '0.75rem',
-                borderRadius: '8px',
-                fontWeight: '700',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.5rem',
-                marginTop: '0.5rem',
-                boxShadow: '0 4px 12px rgba(99, 102, 241, 0.2)'
-              }}
-            >
-              {loading && <RefreshCw size={16} className="spin" />}
-              {loading ? 'Registering...' : 'Register & Log In'}
-            </button>
-          </form>
-        )}
-
         {/* MODE: FORGOT PASSWORD (STEP 1: USERNAME) */}
         {mode === 'forgot_user' && (
-          <form onSubmit={handleFindAccount} style={{ display: 'grid', gap: '1.25rem' }}>
+          <form onSubmit={handleSendOtp} style={{ display: 'grid', gap: '1.25rem' }}>
             <div>
               <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', fontWeight: '600' }}>Enter your Username</label>
               <div style={{ position: 'relative' }}>
                 <User size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                 <input 
                   type="text" 
-                  placeholder="Enter administrator username" 
+                  placeholder="Enter username" 
                   value={recoveryUser}
                   onChange={(e) => setRecoveryUser(e.target.value)}
                   required
@@ -467,12 +291,12 @@ const Login = ({ onLoginSuccess }) => {
               }}
             >
               {loading && <RefreshCw size={16} className="spin" />}
-              Next: Verify Security Question
+              Send Reset OTP
             </button>
 
             <button 
               type="button" 
-              onClick={() => { setError(null); setMode('login'); }}
+              onClick={() => { setError(null); setSuccess(null); setMode('login'); }}
               style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '0.85rem', cursor: 'pointer' }}
             >
               Back to Sign In
@@ -480,25 +304,21 @@ const Login = ({ onLoginSuccess }) => {
           </form>
         )}
 
-        {/* MODE: FORGOT PASSWORD (STEP 2: ANSWER & RESET) */}
-        {mode === 'forgot_question' && (
-          <form onSubmit={handleResetPassword} style={{ display: 'grid', gap: '1.25rem' }}>
-            <div style={{ background: 'rgba(99, 102, 241, 0.05)', border: '1px solid rgba(99, 102, 241, 0.15)', padding: '0.75rem', borderRadius: '8px' }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Security Question:</div>
-              <div style={{ fontSize: '0.9rem', fontWeight: 'bold', color: 'white' }}>{recoveryQuestion}</div>
-            </div>
-
+        {/* MODE: FORGOT PASSWORD (STEP 2: OTP & NEW PASSWORD) */}
+        {mode === 'forgot_otp' && (
+          <form onSubmit={handleResetPasswordOtp} style={{ display: 'grid', gap: '1.25rem' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', fontWeight: '600' }}>Your Answer</label>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', fontWeight: '600' }}>Enter 6-Digit OTP</label>
               <div style={{ position: 'relative' }}>
                 <Key size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                 <input 
                   type="text" 
-                  placeholder="Enter recovery answer" 
-                  value={recoveryAnswer}
-                  onChange={(e) => setRecoveryAnswer(e.target.value)}
+                  placeholder="Enter 6-digit OTP" 
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value)}
                   required
-                  style={{ width: '100%', padding: '0.65rem 1rem 0.65rem 2.5rem', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: 'white', borderRadius: '8px', outline: 'none' }}
+                  maxLength={6}
+                  style={{ width: '100%', padding: '0.65rem 1rem 0.65rem 2.5rem', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: 'white', borderRadius: '8px', outline: 'none', letterSpacing: '2px', fontWeight: 'bold' }}
                 />
               </div>
             </div>
@@ -553,12 +373,12 @@ const Login = ({ onLoginSuccess }) => {
               }}
             >
               {loading && <RefreshCw size={16} className="spin" />}
-              Verify & Reset Password
+              Reset & Sign In
             </button>
 
             <button 
               type="button" 
-              onClick={() => { setError(null); setMode('login'); }}
+              onClick={() => { setError(null); setSuccess(null); setMode('login'); }}
               style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '0.85rem', cursor: 'pointer' }}
             >
               Back to Sign In

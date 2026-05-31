@@ -188,10 +188,15 @@ const db = new sqlite3.Database('./option_chain.db', (err) => {
       username TEXT UNIQUE,
       password_hash TEXT,
       salt TEXT,
-      security_question TEXT,
-      security_answer_hash TEXT,
-      security_answer_salt TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`, () => {
+      seedDefaultUser();
+    });
+
+    db.run(`CREATE TABLE IF NOT EXISTS password_resets (
+      username TEXT,
+      otp TEXT,
+      expires_at INTEGER
     )`);
   }
 });
@@ -231,6 +236,7 @@ setInterval(cleanupDatabaseHistory, 12 * 60 * 60 * 1000);
 
 // ─── Authentication System & Password Reset ──────────────────────────────────
 const crypto = require('crypto');
+const nodemailer = require('nodemailer');
 
 // Generate salt and hash
 const hashPassword = (password) => {
@@ -243,6 +249,77 @@ const hashPassword = (password) => {
 const verifyPassword = (password, salt, hash) => {
   const verifyHash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
   return verifyHash === hash;
+};
+
+// Seed default user 'devil' / 'devil' on startup if not exists
+const seedDefaultUser = () => {
+  db.get(`SELECT COUNT(*) as count FROM users`, [], (err, row) => {
+    if (err) {
+      console.error('Error checking users count during seeding:', err.message);
+      return;
+    }
+    if (row.count === 0) {
+      const pwdInfo = hashPassword('devil');
+      db.run(
+        `INSERT INTO users (username, password_hash, salt) VALUES (?, ?, ?)`,
+        ['devil', pwdInfo.hash, pwdInfo.salt],
+        (insErr) => {
+          if (insErr) {
+            console.error('Error seeding default user:', insErr.message);
+          } else {
+            console.log('Default user "devil" seeded successfully.');
+          }
+        }
+      );
+    }
+  });
+};
+
+// Send OTP via SMTP (nodemailer) with console fallback
+const sendOtpEmail = async (username, otp) => {
+  const toEmail = process.env.RESET_TO_EMAIL;
+  if (!toEmail) {
+    console.log(`[OTP FALLBACK] No RESET_TO_EMAIL configured in .env. Here is the OTP for user "${username}": ${otp}`);
+    return true;
+  }
+
+  const host = process.env.SMTP_HOST;
+  const port = process.env.SMTP_PORT;
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+
+  if (!host || !port || !user || !pass) {
+    console.log(`[OTP FALLBACK] SMTP settings are not fully configured in .env. Here is the OTP for user "${username}": ${otp}`);
+    return true;
+  }
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host,
+      port: parseInt(port, 10),
+      secure: parseInt(port, 10) === 465,
+      auth: {
+        user,
+        pass
+      }
+    });
+
+    const mailOptions = {
+      from: `"Trading Tools Support" <${user}>`,
+      to: toEmail,
+      subject: 'Trading Tools - Password Reset OTP',
+      text: `Hello,\n\nYour 6-digit OTP for resetting the password of username "${username}" is: ${otp}.\n\nThis OTP is valid for 10 minutes.\n\nBest regards,\nTrading Tools Team`,
+      html: `<p>Hello,</p><p>Your 6-digit OTP for resetting the password of username <strong>${username}</strong> is: <strong style="font-size: 1.2em; letter-spacing: 2px;">${otp}</strong>.</p><p>This OTP is valid for 10 minutes.</p><p>Best regards,<br>Trading Tools Team</p>`
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`OTP Email sent successfully to ${toEmail}: ${info.messageId}`);
+    return true;
+  } catch (error) {
+    console.error('Failed to send OTP Email via SMTP:', error.message);
+    console.log(`[OTP FALLBACK] SMTP send failed. Here is the OTP for user "${username}": ${otp}`);
+    return true;
+  }
 };
 
 // Session store
@@ -282,45 +359,7 @@ const authMiddleware = (req, res, next) => {
 
 // Auth: Check setup
 app.get('/api/auth/check-setup', (req, res) => {
-  db.get(`SELECT COUNT(*) as count FROM users`, [], (err, row) => {
-    if (err) {
-      return res.status(500).json({ success: false, message: err.message });
-    }
-    const isSetup = row.count > 0;
-    res.json({ success: true, isSetup });
-  });
-});
-
-// Auth: Register (first time only)
-app.post('/api/auth/register', (req, res) => {
-  const { username, password, securityQuestion, securityAnswer } = req.body;
-  if (!username || !password || !securityQuestion || !securityAnswer) {
-    return res.status(400).json({ success: false, message: 'All fields are required.' });
-  }
-
-  // Ensure no users exist yet
-  db.get(`SELECT COUNT(*) as count FROM users`, [], (err, row) => {
-    if (err) return res.status(500).json({ success: false, message: err.message });
-    if (row.count > 0) {
-      return res.status(403).json({ success: false, message: 'Registration is disabled. Admin user already exists.' });
-    }
-
-    const pwdInfo = hashPassword(password);
-    const ansInfo = hashPassword(securityAnswer.toLowerCase().trim());
-
-    db.run(
-      `INSERT INTO users (username, password_hash, salt, security_question, security_answer_hash, security_answer_salt) VALUES (?, ?, ?, ?, ?, ?)`,
-      [username.trim(), pwdInfo.hash, pwdInfo.salt, securityQuestion.trim(), ansInfo.hash, ansInfo.salt],
-      function(insErr) {
-        if (insErr) {
-          return res.status(500).json({ success: false, message: insErr.message });
-        }
-        // Auto-login upon registration
-        const token = createSession(username.trim());
-        res.json({ success: true, token, username: username.trim() });
-      }
-    );
-  });
+  res.json({ success: true, isSetup: true });
 });
 
 // Auth: Login
@@ -356,61 +395,93 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ success: true });
 });
 
-// Auth: Forgot password question
-app.post('/api/auth/forgot-password-question', (req, res) => {
+// Auth: Forgot password (generate & send OTP)
+app.post('/api/auth/forgot-password-email', (req, res) => {
   const { username } = req.body;
   if (!username) {
     return res.status(400).json({ success: false, message: 'Username is required.' });
   }
 
-  db.get(`SELECT security_question FROM users WHERE username = ?`, [username.trim()], (err, user) => {
+  if (username.trim() !== 'devil') {
+    return res.status(404).json({ success: false, message: 'User not found.' });
+  }
+
+  db.get(`SELECT * FROM users WHERE username = ?`, [username.trim()], async (err, user) => {
     if (err) return res.status(500).json({ success: false, message: err.message });
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
-    res.json({ success: true, question: user.security_question });
+    // Generate 6 digit numeric OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes from now
+
+    // Save to password_resets table (clear old resets for this user first)
+    db.serialize(() => {
+      db.run(`DELETE FROM password_resets WHERE username = ?`, [user.username]);
+      db.run(
+        `INSERT INTO password_resets (username, otp, expires_at) VALUES (?, ?, ?)`,
+        [user.username, otp, expiresAt],
+        async function(insErr) {
+          if (insErr) {
+            return res.status(500).json({ success: false, message: 'Failed to generate OTP.' });
+          }
+
+          // Send OTP
+          await sendOtpEmail(user.username, otp);
+          res.json({ success: true, message: 'OTP sent to your registered email address.' });
+        }
+      );
+    });
   });
 });
 
-// Auth: Reset password
-app.post('/api/auth/reset-password', (req, res) => {
-  const { username, securityAnswer, newPassword } = req.body;
-  if (!username || !securityAnswer || !newPassword) {
+// Auth: Verify OTP and reset password
+app.post('/api/auth/verify-otp-reset', (req, res) => {
+  const { username, otp, newPassword } = req.body;
+  if (!username || !otp || !newPassword) {
     return res.status(400).json({ success: false, message: 'All fields are required.' });
   }
 
-  db.get(`SELECT * FROM users WHERE username = ?`, [username.trim()], (err, user) => {
+  if (username.trim() !== 'devil') {
+    return res.status(404).json({ success: false, message: 'User not found.' });
+  }
+
+  db.get(`SELECT * FROM password_resets WHERE username = ? ORDER BY expires_at DESC LIMIT 1`, [username.trim()], (err, resetRecord) => {
     if (err) return res.status(500).json({ success: false, message: err.message });
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found.' });
+    if (!resetRecord) {
+      return res.status(400).json({ success: false, message: 'No active OTP verification found for this user.' });
     }
 
-    const isAnswerValid = verifyPassword(
-      securityAnswer.toLowerCase().trim(),
-      user.security_answer_salt,
-      user.security_answer_hash
-    );
-
-    if (!isAnswerValid) {
-      return res.status(401).json({ success: false, message: 'Incorrect security answer.' });
+    if (resetRecord.otp !== otp.trim()) {
+      return res.status(400).json({ success: false, message: 'Invalid OTP code.' });
     }
 
-    // Reset password
-    const pwdInfo = hashPassword(newPassword);
-    db.run(
-      `UPDATE users SET password_hash = ?, salt = ? WHERE id = ?`,
-      [pwdInfo.hash, pwdInfo.salt, user.id],
-      function(updErr) {
-        if (updErr) {
-          return res.status(500).json({ success: false, message: updErr.message });
-        }
+    if (Date.now() > resetRecord.expires_at) {
+      return res.status(400).json({ success: false, message: 'OTP has expired. Please request a new one.' });
+    }
+
+    // OTP is valid!
+    db.get(`SELECT * FROM users WHERE username = ?`, [username.trim()], (errUser, user) => {
+      if (errUser) return res.status(500).json({ success: false, message: errUser.message });
+      if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
+
+      const pwdInfo = hashPassword(newPassword);
+
+      db.serialize(() => {
+        // Update user password
+        db.run(
+          `UPDATE users SET password_hash = ?, salt = ? WHERE username = ?`,
+          [pwdInfo.hash, pwdInfo.salt, username.trim()]
+        );
+        // Clear all reset records for this user
+        db.run(`DELETE FROM password_resets WHERE username = ?`, [username.trim()]);
         
         // Auto-login upon reset
-        const token = createSession(user.username);
-        res.json({ success: true, token, username: user.username });
-      }
-    );
+        const token = createSession(username.trim());
+        res.json({ success: true, token, username: username.trim() });
+      });
+    });
   });
 });
 
@@ -418,10 +489,9 @@ app.post('/api/auth/reset-password', (req, res) => {
 app.use('/api', (req, res, next) => {
   const publicPaths = [
     '/auth/check-setup',
-    '/auth/register',
     '/auth/login',
-    '/auth/forgot-password-question',
-    '/auth/reset-password'
+    '/auth/forgot-password-email',
+    '/auth/verify-otp-reset'
   ];
 
   // Strip query parameters for matching

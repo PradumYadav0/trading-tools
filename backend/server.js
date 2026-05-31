@@ -1392,6 +1392,15 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   });
   const pcr = totalCallOi > 0 ? parseFloat((totalPutOi / totalCallOi).toFixed(2)) : 0;
 
+  // Calculate current PCVR (Put-Call Volume Ratio)
+  let totalCallVolume = 0;
+  let totalPutVolume = 0;
+  strikesArray.forEach(s => {
+    totalCallVolume += s.callVolume || 0;
+    totalPutVolume += s.putVolume || 0;
+  });
+  const pcvr = totalCallVolume > 0 ? parseFloat((totalPutVolume / totalCallVolume).toFixed(2)) : 0;
+
   // Fetch PCR history from Database
   const getHistoricalPcrs = () => {
     return new Promise((resolve) => {
@@ -1520,7 +1529,11 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
           callChgOi: strikeData.callChgOi || 0,
           putChgOi: strikeData.putChgOi || 0,
           callOi: strikeData.callOi || 0,
-          putOi: strikeData.putOi || 0
+          putOi: strikeData.putOi || 0,
+          callVolume: strikeData.callVolume || 0,
+          putVolume: strikeData.putVolume || 0,
+          callLtp: strikeData.callLtp || 0,
+          putLtp: strikeData.putLtp || 0
         });
 
         // Use a closer window (±5 strikes) for the immediate Short Covering/Long Unwinding alerts
@@ -1546,7 +1559,7 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   }
 
   const nearbyStrikesPromptDetails = nearbyStrikesOiData.map(s => 
-    `  * Strike ${s.strike}: Call ChgOI = ${s.callChgOi}, Put ChgOI = ${s.putChgOi} (Call TotalOI = ${s.callOi}, Put TotalOI = ${s.putOi})`
+    `  * Strike ${s.strike}: Call ChgOI = ${s.callChgOi}, Put ChgOI = ${s.putChgOi} (Call TotalOI = ${s.callOi}, Put TotalOI = ${s.putOi}), Call Vol = ${s.callVolume}, Put Vol = ${s.putVolume}, Call LTP = ${s.callLtp}, Put LTP = ${s.putLtp}`
   ).join('\n');
 
   // Fetch Live Financial News Headlines
@@ -1614,6 +1627,7 @@ ${memorySection}
 Data for ${symbolStr}:
 - Current Spot Price: ${spotPrice}
 - Current PCR: ${pcr}
+- Current PCVR (Put-Call Volume Ratio): ${pcvr}
 - PCR values for last few minutes (newest to oldest): ${historicalPcrs.map(v => v.toFixed(2)).join(', ')}
 - Technical indicators (${primaryInterval}m timeframe):
   * EMA 9: ${lastEma9}

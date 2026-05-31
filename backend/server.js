@@ -981,8 +981,8 @@ IMPORTANT INSTRUCTIONS for the tone and format:
 - Do NOT use markdown formatting like ###, **, or *. Just use simple plain text with line breaks for spacing.
 - Explain it in a simple way, like an expert friend giving advice.`;
 
-    // Call Gemini API (using low-cost gemini-1.5-flash-8b)
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key=${apiKey}`;
+    // Call Gemini API (using low-cost gemini-3.1-flash-lite)
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`;
     
     const parts = [{ text: prompt }];
     
@@ -1683,8 +1683,8 @@ INSTRUCTIONS FOR WRITING:
     console.log(`[OpenClaw Background] Pre-filtering safeguard is bypassed. Executing Gemini API analysis for ${symbolStr}...`);
   }
 
-  // 5. Call Gemini (using low-cost gemini-1.5-flash-8b)
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key=${apiKey}`;
+  // 5. Call Gemini (using low-cost gemini-3.1-flash-lite)
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`;
   const geminiResponse = await axios.post(geminiUrl, {
     contents: [{ parts: [{ text: prompt }] }]
   });

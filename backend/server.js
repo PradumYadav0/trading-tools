@@ -1283,17 +1283,16 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
       });
 
       const chartData = chartResponse.data.data || chartResponse.data;
-      if (chartData.timestamp) {
         for (let i = 0; i < chartData.timestamp.length; i++) {
           chartCandles.push({
             time: chartData.timestamp[i],
             open: chartData.open[i],
             high: chartData.high[i],
             low: chartData.low[i],
-            close: chartData.close[i]
+            close: chartData.close[i],
+            volume: chartData.volume ? chartData.volume[i] : 1
           });
         }
-      }
       setCachedData('chartsIntraday', `${symbolStr}_${primaryInterval}`, { success: true, data: chartCandles });
     } catch (err) {
       console.error(`Error fetching intraday charts (${primaryInterval}m) in OpenClaw:`, err.message);
@@ -1362,6 +1361,20 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   const lastEma21 = ema21.length > 0 ? parseFloat(ema21[ema21.length - 1].toFixed(2)) : lastClose;
   const lastRsi = rsi.length > 0 ? parseFloat(rsi[rsi.length - 1].toFixed(2)) : 50;
 
+  // Calculate Volume Surge (Latest volume vs 10-candle average volume)
+  let isVolumeSpiked = false;
+  let latestVolume = 0;
+  let averageVolume = 0;
+  if (chartCandles.length >= 10) {
+    const last10 = chartCandles.slice(-10);
+    const sumVol = last10.reduce((acc, c) => acc + (c.volume || 0), 0);
+    averageVolume = Math.round(sumVol / 10);
+    latestVolume = chartCandles[chartCandles.length - 1].volume || 0;
+    if (averageVolume > 0 && latestVolume > 1.5 * averageVolume) {
+      isVolumeSpiked = true;
+    }
+  }
+
   // Calculate 1-Hour EMA 20 Trend Filter
   const hourEma20List = calculateEMA(hourCandles, 20);
   const lastHourClose = hourCandles.length > 0 ? hourCandles[hourCandles.length - 1].close : spotPrice;
@@ -1382,6 +1395,21 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   const trendEma20List = calculateEMA(groupedCandles, 20);
   const trendEma20 = trendEma20List[groupedCandles.length - 1] || lastClose;
   const majorTrend = lastClose > trendEma20 ? 'BULLISH' : 'BEARISH';
+
+  const isShortTermBullish = lastEma9 > lastEma21 && lastClose > lastEma21;
+  const isShortTermBearish = lastEma9 < lastEma21 && lastClose < lastEma21;
+
+  // Multi-Timeframe Trend Concurrence Check
+  let trendConcurrence = "MISALIGNED";
+  if (isShortTermBullish && majorTrend === "BULLISH" && hourlyTrend === "BULLISH") {
+    trendConcurrence = "STRONG_BULLISH";
+  } else if (isShortTermBearish && majorTrend === "BEARISH" && hourlyTrend === "BEARISH") {
+    trendConcurrence = "STRONG_BEARISH";
+  } else if ((isShortTermBullish && majorTrend === "BULLISH") || (isShortTermBullish && hourlyTrend === "BULLISH")) {
+    trendConcurrence = "MODERATE_BULLISH";
+  } else if ((isShortTermBearish && majorTrend === "BEARISH") || (isShortTermBearish && hourlyTrend === "BEARISH")) {
+    trendConcurrence = "MODERATE_BEARISH";
+  }
 
   // Calculate current PCR
   let totalCallOi = 0;
@@ -1431,6 +1459,23 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   };
 
   const historicalPcrs = await getHistoricalPcrs();
+
+  // Calculate PCR Velocity
+  let pcrVelocity = "STABLE";
+  if (historicalPcrs.length >= 2) {
+    const oldest = historicalPcrs[historicalPcrs.length - 1];
+    const newest = pcr;
+    const diff = newest - oldest;
+    if (diff > 0.05) {
+      pcrVelocity = "RISING_FAST";
+    } else if (diff < -0.05) {
+      pcrVelocity = "FALLING_FAST";
+    } else if (diff > 0.01) {
+      pcrVelocity = "RISING_MODERATE";
+    } else if (diff < -0.01) {
+      pcrVelocity = "FALLING_MODERATE";
+    }
+  }
 
   // Find key Option Chain metrics (within 2% range of spotPrice)
   const rangePercent = 0.02;
@@ -1638,6 +1683,9 @@ Data for ${symbolStr}:
   * ATR (14): ${atr.toFixed(2)}
   * Major Trend (${trendTimeframe} timeframe filter): ${majorTrend}
   * 1-Hour Chart Trend filter: ${hourlyTrend} (EMA 20 at ${lastHourEma20}, Price at ${lastHourClose})
+  * Multi-Timeframe Trend Concurrence: ${trendConcurrence} (Short-term, Mid-term, and Higher-term alignment check)
+  * Volume Surge (Latest candle vol vs 10-period Avg Vol): ${isVolumeSpiked ? 'YES (Volume spike detected)' : 'NO (Normal volume)'} (Latest Vol: ${latestVolume}, Avg Vol: ${averageVolume})
+  * PCR Velocity (OI Change direction): ${pcrVelocity}
 
 - Nearby Strike Option Chain Activity (Spot: ${spotPrice}):
   * Strongest Resistance Strike: ${resistanceStrike ? resistanceStrike.strike : 'N/A'} (Call OI: ${resistanceStrike ? resistanceStrike.callOi : 0})
@@ -1738,6 +1786,12 @@ INSTRUCTIONS FOR WRITING:
       trendTimeframe,
       majorTrend,
       hourlyTrend,
+      pcvr,
+      pcrVelocity,
+      trendConcurrence,
+      isVolumeSpiked,
+      latestVolume,
+      averageVolume,
       averageIv,
       shortCoveringDetected,
       longUnwindingDetected,

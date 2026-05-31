@@ -11,6 +11,8 @@ import AiTesting from './pages/AiTesting';
 import Settings from './pages/Settings';
 import OptionDecoder from './pages/OptionDecoder';
 import OpenClawAi from './pages/OpenClawAi';
+import PaperTrading from './pages/PaperTrading';
+import ScalpCharts from './pages/ScalpCharts';
 import './App.css';
 
 function App() {
@@ -52,6 +54,8 @@ function App() {
               <Route path="/ai-testing" element={<AiTesting />} />
               <Route path="/option-decoder" element={<OptionDecoder />} />
               <Route path="/openclaw-ai" element={<OpenClawAi />} />
+              <Route path="/paper-trading" element={<PaperTrading />} />
+              <Route path="/scalp-charts" element={<ScalpCharts />} />
               <Route path="/settings" element={<Settings />} />
             </Routes>
           </div>

@@ -141,6 +141,7 @@ const db = new sqlite3.Database('./option_chain.db', (err) => {
       stoploss_price REAL,
       source TEXT DEFAULT 'OPTION_CHAIN',
       status TEXT DEFAULT 'PENDING',
+      max_spot_seen REAL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`, () => {
@@ -152,11 +153,34 @@ const db = new sqlite3.Database('./option_chain.db', (err) => {
           console.log("Successfully migrated database: added 'source' column to ai_signals.");
         }
       });
+      db.run(`ALTER TABLE ai_signals ADD COLUMN max_spot_seen REAL`, (alterErr) => {
+        if (!alterErr) {
+          console.log("Successfully migrated database: added 'max_spot_seen' column to ai_signals.");
+        }
+      });
     });
 
     db.run(`CREATE TABLE IF NOT EXISTS system_settings (
       key TEXT PRIMARY KEY,
       value TEXT
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS paper_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      symbol TEXT,
+      type TEXT,
+      contract_name TEXT,
+      qty INTEGER,
+      entry_premium REAL,
+      exit_premium REAL,
+      entry_spot REAL,
+      exit_spot REAL,
+      target_premium REAL,
+      stoploss_premium REAL,
+      status TEXT DEFAULT 'ACTIVE',
+      pnl REAL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
   }
 });
@@ -1917,20 +1941,58 @@ const updatePendingSignals = () => {
         }
 
         let newStatus = 'PENDING';
+        let maxSpotSeen = row.max_spot_seen || row.entry_price;
+        let stoplossPrice = row.stoploss_price;
+        let maxSpotChanged = false;
+
         if (row.type === 'CALL') {
-          if (row.target_price && currentSpot >= row.target_price) newStatus = 'SUCCESS';
-          else if (row.stoploss_price && currentSpot <= row.stoploss_price) newStatus = 'FAILED';
+          if (currentSpot > maxSpotSeen) {
+            maxSpotSeen = currentSpot;
+            maxSpotChanged = true;
+          }
+          const slDistance = row.entry_price - (row.stoploss_price || (row.entry_price - 30));
+          const trailedSl = maxSpotSeen - slDistance;
+          if (trailedSl > stoplossPrice) {
+            stoplossPrice = parseFloat(trailedSl.toFixed(2));
+            maxSpotChanged = true;
+          }
+
+          if (row.target_price && currentSpot >= row.target_price) {
+            newStatus = 'SUCCESS';
+          } else if (currentSpot <= stoplossPrice) {
+            newStatus = stoplossPrice >= row.entry_price ? 'SUCCESS' : 'FAILED';
+          }
         } else if (row.type === 'PUT') {
-          if (row.target_price && currentSpot <= row.target_price) newStatus = 'SUCCESS';
-          else if (row.stoploss_price && currentSpot >= row.stoploss_price) newStatus = 'FAILED';
+          if (currentSpot < maxSpotSeen) {
+            maxSpotSeen = currentSpot;
+            maxSpotChanged = true;
+          }
+          const slDistance = (row.stoploss_price || (row.entry_price + 30)) - row.entry_price;
+          const trailedSl = maxSpotSeen + slDistance;
+          if (trailedSl < stoplossPrice) {
+            stoplossPrice = parseFloat(trailedSl.toFixed(2));
+            maxSpotChanged = true;
+          }
+
+          if (row.target_price && currentSpot <= row.target_price) {
+            newStatus = 'SUCCESS';
+          } else if (currentSpot >= stoplossPrice) {
+            newStatus = stoplossPrice <= row.entry_price ? 'SUCCESS' : 'FAILED';
+          }
         }
 
-        if (newStatus !== 'PENDING') {
-          db.run(`UPDATE ai_signals SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [newStatus, row.id], function(err) {
-            if (!err) updatedCount++;
-            pendingUpdates--;
-            if (pendingUpdates === 0) resolve(updatedCount);
-          });
+        if (newStatus !== 'PENDING' || maxSpotChanged) {
+          db.run(
+            `UPDATE ai_signals 
+             SET status = ?, max_spot_seen = ?, stoploss_price = ?, updated_at = CURRENT_TIMESTAMP 
+             WHERE id = ?`, 
+            [newStatus, maxSpotSeen, stoplossPrice, row.id], 
+            function(err) {
+              if (!err && newStatus !== 'PENDING') updatedCount++;
+              pendingUpdates--;
+              if (pendingUpdates === 0) resolve(updatedCount);
+            }
+          );
         } else {
           pendingUpdates--;
           if (pendingUpdates === 0) resolve(updatedCount);
@@ -1939,6 +2001,280 @@ const updatePendingSignals = () => {
     });
   });
 };
+
+// Function to update ACTIVE paper trades and balance based on option chain cache
+const updateActivePaperTrades = () => {
+  return new Promise((resolve, reject) => {
+    db.all(`SELECT * FROM paper_trades WHERE status = 'ACTIVE'`, [], async (err, rows) => {
+      if (err) return reject(err);
+      if (!rows || rows.length === 0) return resolve(0);
+
+      const settings = await getSystemSettings();
+      let balance = parseFloat(settings['paper_wallet_balance'] || '1000000');
+      let balanceChanged = false;
+      let closedCount = 0;
+      let pendingUpdates = rows.length;
+
+      for (const row of rows) {
+        const symbol = row.symbol;
+        const cacheKey = `${symbol}_first`;
+        const cached = getCachedData('optionChain', cacheKey, 300000);
+        
+        if (!cached || !cached.data) {
+          pendingUpdates--;
+          if (pendingUpdates === 0) {
+            if (balanceChanged) {
+              db.run(`INSERT OR REPLACE INTO system_settings (key, value) VALUES ('paper_wallet_balance', ?)`, [String(balance)], () => resolve(closedCount));
+            } else {
+              resolve(closedCount);
+            }
+          }
+          continue;
+        }
+
+        // Parse strike and type from contract_name (e.g. "NIFTY 18-Jun 22000 CE")
+        const parts = row.contract_name.split(' ');
+        const strike = parseFloat(parts[parts.length - 2]);
+        const type = parts[parts.length - 1]; // "CE" or "PE"
+
+        const strikeData = cached.data.find(s => s.strike === strike);
+        if (!strikeData) {
+          pendingUpdates--;
+          if (pendingUpdates === 0) {
+            if (balanceChanged) {
+              db.run(`INSERT OR REPLACE INTO system_settings (key, value) VALUES ('paper_wallet_balance', ?)`, [String(balance)], () => resolve(closedCount));
+            } else {
+              resolve(closedCount);
+            }
+          }
+          continue;
+        }
+
+        const currentLtp = type === 'CE' ? strikeData.callLtp : strikeData.putLtp;
+        if (!currentLtp || currentLtp <= 0) {
+          pendingUpdates--;
+          if (pendingUpdates === 0) {
+            if (balanceChanged) {
+              db.run(`INSERT OR REPLACE INTO system_settings (key, value) VALUES ('paper_wallet_balance', ?)`, [String(balance)], () => resolve(closedCount));
+            } else {
+              resolve(closedCount);
+            }
+          }
+          continue;
+        }
+
+        let lotSize = 50;
+        if (symbol === 'NIFTY') lotSize = 50;
+        else if (symbol === 'BANKNIFTY') lotSize = 15;
+        else if (symbol === 'FINNIFTY') lotSize = 40;
+        else if (symbol === 'MIDCPNIFTY') lotSize = 75;
+
+        const totalQty = row.qty * lotSize;
+        const pnl = (currentLtp - row.entry_premium) * totalQty;
+
+        let shouldClose = false;
+        let exitLtp = currentLtp;
+
+        if (row.target_premium && currentLtp >= row.target_premium) {
+          shouldClose = true;
+          exitLtp = row.target_premium;
+        } else if (row.stoploss_premium && currentLtp <= row.stoploss_premium) {
+          shouldClose = true;
+          exitLtp = row.stoploss_premium;
+        }
+
+        if (shouldClose) {
+          const finalPnl = (exitLtp - row.entry_premium) * totalQty;
+          balance += (row.qty * lotSize * row.entry_premium) + finalPnl; // Refund margin + PnL
+          balanceChanged = true;
+          closedCount++;
+
+          db.run(
+            `UPDATE paper_trades 
+             SET exit_premium = ?, exit_spot = ?, status = 'CLOSED', pnl = ?, updated_at = CURRENT_TIMESTAMP 
+             WHERE id = ?`,
+            [exitLtp, cached.spotPrice, finalPnl, row.id],
+            () => {
+              pendingUpdates--;
+              if (pendingUpdates === 0) {
+                db.run(`INSERT OR REPLACE INTO system_settings (key, value) VALUES ('paper_wallet_balance', ?)`, [String(balance)], () => resolve(closedCount));
+              }
+            }
+          );
+        } else {
+          db.run(
+            `UPDATE paper_trades SET pnl = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            [pnl, row.id],
+            () => {
+              pendingUpdates--;
+              if (pendingUpdates === 0) {
+                if (balanceChanged) {
+                  db.run(`INSERT OR REPLACE INTO system_settings (key, value) VALUES ('paper_wallet_balance', ?)`, [String(balance)], () => resolve(closedCount));
+                } else {
+                  resolve(closedCount);
+                }
+              }
+            }
+          );
+        }
+      }
+    });
+  });
+};
+
+// Paper Trading API Endpoints
+app.get('/api/paper/balance', async (req, res) => {
+  try {
+    const settings = await getSystemSettings();
+    const balance = parseFloat(settings['paper_wallet_balance'] || '1000000');
+    res.json({ success: true, balance });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+app.post('/api/paper/reset', async (req, res) => {
+  db.serialize(() => {
+    db.run(`INSERT OR REPLACE INTO system_settings (key, value) VALUES ('paper_wallet_balance', '1000000')`);
+    db.run(`DELETE FROM paper_trades`, [], (err) => {
+      if (err) {
+        return res.status(500).json({ success: false, message: err.message });
+      }
+      res.json({ success: true, message: 'Paper wallet reset successfully and all paper trades deleted.' });
+    });
+  });
+});
+
+app.get('/api/paper/trades', async (req, res) => {
+  try {
+    if (isIndianMarketOpen()) {
+      await updateActivePaperTrades();
+    }
+    db.all(`SELECT * FROM paper_trades ORDER BY created_at DESC`, [], (err, rows) => {
+      if (err) {
+        return res.status(500).json({ success: false, message: err.message });
+      }
+      res.json({ success: true, data: rows });
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+app.post('/api/paper/trade', async (req, res) => {
+  try {
+    const { symbol, type, contract_name, qty, entry_premium, entry_spot, target_premium, stoploss_premium } = req.body;
+    
+    if (!symbol || !type || !contract_name || !qty || !entry_premium) {
+      return res.status(400).json({ success: false, message: 'Missing required trade details.' });
+    }
+
+    const settings = await getSystemSettings();
+    let balance = parseFloat(settings['paper_wallet_balance'] || '1000000');
+
+    let lotSize = 50;
+    if (symbol === 'NIFTY') lotSize = 50;
+    else if (symbol === 'BANKNIFTY') lotSize = 15;
+    else if (symbol === 'FINNIFTY') lotSize = 40;
+    else if (symbol === 'MIDCPNIFTY') lotSize = 75;
+
+    const requiredMargin = qty * lotSize * entry_premium;
+    if (requiredMargin > balance) {
+      return res.status(400).json({ success: false, message: `Insufficient balance. Required Margin: ₹${requiredMargin.toFixed(2)}, Available Balance: ₹${balance.toFixed(2)}` });
+    }
+
+    // Deduct margin
+    const newBalance = balance - requiredMargin;
+
+    db.serialize(() => {
+      db.run(`INSERT OR REPLACE INTO system_settings (key, value) VALUES ('paper_wallet_balance', ?)`, [String(newBalance)]);
+      db.run(
+        `INSERT INTO paper_trades (symbol, type, contract_name, qty, entry_premium, entry_spot, target_premium, stoploss_premium, status) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')`,
+        [symbol, type, contract_name, qty, entry_premium, entry_spot || 0, target_premium || null, stoploss_premium || null],
+        function(err) {
+          if (err) {
+            return res.status(500).json({ success: false, message: err.message });
+          }
+          res.json({ success: true, message: 'Trade executed successfully in Paper Trading Portfolio.', tradeId: this.lastID });
+        }
+      );
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+app.post('/api/paper/exit', async (req, res) => {
+  try {
+    const { id } = req.body;
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'Trade ID required.' });
+    }
+
+    db.get(`SELECT * FROM paper_trades WHERE id = ? AND status = 'ACTIVE'`, [id], async (err, row) => {
+      if (err || !row) {
+        return res.status(404).json({ success: false, message: 'Active trade not found.' });
+      }
+
+      const symbol = row.symbol;
+      const cacheKey = `${symbol}_first`;
+      const cached = getCachedData('optionChain', cacheKey, 300000);
+      if (!cached || !cached.data) {
+        return res.status(400).json({ success: false, message: 'Market data currently unavailable to close trade.' });
+      }
+
+      const parts = row.contract_name.split(' ');
+      const strike = parseFloat(parts[parts.length - 2]);
+      const type = parts[parts.length - 1];
+
+      const strikeData = cached.data.find(s => s.strike === strike);
+      if (!strikeData) {
+        return res.status(400).json({ success: false, message: 'Option strike data not found in cache.' });
+      }
+
+      const exitLtp = type === 'CE' ? strikeData.callLtp : strikeData.putLtp;
+      if (!exitLtp || exitLtp <= 0) {
+        return res.status(400).json({ success: false, message: 'LTP value is invalid.' });
+      }
+
+      const settings = await getSystemSettings();
+      let balance = parseFloat(settings['paper_wallet_balance'] || '1000000');
+
+      let lotSize = 50;
+      if (symbol === 'NIFTY') lotSize = 50;
+      else if (symbol === 'BANKNIFTY') lotSize = 15;
+      else if (symbol === 'FINNIFTY') lotSize = 40;
+      else if (symbol === 'MIDCPNIFTY') lotSize = 75;
+
+      const totalQty = row.qty * lotSize;
+      const finalPnl = (exitLtp - row.entry_premium) * totalQty;
+
+      // Refund margin + PnL
+      const requiredMargin = row.qty * lotSize * row.entry_premium;
+      const refundedMargin = requiredMargin + finalPnl;
+      const newBalance = balance + refundedMargin;
+
+      db.serialize(() => {
+        db.run(`INSERT OR REPLACE INTO system_settings (key, value) VALUES ('paper_wallet_balance', ?)`, [String(newBalance)]);
+        db.run(
+          `UPDATE paper_trades 
+           SET exit_premium = ?, exit_spot = ?, status = 'CLOSED', pnl = ?, updated_at = CURRENT_TIMESTAMP 
+           WHERE id = ?`,
+          [exitLtp, cached.spotPrice, finalPnl, row.id],
+          (updateErr) => {
+            if (updateErr) {
+              return res.status(500).json({ success: false, message: updateErr.message });
+            }
+            res.json({ success: true, message: 'Trade exited successfully.', pnl: finalPnl });
+          }
+        );
+      });
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
 
 // Endpoint to get all signals and update status
 app.get('/api/signals', async (req, res) => {
@@ -2610,8 +2946,9 @@ const syncMarketData = async () => {
 
   // After sync finishes, run calculations using cached data
   try {
-    console.log(`[Sync Worker] Launching background decoders and alerts checker...`);
+    console.log(`[Sync Worker] Launching background decoders, paper trades updater, and alerts checker...`);
     await runAllDecoders();
+    await updateActivePaperTrades();
     await triggerOpenClawBackgroundAlerts();
   } catch (decErr) {
     console.error(`[Sync Worker] Error running calculations:`, decErr.message);

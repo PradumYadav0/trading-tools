@@ -158,6 +158,9 @@ const OpenClawAi = () => {
           setChartWeight(result.settings.chartWeight !== undefined ? result.settings.chartWeight : 40);
           setNewsWeight(result.settings.newsWeight !== undefined ? result.settings.newsWeight : 20);
           setTradingProfile(result.settings.tradingProfile !== undefined ? result.settings.tradingProfile : 'intraday_scalper');
+          if (result.settings.stoplossAtrMultiplier !== undefined) {
+            setAtrMultiplierSl(result.settings.stoplossAtrMultiplier);
+          }
 
           // Check if DB is empty but localStorage has legacy settings
           const localTgToken = localStorage.getItem('openclaw_tg_token') || '';
@@ -201,6 +204,9 @@ const OpenClawAi = () => {
             setAutoAlertsEnabled(result.settings.autoAlertsEnabled || false);
             setAutoAlertsInterval(result.settings.autoAlertsInterval || 5);
             setAutoAlertsMinConfidence(result.settings.autoAlertsMinConfidence || 75);
+            if (result.settings.stoplossAtrMultiplier !== undefined) {
+              setAtrMultiplierSl(result.settings.stoplossAtrMultiplier);
+            }
           }
         }
       } catch (err) {
@@ -227,7 +233,8 @@ const OpenClawAi = () => {
       pcrWeight: updated.pcrWeight !== undefined ? updated.pcrWeight : pcrWeight,
       chartWeight: updated.chartWeight !== undefined ? updated.chartWeight : chartWeight,
       newsWeight: updated.newsWeight !== undefined ? updated.newsWeight : newsWeight,
-      tradingProfile: updated.tradingProfile !== undefined ? updated.tradingProfile : tradingProfile
+      tradingProfile: updated.tradingProfile !== undefined ? updated.tradingProfile : tradingProfile,
+      stoplossAtrMultiplier: updated.stoplossAtrMultiplier !== undefined ? updated.stoplossAtrMultiplier : atrMultiplierSl
     };
 
     // Also update localStorage as a backup
@@ -342,6 +349,12 @@ const OpenClawAi = () => {
   const handleProfileChange = (val) => {
     setTradingProfile(val);
     saveSettings({ tradingProfile: val });
+  };
+
+  const handleAtrMultiplierSlChange = (val) => {
+    const numVal = parseFloat(val) || 1.5;
+    setAtrMultiplierSl(numVal);
+    saveSettings({ stoplossAtrMultiplier: numVal });
   };
 
   const sendTestNotification = async () => {
@@ -840,9 +853,11 @@ const OpenClawAi = () => {
                 <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Stoploss ATR Mult.</label>
                 <input 
                   type="number" 
-                  step="0.5"
+                  step="0.1"
+                  min="0.5"
+                  max="5.0"
                   value={atrMultiplierSl} 
-                  onChange={(e) => setAtrMultiplierSl(Number(e.target.value))}
+                  onChange={(e) => handleAtrMultiplierSlChange(e.target.value)}
                   style={{
                     width: '100%',
                     background: '#1c2128',

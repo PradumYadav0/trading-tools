@@ -1477,6 +1477,8 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   }
 
   const symbolStr = symbol || 'NIFTY';
+  const settings = await getSystemSettings();
+  const atrMultiplier = parseFloat(settings['stoploss_atr_multiplier']) || 1.5;
 
   // Fetch active pending signal for this symbol from SQLite DB (Memory Technique)
   const getActiveSignal = () => {
@@ -1739,6 +1741,28 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   const isShortTermBullish = lastEma9 > lastEma21 && lastClose > lastEma21;
   const isShortTermBearish = lastEma9 < lastEma21 && lastClose < lastEma21;
 
+  // Get last 15 candles for Price Action analysis by Gemini
+  const last15Candles = [];
+  const startCandleIdx = Math.max(0, chartCandles.length - 15);
+  for (let i = startCandleIdx; i < chartCandles.length; i++) {
+    const c = chartCandles[i];
+    let timeStr = '';
+    if (typeof c.time === 'number') {
+      timeStr = new Date(parseDhanTimestamp(c.time) * 1000).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
+    } else {
+      timeStr = c.time;
+    }
+    last15Candles.push({
+      time: timeStr,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      volume: c.volume
+    });
+  }
+  const last15CandlesStr = JSON.stringify(last15Candles, null, 2);
+
   // Multi-Timeframe Trend Concurrence Check
   let trendConcurrence = "MISALIGNED";
   if (isShortTermBullish && majorTrend === "BULLISH" && hourlyTrend === "BULLISH") {
@@ -1977,8 +2001,8 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   }
 
   const prompt = `You are the 'OpenClaw AI Agent Hub Orchestrator'. You manage three sub-agents to analyze the NIFTY/BANKNIFTY market and issue high-accuracy trading alerts:
-1. **Option Chain Agent**: Analyzes PCR, PCR change velocity, and Call/Put Open Interest blocks (resistance and support).
-2. **Chart Pattern Agent**: Analyzes trend direction (using EMA 9/21 relationship) and momentum (using RSI).
+1. **Option Chain Agent**: Analyzes PCR, PCR change velocity, and Call/Put Open Interest blocks (resistance and support). You MUST thoroughly inspect the "Full 20-Strike Change in OI Activity (ATM ±10 strikes)" data to detect where the heavy call writing (bearish ceiling) or heavy put writing (bullish floor) is concentrating, and check if call unwinding (short covering) or put unwinding (long liquidation) is occurring near the ATM strike.
+2. **Chart Pattern Agent**: Analyzes trend direction (using EMA 9/21 crossover), momentum (using RSI), and price action patterns (support/resistance breakout, double tops/bottoms, candlestick structures like engulfing/pin-bars) from the "Last 15 Candles" list provided in the data.
 3. **News Sentiment Agent**: Analyzes the recent financial news headlines and scores the market mood as BULLISH, BEARISH, or NEUTRAL.
 
 You must weight their importance according to the weights assigned by the user:
@@ -1995,6 +2019,15 @@ You must weight their importance according to the weights assigned by the user:
   * For a CALL trade (Bullish setup), the 1-Hour trend should be BULLISH.
   * For a PUT trade (Bearish setup), the 1-Hour trend should be BEARISH.
 - If the primary chart indicators suggest a trade but the 1-Hour trend conflicts (e.g., trying to buy Call when 1-Hour trend is BEARISH, or trying to buy Put when 1-Hour trend is BULLISH), you should be highly conservative: either output "WAIT" or significantly reduce the "confidence" score (e.g., below 65%). Explain this alignment decision in your thoughts.
+
+*INDEX TARGET & STOPLOSS GUIDELINES:*
+- You must calculate realistic and noise-tolerant targets and stoplosses for the index (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY).
+- To prevent trades from being prematurely stopped out by normal market noise and minor price fluctuations, enforce the following ATR-based and minimum absolute point rules:
+  * NIFTY: Stoploss must be at least ${atrMultiplier} * ATR (minimum 25 points). Target 1 must be at least ${atrMultiplier} * ATR to 2 * ATR (minimum 30 points) from the entry. Target 2 must be at least 3 * ATR (minimum 60 points).
+  * BANKNIFTY: Stoploss must be at least ${atrMultiplier} * ATR (minimum 75 points). Target 1 must be at least ${atrMultiplier} * ATR to 2 * ATR (minimum 100 points). Target 2 must be at least 3 * ATR (minimum 200 points).
+  * FINNIFTY: Stoploss must be at least ${atrMultiplier} * ATR (minimum 30 points). Target 1 must be at least 40 points. Target 2 must be at least 80 points.
+  * MIDCPNIFTY: Stoploss must be at least ${atrMultiplier} * ATR (minimum 20 points). Target 1 must be at least 25 points. Target 2 must be at least 50 points.
+- Ensure that the Risk-to-Reward Ratio is healthy (minimum 1:1.2, ideally 1:1.5 or higher). Never set a target or stoploss closer than the minimum boundaries defined above.
 
 *OPTION TRADING LEVEL SELECTION & HOLDS:*
 - If you decide to issue a "CALL" alert:
@@ -2014,6 +2047,9 @@ Data for ${symbolStr}:
 - Current PCR: ${pcr}
 - Current PCVR (Put-Call Volume Ratio): ${pcvr}
 - PCR values for last few minutes (newest to oldest): ${historicalPcrs.map(v => v.toFixed(2)).join(', ')}
+- Last 15 Candles (${primaryInterval}-minute interval):
+${last15CandlesStr}
+
 - Technical indicators (${primaryInterval}m timeframe):
   * EMA 9: ${lastEma9}
   * EMA 21: ${lastEma21}
@@ -2657,7 +2693,8 @@ app.get('/api/openclaw/settings', (req, res) => {
       pcrWeight: 40,
       chartWeight: 40,
       newsWeight: 20,
-      tradingProfile: 'intraday_scalper'
+      tradingProfile: 'intraday_scalper',
+      stoplossAtrMultiplier: 1.5
     };
     if (rows) {
       rows.forEach(r => {
@@ -2673,6 +2710,7 @@ app.get('/api/openclaw/settings', (req, res) => {
         if (r.key === 'chart_weight') settings.chartWeight = parseInt(r.value, 10) || 40;
         if (r.key === 'news_weight') settings.newsWeight = parseInt(r.value, 10) || 20;
         if (r.key === 'trading_profile') settings.tradingProfile = r.value;
+        if (r.key === 'stoploss_atr_multiplier') settings.stoplossAtrMultiplier = parseFloat(r.value) || 1.5;
       });
     }
     res.json({ success: true, settings });
@@ -2693,7 +2731,8 @@ app.post('/api/openclaw/settings', (req, res) => {
     pcrWeight,
     chartWeight,
     newsWeight,
-    tradingProfile
+    tradingProfile,
+    stoplossAtrMultiplier
   } = req.body;
 
   const params = [
@@ -2708,7 +2747,8 @@ app.post('/api/openclaw/settings', (req, res) => {
     { key: 'pcr_weight', val: String(pcrWeight !== undefined ? pcrWeight : 40) },
     { key: 'chart_weight', val: String(chartWeight !== undefined ? chartWeight : 40) },
     { key: 'news_weight', val: String(newsWeight !== undefined ? newsWeight : 20) },
-    { key: 'trading_profile', val: tradingProfile || 'intraday_scalper' }
+    { key: 'trading_profile', val: tradingProfile || 'intraday_scalper' },
+    { key: 'stoploss_atr_multiplier', val: String(stoplossAtrMultiplier || 1.5) }
   ];
 
   db.serialize(() => {

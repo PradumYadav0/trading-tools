@@ -2840,6 +2840,26 @@ app.get('/api/openclaw/news', async (req, res) => {
   }
 });
 
+const backgroundLogs = [];
+function logToBackground(text, type = 'info') {
+  const timestamp = new Date().toLocaleTimeString('en-US', { 
+    timeZone: 'Asia/Kolkata', 
+    hour: '2-digit', 
+    minute: '2-digit', 
+    second: '2-digit',
+    hour12: false
+  });
+  backgroundLogs.push({ timestamp, text, type });
+  if (backgroundLogs.length > 60) {
+    backgroundLogs.shift();
+  }
+  console.log(`[OpenClaw Log] ${text}`);
+}
+
+app.get('/api/openclaw/logs', (req, res) => {
+  res.json({ success: true, logs: backgroundLogs });
+});
+
 // Background Scanner Orchestration Helper
 function getSystemSettings() {
   return new Promise((resolve) => {
@@ -2904,13 +2924,13 @@ async function triggerOpenClawBackgroundAlerts() {
     }
     
     lastOpenClawAlertMinute = minute;
-    console.log(`[OpenClaw Scheduler] Starting auto-scan at ${hour}:${minute} IST (Interval: ${interval}m, Min Confidence: ${minConfidence}%, Weights: PCR=${pcrWeight}%, Chart=${chartWeight}%, News=${newsWeight}%)`);
+    logToBackground(`Scheduler starting auto-scan. Interval: ${interval}m, Min Conf: ${minConfidence}%, Weights: PCR=${pcrWeight}%, Chart=${chartWeight}%, News=${newsWeight}%`, 'info');
 
     const symbols = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
 
     for (const symbol of symbols) {
       try {
-        console.log(`[OpenClaw Scheduler] Scanning ${symbol}...`);
+        logToBackground(`Scanning index ${symbol}...`, 'info');
 
         // Check if price has changed to prevent duplicate API hits during holiday/halts
         let currentSpot = 0;
@@ -2926,7 +2946,7 @@ async function triggerOpenClawBackgroundAlerts() {
         }
 
         if (currentSpot > 0 && currentSpot === lastAlertSpotPrices[symbol]) {
-          console.log(`[OpenClaw Scheduler] Skipping ${symbol} - Spot price (${currentSpot}) has not changed since last scan (potential holiday or market halt).`);
+          logToBackground(`Skipping ${symbol} - Spot price (${currentSpot}) unchanged since last scan.`, 'info');
           continue;
         }
 
@@ -2939,22 +2959,22 @@ async function triggerOpenClawBackgroundAlerts() {
         // Update last spot price
         lastAlertSpotPrices[symbol] = indicators.spotPrice;
 
-        console.log(`[OpenClaw Scheduler] ${symbol} Scan Completed: Action=${actionData.action}, Confidence=${actionData.confidence}%`);
+        logToBackground(`${symbol} scan completed. Action: ${actionData.action}, Confidence: ${actionData.confidence}%`, actionData.action !== 'WAIT' ? 'success' : 'info');
 
         if ((actionData.action === 'CALL' || actionData.action === 'PUT') && actionData.confidence >= minConfidence) {
-          console.log(`[OpenClaw Scheduler] Strong signal detected for ${symbol}: ${actionData.action} (${actionData.confidence}%)`);
+          logToBackground(`🚨 Strong signal detected for ${symbol}: ${actionData.action} (${actionData.confidence}%)`, 'success');
           await sendOpenClawNotifications(symbol, actionData, settings, indicators);
           saveOpenClawSignalToDb(symbol, actionData, indicators.spotPrice);
         }
       } catch (err) {
-        console.error(`[OpenClaw Scheduler] Error scanning ${symbol}:`, err.message);
+        logToBackground(`Error scanning ${symbol}: ${err.message}`, 'error');
       }
 
       // 10-second delay between symbols to avoid concurrent Gemini API rate limits (429)
       await new Promise(r => setTimeout(r, 10000));
     }
   } catch (error) {
-    console.error('[OpenClaw Scheduler] Error in background scanner loop:', error.message);
+    logToBackground(`Error in background scanner loop: ${error.message}`, 'error');
   }
 }
 
@@ -3864,6 +3884,25 @@ async function startTelegramBotListener() {
                   await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
                     chat_id: currentTelegramChatId,
                     text: `⚠️ Usage: \`/alerts on\` or \`/alerts off\``,
+                    parse_mode: 'Markdown'
+                  });
+                }
+              } else if (text.startsWith('/logs')) {
+                const lastLogs = backgroundLogs.slice(-15);
+                if (lastLogs.length === 0) {
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: `ℹ️ No background logs recorded yet.`
+                  });
+                } else {
+                  let logMsg = `📋 *OpenClaw Background Logs (Last 15):* \n\n\`\`\``;
+                  lastLogs.forEach(l => {
+                    logMsg += `[${l.timestamp}] ${l.text}\n`;
+                  });
+                  logMsg += `\`\`\``;
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: logMsg,
                     parse_mode: 'Markdown'
                   });
                 }

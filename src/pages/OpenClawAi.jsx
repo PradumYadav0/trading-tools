@@ -40,6 +40,8 @@ const OpenClawAi = () => {
   const [autoAlertsMinConfidence, setAutoAlertsMinConfidence] = useState(75);
   const [strictTrendFilter, setStrictTrendFilter] = useState(true);
   const [notificationStatus, setNotificationStatus] = useState({ type: '', message: '' });
+  const [schedulerLogs, setSchedulerLogs] = useState([]);
+  const [logTab, setLogTab] = useState('background');
   
   const formatOi = (val) => {
     if (!val || val === 0) return '0';
@@ -134,13 +136,27 @@ const OpenClawAi = () => {
     return 'NEUTRAL';
   };
 
+  const fetchSchedulerLogs = async () => {
+    try {
+      const response = await fetch('/api/openclaw/logs');
+      const result = await response.json();
+      if (result.success && result.logs) {
+        setSchedulerLogs(result.logs);
+      }
+    } catch (e) {
+      console.error('Failed to fetch scheduler logs:', e);
+    }
+  };
+
   // Load configuration from backend on mount (with localStorage fallback migration)
   useEffect(() => {
     fetchLiveNews();
     fetchSignals();
+    fetchSchedulerLogs();
     
     const intervalId = setInterval(() => {
       fetchSignals();
+      fetchSchedulerLogs();
     }, 15000); // Polling every 15s to keep track of trade status transitions
 
     const fetchSettings = async () => {
@@ -1240,38 +1256,94 @@ const OpenClawAi = () => {
           
           {/* Animated Console Terminal */}
           <div className="terminal-box">
-            <div className="terminal-header">
-              <div style={{ display: 'flex', gap: '6px' }}>
-                <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ef4444' }}></div>
-                <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#eab308' }}></div>
-                <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#22c55e' }}></div>
+            <div className="terminal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ef4444' }}></div>
+                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#eab308' }}></div>
+                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#22c55e' }}></div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: '#8b949e', fontSize: '0.75rem', fontWeight: '600' }}>
+                  <Terminal size={12} />
+                  <span>OpenClaw Multi-Agent Logs</span>
+                </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: '#8b949e', fontSize: '0.75rem' }}>
-                <Terminal size={12} />
-                <span>OpenClaw Multi-Agent Engine Logs</span>
+              
+              <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', padding: '2px' }}>
+                <button
+                  onClick={() => setLogTab('background')}
+                  style={{
+                    background: logTab === 'background' ? '#21262d' : 'transparent',
+                    border: 'none',
+                    color: logTab === 'background' ? 'white' : '#8b949e',
+                    fontSize: '0.65rem',
+                    fontWeight: 'bold',
+                    padding: '0.2rem 0.5rem',
+                    borderRadius: '3px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Background Scanner
+                </button>
+                <button
+                  onClick={() => setLogTab('manual')}
+                  style={{
+                    background: logTab === 'manual' ? '#21262d' : 'transparent',
+                    border: 'none',
+                    color: logTab === 'manual' ? 'white' : '#8b949e',
+                    fontSize: '0.65rem',
+                    fontWeight: 'bold',
+                    padding: '0.2rem 0.5rem',
+                    borderRadius: '3px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Manual Runs
+                </button>
               </div>
             </div>
 
             <div className="terminal-body">
-              {terminalLogs.length === 0 && (
-                <div className="terminal-idle">
-                  <Cpu size={24} style={{ marginBottom: '0.5rem', opacity: 0.5 }} />
-                  <div>OpenClaw AI terminal status: <strong>IDLE</strong></div>
-                  <div style={{ fontSize: '0.75rem', marginTop: '0.25rem', opacity: 0.7 }}>Awaiting parameters config. Click "Run Agent Analysis" above.</div>
-                </div>
-              )}
-              
-              {terminalLogs.map((log, index) => (
-                <div key={index} className="terminal-line" style={{ animation: 'terminalSlideIn 0.3s ease' }}>
-                  <span className="terminal-time">[{log.timestamp}]</span>
-                  <span className={`terminal-text ${log.type}`}> {log.text}</span>
-                </div>
-              ))}
-              
-              {loading && (
-                <div className="terminal-line blink" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#58a6ff' }}>
-                  <span>●</span> <span>Agent cluster executing...</span>
-                </div>
+              {logTab === 'manual' ? (
+                <>
+                  {terminalLogs.length === 0 && (
+                    <div className="terminal-idle">
+                      <Cpu size={24} style={{ marginBottom: '0.5rem', opacity: 0.5 }} />
+                      <div>OpenClaw AI terminal status: <strong>IDLE</strong></div>
+                      <div style={{ fontSize: '0.75rem', marginTop: '0.25rem', opacity: 0.7 }}>Awaiting parameters config. Click "Run Agent Analysis" above.</div>
+                    </div>
+                  )}
+                  
+                  {terminalLogs.map((log, index) => (
+                    <div key={index} className="terminal-line" style={{ animation: 'terminalSlideIn 0.3s ease' }}>
+                      <span className="terminal-time">[{log.timestamp}]</span>
+                      <span className={`terminal-text ${log.type}`}> {log.text}</span>
+                    </div>
+                  ))}
+                  
+                  {loading && (
+                    <div className="terminal-line blink" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#58a6ff' }}>
+                      <span>●</span> <span>Agent cluster executing...</span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  {schedulerLogs.length === 0 && (
+                    <div className="terminal-idle">
+                      <Bot size={24} style={{ marginBottom: '0.5rem', opacity: 0.5 }} />
+                      <div>OpenClaw background scanner status: <strong>IDLE/WAITING</strong></div>
+                      <div style={{ fontSize: '0.75rem', marginTop: '0.25rem', opacity: 0.7 }}>Background loops will log here. Ensure Auto-Alerts is enabled.</div>
+                    </div>
+                  )}
+                  
+                  {schedulerLogs.map((log, index) => (
+                    <div key={index} className="terminal-line" style={{ animation: 'terminalSlideIn 0.3s ease' }}>
+                      <span className="terminal-time">[{log.timestamp}]</span>
+                      <span className={`terminal-text ${log.type}`}> {log.text}</span>
+                    </div>
+                  ))}
+                </>
               )}
             </div>
           </div>

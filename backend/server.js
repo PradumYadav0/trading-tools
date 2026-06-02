@@ -2029,6 +2029,11 @@ You must weight their importance according to the weights assigned by the user:
   * MIDCPNIFTY: Stoploss must be at least ${atrMultiplier} * ATR (minimum 20 points). Target 1 must be at least 25 points. Target 2 must be at least 50 points.
 - Ensure that the Risk-to-Reward Ratio is healthy (minimum 1:1.2, ideally 1:1.5 or higher). Never set a target or stoploss closer than the minimum boundaries defined above.
 
+*SCALPER FOCUS & HOLDS:*
+- The user is an active scalper who holds positions for 10 to 60 minutes max.
+- The 1-Hour chart represents the major trend anchor, the 15-minute chart represents the mid-term trend bias, and the 5-minute/3-minute chart represents the execution trigger.
+- When generating targets and stoplosses, keep them optimized for a 10 - 60 minute holding duration. Avoid setting massive targets (like 150+ points for Nifty) that require days to hit. Instead, focus on capture-and-exit: Target 1 should be a quick intraday swing target reachable within the next few candles, and Stoploss should protect the scalp.
+
 *OPTION TRADING LEVEL SELECTION & HOLDS:*
 - If you decide to issue a "CALL" alert:
   * Select either the suggested ATM or ITM CALL Option contract (ATM: "${atmCallName}", ITM: "${itmCallName}"). Set \`"suggestedOptionContract"\` to its contract name and \`"optionPremiumLtp"\` to its LTP.

@@ -2143,6 +2143,57 @@ INSTRUCTIONS FOR WRITING:
     throw new Error('AI response was not in a valid JSON format');
   }
 
+  // Apply Strict Trend Filter and Unwinding safeguards on the parsed result
+  const isStrictTrendFilterEnabled = settings['strict_trend_filter'] !== 'false';
+  
+  if (isStrictTrendFilterEnabled && !activeSignal) {
+    if (parsedResult.action === 'CALL' && hourlyTrend === 'BEARISH') {
+      console.log(`[OpenClaw Safeguard] Overriding CALL signal for ${symbolStr} because 1-Hour Trend is BEARISH.`);
+      parsedResult.action = 'WAIT';
+      parsedResult.suggestedOptionContract = null;
+      parsedResult.optionPremiumLtp = null;
+      parsedResult.optionTarget1 = null;
+      parsedResult.optionTarget2 = null;
+      parsedResult.optionStoploss = null;
+      parsedResult.trailingStoploss = null;
+      parsedResult.summary = `[SAFEGUARD OVERRIDE] AI suggested CALL, but trend-filter blocked it because 1-Hour trend is BEARISH. Waiting for trend alignment.`;
+    } else if (parsedResult.action === 'PUT' && hourlyTrend === 'BULLISH') {
+      console.log(`[OpenClaw Safeguard] Overriding PUT signal for ${symbolStr} because 1-Hour Trend is BULLISH.`);
+      parsedResult.action = 'WAIT';
+      parsedResult.suggestedOptionContract = null;
+      parsedResult.optionPremiumLtp = null;
+      parsedResult.optionTarget1 = null;
+      parsedResult.optionTarget2 = null;
+      parsedResult.optionStoploss = null;
+      parsedResult.trailingStoploss = null;
+      parsedResult.summary = `[SAFEGUARD OVERRIDE] AI suggested PUT, but trend-filter blocked it because 1-Hour trend is BULLISH. Waiting for trend alignment.`;
+    }
+
+    // Short Covering / Long Unwinding Safeguards:
+    if (parsedResult.action === 'CALL' && longUnwindingDetected) {
+      console.log(`[OpenClaw Safeguard] Overriding CALL signal for ${symbolStr} due to active Put Unwinding (bearish pressure).`);
+      parsedResult.action = 'WAIT';
+      parsedResult.suggestedOptionContract = null;
+      parsedResult.optionPremiumLtp = null;
+      parsedResult.optionTarget1 = null;
+      parsedResult.optionTarget2 = null;
+      parsedResult.optionStoploss = null;
+      parsedResult.trailingStoploss = null;
+      parsedResult.summary = `[SAFEGUARD OVERRIDE] CALL signal blocked because active Put Unwinding (long liquidation) was detected near ATM strikes.`;
+    }
+    if (parsedResult.action === 'PUT' && shortCoveringDetected) {
+      console.log(`[OpenClaw Safeguard] Overriding PUT signal for ${symbolStr} due to active Call Unwinding (short covering / squeeze).`);
+      parsedResult.action = 'WAIT';
+      parsedResult.suggestedOptionContract = null;
+      parsedResult.optionPremiumLtp = null;
+      parsedResult.optionTarget1 = null;
+      parsedResult.optionTarget2 = null;
+      parsedResult.optionStoploss = null;
+      parsedResult.trailingStoploss = null;
+      parsedResult.summary = `[SAFEGUARD OVERRIDE] PUT signal blocked because active Call Unwinding (short covering/short squeeze) was detected near ATM strikes.`;
+    }
+  }
+
   return {
     data: parsedResult,
     indicators: {
@@ -2694,7 +2745,8 @@ app.get('/api/openclaw/settings', (req, res) => {
       chartWeight: 40,
       newsWeight: 20,
       tradingProfile: 'intraday_scalper',
-      stoplossAtrMultiplier: 1.5
+      stoplossAtrMultiplier: 1.5,
+      strictTrendFilter: true
     };
     if (rows) {
       rows.forEach(r => {
@@ -2711,6 +2763,7 @@ app.get('/api/openclaw/settings', (req, res) => {
         if (r.key === 'news_weight') settings.newsWeight = parseInt(r.value, 10) || 20;
         if (r.key === 'trading_profile') settings.tradingProfile = r.value;
         if (r.key === 'stoploss_atr_multiplier') settings.stoplossAtrMultiplier = parseFloat(r.value) || 1.5;
+        if (r.key === 'strict_trend_filter') settings.strictTrendFilter = r.value !== 'false';
       });
     }
     res.json({ success: true, settings });
@@ -2732,7 +2785,8 @@ app.post('/api/openclaw/settings', (req, res) => {
     chartWeight,
     newsWeight,
     tradingProfile,
-    stoplossAtrMultiplier
+    stoplossAtrMultiplier,
+    strictTrendFilter
   } = req.body;
 
   const params = [
@@ -2748,7 +2802,8 @@ app.post('/api/openclaw/settings', (req, res) => {
     { key: 'chart_weight', val: String(chartWeight !== undefined ? chartWeight : 40) },
     { key: 'news_weight', val: String(newsWeight !== undefined ? newsWeight : 20) },
     { key: 'trading_profile', val: tradingProfile || 'intraday_scalper' },
-    { key: 'stoploss_atr_multiplier', val: String(stoplossAtrMultiplier || 1.5) }
+    { key: 'stoploss_atr_multiplier', val: String(stoplossAtrMultiplier || 1.5) },
+    { key: 'strict_trend_filter', val: strictTrendFilter === false ? 'false' : 'true' }
   ];
 
   db.serialize(() => {

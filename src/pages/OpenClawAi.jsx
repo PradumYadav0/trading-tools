@@ -38,6 +38,7 @@ const OpenClawAi = () => {
   const [autoAlertsEnabled, setAutoAlertsEnabled] = useState(false);
   const [autoAlertsInterval, setAutoAlertsInterval] = useState(5);
   const [autoAlertsMinConfidence, setAutoAlertsMinConfidence] = useState(75);
+  const [strictTrendFilter, setStrictTrendFilter] = useState(true);
   const [notificationStatus, setNotificationStatus] = useState({ type: '', message: '' });
   
   const formatOi = (val) => {
@@ -161,6 +162,9 @@ const OpenClawAi = () => {
           if (result.settings.stoplossAtrMultiplier !== undefined) {
             setAtrMultiplierSl(result.settings.stoplossAtrMultiplier);
           }
+          if (result.settings.strictTrendFilter !== undefined) {
+            setStrictTrendFilter(result.settings.strictTrendFilter);
+          }
 
           // Check if DB is empty but localStorage has legacy settings
           const localTgToken = localStorage.getItem('openclaw_tg_token') || '';
@@ -207,6 +211,9 @@ const OpenClawAi = () => {
             if (result.settings.stoplossAtrMultiplier !== undefined) {
               setAtrMultiplierSl(result.settings.stoplossAtrMultiplier);
             }
+            if (result.settings.strictTrendFilter !== undefined) {
+              setStrictTrendFilter(result.settings.strictTrendFilter);
+            }
           }
         }
       } catch (err) {
@@ -234,7 +241,8 @@ const OpenClawAi = () => {
       chartWeight: updated.chartWeight !== undefined ? updated.chartWeight : chartWeight,
       newsWeight: updated.newsWeight !== undefined ? updated.newsWeight : newsWeight,
       tradingProfile: updated.tradingProfile !== undefined ? updated.tradingProfile : tradingProfile,
-      stoplossAtrMultiplier: updated.stoplossAtrMultiplier !== undefined ? updated.stoplossAtrMultiplier : atrMultiplierSl
+      stoplossAtrMultiplier: updated.stoplossAtrMultiplier !== undefined ? updated.stoplossAtrMultiplier : atrMultiplierSl,
+      strictTrendFilter: updated.strictTrendFilter !== undefined ? updated.strictTrendFilter : strictTrendFilter
     };
 
     // Also update localStorage as a backup
@@ -355,6 +363,11 @@ const OpenClawAi = () => {
     const numVal = parseFloat(val) || 1.5;
     setAtrMultiplierSl(numVal);
     saveSettings({ stoplossAtrMultiplier: numVal });
+  };
+
+  const handleStrictTrendFilterChange = (val) => {
+    setStrictTrendFilter(val);
+    saveSettings({ strictTrendFilter: val });
   };
 
   const sendTestNotification = async () => {
@@ -786,6 +799,38 @@ const OpenClawAi = () => {
                 <option value="intraday_scalper">📈 Intraday Scalper (Hold: 15-45 mins, 3m/5m charts)</option>
                 <option value="short_term_trend">🎯 Short-Term Trend (Hold: 1-3 hours, 5m/15m charts)</option>
               </select>
+            </div>
+
+            <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', color: strictTrendFilter ? '#10b981' : 'var(--text-secondary)' }}>
+                    {strictTrendFilter ? '🛡️ Strict Trend Filter: ON' : '⚠️ Strict Trend Filter: OFF'}
+                  </span>
+                  <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.1rem' }}>
+                    Blocks counter-trend trades & short squeezes
+                  </span>
+                </div>
+                <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '38px', height: '20px' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={strictTrendFilter}
+                    onChange={(e) => handleStrictTrendFilterChange(e.target.checked)}
+                    style={{ opacity: 0, width: 0, height: 0 }}
+                  />
+                  <span style={{
+                    position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundColor: strictTrendFilter ? '#10b981' : '#30363d',
+                    transition: '.4s', borderRadius: '20px'
+                  }}>
+                    <span style={{
+                      position: 'absolute', content: '""', height: '14px', width: '14px', left: '3px', bottom: '3px',
+                      backgroundColor: 'white', transition: '.4s', borderRadius: '50%',
+                      transform: strictTrendFilter ? 'translateX(18px)' : 'translateX(0px)'
+                    }}></span>
+                  </span>
+                </label>
+              </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>

@@ -2384,7 +2384,11 @@ INSTRUCTIONS FOR WRITING:
       averageIv,
       shortCoveringDetected,
       longUnwindingDetected,
-      nearbyStrikesOiData
+      nearbyStrikesOiData,
+      smartMoneySentiment,
+      smartMoneyUnwindingWarning,
+      freshResistanceWall15m,
+      freshSupportWall15m
     }
   };
 }

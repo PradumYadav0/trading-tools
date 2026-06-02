@@ -3906,6 +3906,28 @@ async function startTelegramBotListener() {
                     parse_mode: 'Markdown'
                   });
                 }
+              } else if (text.startsWith('/safeguards')) {
+                const parts = text.split(' ');
+                const status = (parts[1] || '').toLowerCase();
+                if (status === 'on' || status === 'off') {
+                  const dbVal = status === 'on' ? 'true' : 'false';
+                  db.run(`INSERT OR REPLACE INTO system_settings (key, value) VALUES ('strict_trend_filter', ?)`, [dbVal], async (err) => {
+                    let replyText = err 
+                      ? `❌ Failed to update safeguard settings: ${err.message}` 
+                      : `🛡️ Strict Trend Filter safeguards are now turned *${status.toUpperCase()}*.`;
+                    await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                      chat_id: currentTelegramChatId,
+                      text: replyText,
+                      parse_mode: 'Markdown'
+                    });
+                  });
+                } else {
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: `⚠️ Usage: \`/safeguards on\` or \`/safeguards off\``,
+                    parse_mode: 'Markdown'
+                  });
+                }
               } else if (text.startsWith('/profile')) {
                 const parts = text.split(' ');
                 const profile = parts[1] || '';
@@ -3985,15 +4007,455 @@ async function startTelegramBotListener() {
                     text: `❌ Failed to fetch news: ${err.message}`
                   });
                 }
+              } else if (text.startsWith('/settings')) {
+                try {
+                  const settings = await getSystemSettings();
+                  const pcrWeight = settings['pcr_weight'] || '40';
+                  const chartWeight = settings['chart_weight'] || '40';
+                  const newsWeight = settings['news_weight'] || '20';
+                  const autoAlerts = settings['auto_alerts_enabled'] === 'true' ? '🟢 ENABLED' : '🔴 DISABLED';
+                  const minConf = settings['auto_alerts_min_confidence'] || '75';
+                  const profile = settings['trading_profile'] || 'intraday_scalper';
+                  const slMultiplier = settings['stoploss_atr_multiplier'] || '1.5';
+                  const trendFilter = settings['strict_trend_filter'] !== 'false' ? '🟢 ENABLED' : '🔴 DISABLED';
+                  const walletBal = parseFloat(settings['paper_wallet_balance'] || '1000000').toLocaleString('en-IN', { style: 'currency', currency: 'INR' });
+
+                  const settingsMsg = `⚙️ *Current System Settings:* \n\n` +
+                    `• *Strict Trend Safeguard*: ${trendFilter}\n` +
+                    `• *Stoploss ATR Multiplier*: ${slMultiplier}x\n` +
+                    `• *Background Scanner Alerts*: ${autoAlerts}\n` +
+                    `• *Min Auto-Alert Confidence*: ${minConf}%\n` +
+                    `• *Trading Profile*: \`${profile}\`\n` +
+                    `• *Paper Wallet Balance*: ${walletBal}\n` +
+                    `• *Analysis Weights*: PCR: ${pcrWeight}% | Chart: ${chartWeight}% | News: ${newsWeight}%\n`;
+
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: settingsMsg,
+                    parse_mode: 'Markdown'
+                  });
+                } catch (err) {
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: `❌ Failed to fetch settings: ${err.message}`
+                  });
+                }
+              } else if (text.startsWith('/set_sl')) {
+                const parts = text.split(' ');
+                const val = parseFloat(parts[1]);
+                if (isNaN(val) || val <= 0 || val > 10) {
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: `⚠️ Usage: \`/set_sl [multiplier]\` (e.g. \`/set_sl 1.5\` or \`/set_sl 2.0\`). Value must be between 0.1 and 10.`
+                  });
+                } else {
+                  db.run(`INSERT OR REPLACE INTO system_settings (key, value) VALUES ('stoploss_atr_multiplier', ?)`, [String(val)], async (err) => {
+                    const replyText = err 
+                      ? `❌ Failed to update Stoploss ATR Multiplier: ${err.message}` 
+                      : `📐 *Stoploss ATR Multiplier* is now set to *${val}x*.`;
+                    await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                      chat_id: currentTelegramChatId,
+                      text: replyText,
+                      parse_mode: 'Markdown'
+                    });
+                    logToBackground(`Telegram updated stoploss_atr_multiplier to ${val}`);
+                  });
+                }
+              } else if (text.startsWith('/set_min_conf')) {
+                const parts = text.split(' ');
+                const val = parseInt(parts[1], 10);
+                if (isNaN(val) || val < 10 || val > 100) {
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: `⚠️ Usage: \`/set_min_conf [confidence]\` (e.g. \`/set_min_conf 80\`). Value must be between 10 and 100.`
+                  });
+                } else {
+                  db.run(`INSERT OR REPLACE INTO system_settings (key, value) VALUES ('auto_alerts_min_confidence', ?)`, [String(val)], async (err) => {
+                    const replyText = err 
+                      ? `❌ Failed to update Minimum Confidence: ${err.message}` 
+                      : `🎯 *Minimum Alert Confidence* is now set to *${val}%*.`;
+                    await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                      chat_id: currentTelegramChatId,
+                      text: replyText,
+                      parse_mode: 'Markdown'
+                    });
+                    logToBackground(`Telegram updated auto_alerts_min_confidence to ${val}%`);
+                  });
+                }
+              } else if (text.startsWith('/wallet')) {
+                try {
+                  const settings = await getSystemSettings();
+                  const rawBal = parseFloat(settings['paper_wallet_balance'] || '1000000');
+                  const balance = rawBal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' });
+                  db.get(`SELECT COUNT(*) as count FROM paper_trades WHERE status = 'ACTIVE'`, [], async (err, row) => {
+                    const activeCount = row ? row.count : 0;
+                    const walletMsg = `💳 *Paper Trading Wallet Details:*\n\n` +
+                      `• *Available Balance*: ${balance}\n` +
+                      `• *Active Positions*: ${activeCount}\n\n` +
+                      `Use \`/positions\` to see active trades, or \`/reset_wallet\` to wipe portfolio and reset balance.`;
+                    await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                      chat_id: currentTelegramChatId,
+                      text: walletMsg,
+                      parse_mode: 'Markdown'
+                    });
+                  });
+                } catch (err) {
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: `❌ Failed to fetch wallet: ${err.message}`
+                  });
+                }
+              } else if (text.startsWith('/positions')) {
+                try {
+                  if (isIndianMarketOpen()) {
+                    await updateActivePaperTrades();
+                  }
+                  db.all(`SELECT * FROM paper_trades WHERE status = 'ACTIVE' ORDER BY created_at DESC`, [], async (err, rows) => {
+                    if (err) {
+                      await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                        chat_id: currentTelegramChatId,
+                        text: `❌ Error fetching active paper trades: ${err.message}`
+                      });
+                      return;
+                    }
+                    if (!rows || rows.length === 0) {
+                      await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                        chat_id: currentTelegramChatId,
+                        text: `ℹ️ *No active paper trading positions.*`
+                      });
+                      return;
+                    }
+                    let posMsg = `📊 *Active Paper Trading Positions:* \n\n`;
+                    rows.forEach(r => {
+                      const pnlStr = r.pnl >= 0 ? `🟢 +₹${r.pnl.toFixed(2)}` : `🔴 -₹${Math.abs(r.pnl).toFixed(2)}`;
+                      posMsg += `• *ID ${r.id}: ${r.contract_name}* (Qty: ${r.qty} lots)\n` +
+                        `  Entry Premium: ₹${r.entry_premium.toFixed(2)} | Target: ₹${r.target_premium ? r.target_premium.toFixed(2) : 'N/A'} | SL: ₹${r.stoploss_premium ? r.stoploss_premium.toFixed(2) : 'N/A'}\n` +
+                        `  Current P&L: *${pnlStr}*\n\n`;
+                    });
+                    await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                      chat_id: currentTelegramChatId,
+                      text: posMsg,
+                      parse_mode: 'Markdown'
+                    });
+                  });
+                } catch (err) {
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: `❌ Failed to load positions: ${err.message}`
+                  });
+                }
+              } else if (text.startsWith('/close')) {
+                const parts = text.split(' ');
+                const target = parts[1];
+                if (!target) {
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: `⚠️ Usage: \`/close [ID]\` (e.g. \`/close 3\`) or \`/close [SYMBOL]\` (e.g. \`/close NIFTY\`) to exit active paper trades.`,
+                    parse_mode: 'Markdown'
+                  });
+                  return;
+                }
+
+                const tradeId = parseInt(target, 10);
+                let query = '';
+                let queryParams = [];
+                if (!isNaN(tradeId)) {
+                  query = `SELECT * FROM paper_trades WHERE id = ? AND status = 'ACTIVE'`;
+                  queryParams = [tradeId];
+                } else {
+                  query = `SELECT * FROM paper_trades WHERE symbol = ? AND status = 'ACTIVE'`;
+                  queryParams = [target.toUpperCase()];
+                }
+
+                db.all(query, queryParams, async (err, rows) => {
+                  if (err) {
+                    await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                      chat_id: currentTelegramChatId,
+                      text: `❌ Database error: ${err.message}`
+                    });
+                    return;
+                  }
+                  if (!rows || rows.length === 0) {
+                    await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                      chat_id: currentTelegramChatId,
+                      text: `ℹ️ No active paper positions found matching: *${target.toUpperCase()}*.`
+                    });
+                    return;
+                  }
+
+                  let closedList = [];
+                  let errorCount = 0;
+                  for (const row of rows) {
+                    try {
+                      const symbol = row.symbol;
+                      const cacheKey = `${symbol}_first`;
+                      const cached = getCachedData('optionChain', cacheKey, 300000);
+                      if (!cached || !cached.data) {
+                        errorCount++;
+                        continue;
+                      }
+
+                      const cParts = row.contract_name.split(' ');
+                      const strike = parseFloat(cParts[cParts.length - 2]);
+                      const optType = cParts[cParts.length - 1];
+                      const strikeData = cached.data.find(s => s.strike === strike);
+                      if (!strikeData) {
+                        errorCount++;
+                        continue;
+                      }
+
+                      const exitLtp = optType === 'CE' ? strikeData.callLtp : strikeData.putLtp;
+                      if (!exitLtp || exitLtp <= 0) {
+                        errorCount++;
+                        continue;
+                      }
+
+                      const settings = await getSystemSettings();
+                      let balance = parseFloat(settings['paper_wallet_balance'] || '1000000');
+                      let lotSize = 50;
+                      if (symbol === 'NIFTY') lotSize = 50;
+                      else if (symbol === 'BANKNIFTY') lotSize = 15;
+                      else if (symbol === 'FINNIFTY') lotSize = 40;
+                      else if (symbol === 'MIDCPNIFTY') lotSize = 75;
+
+                      const totalQty = row.qty * lotSize;
+                      const finalPnl = (exitLtp - row.entry_premium) * totalQty;
+                      const requiredMargin = row.qty * lotSize * row.entry_premium;
+                      const refundedMargin = requiredMargin + finalPnl;
+                      const newBalance = balance + refundedMargin;
+
+                      await new Promise((resolveUpdate) => {
+                        db.serialize(() => {
+                          db.run(`INSERT OR REPLACE INTO system_settings (key, value) VALUES ('paper_wallet_balance', ?)`, [String(newBalance)]);
+                          db.run(
+                            `UPDATE paper_trades 
+                             SET exit_premium = ?, exit_spot = ?, status = 'CLOSED', pnl = ?, updated_at = CURRENT_TIMESTAMP 
+                             WHERE id = ?`,
+                            [exitLtp, cached.spotPrice, finalPnl, row.id],
+                            () => {
+                              closedList.push(`ID ${row.id} (${row.contract_name}) P&L: ${finalPnl >= 0 ? '+' : ''}₹${finalPnl.toFixed(2)}`);
+                              resolveUpdate();
+                            }
+                          );
+                        });
+                      });
+                    } catch (e) {
+                      errorCount++;
+                    }
+                  }
+
+                  let replyText = `⏹️ *Position Close Summary:* \n\n`;
+                  if (closedList.length > 0) {
+                    replyText += `Closed positions:\n` + closedList.map(item => `• ${item}`).join('\n') + `\n\n`;
+                  }
+                  if (errorCount > 0) {
+                    replyText += `❌ Failed to close ${errorCount} position(s) due to missing market/strike data in cache.\n`;
+                  }
+                  
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: replyText,
+                    parse_mode: 'Markdown'
+                  });
+                });
+              } else if (text.startsWith('/reset_wallet')) {
+                db.serialize(() => {
+                  db.run(`INSERT OR REPLACE INTO system_settings (key, value) VALUES ('paper_wallet_balance', '1000000')`);
+                  db.run(`DELETE FROM paper_trades`, [], async (err) => {
+                    const replyText = err 
+                      ? `❌ Error resetting wallet: ${err.message}` 
+                      : `🔄 *Paper wallet reset successfully!* Balance is back to *₹10,00,000.00* and all paper trades deleted.`;
+                    await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                      chat_id: currentTelegramChatId,
+                      text: replyText,
+                      parse_mode: 'Markdown'
+                    });
+                    logToBackground(`Telegram reset the paper trading wallet balance and portfolio`);
+                  });
+                });
+              } else if (text.startsWith('/chart')) {
+                const parts = text.split(' ');
+                const symbol = (parts[1] || 'NIFTY').toUpperCase();
+                const cacheKey5m = `${symbol}_5`;
+                const cachedChart = getCachedData('chartsIntraday', cacheKey5m, 3600000); 
+
+                if (!cachedChart || !cachedChart.data || cachedChart.data.length === 0) {
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: `❌ No 5M chart data found in cache for *${symbol}*. Please wait for sync run.`,
+                    parse_mode: 'Markdown'
+                  });
+                  return;
+                }
+
+                try {
+                  const candles = cachedChart.data;
+                  const lastCandle = candles[candles.length - 1];
+                  const spot = latestSpotPrices[symbol] || lastCandle.close;
+
+                  // Simple technical calculations
+                  const calculateEMAForBot = (cand, period) => {
+                    if (!cand || cand.length === 0) return 0;
+                    const k = 2 / (period + 1);
+                    let ema = cand[0].close;
+                    for (let i = 1; i < cand.length; i++) {
+                      ema = (cand[i].close * k) + (ema * (1 - k));
+                    }
+                    return ema;
+                  };
+
+                  const calculateRSIForBot = (cand, period = 14) => {
+                    if (!cand || cand.length < period) return 50;
+                    let gains = 0;
+                    let losses = 0;
+                    for (let i = 1; i <= period; i++) {
+                      const diff = cand[i].close - cand[i-1].close;
+                      if (diff >= 0) gains += diff;
+                      else losses -= diff;
+                    }
+                    let avgGain = gains / period;
+                    let avgLoss = losses / period;
+                    for (let i = period + 1; i < cand.length; i++) {
+                      const diff = cand[i].close - cand[i-1].close;
+                      const gain = diff >= 0 ? diff : 0;
+                      const loss = diff < 0 ? -diff : 0;
+                      avgGain = ((avgGain * (period - 1)) + gain) / period;
+                      avgLoss = ((avgLoss * (period - 1)) + loss) / period;
+                    }
+                    const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+                    return 100 - (100 / (1 + rs));
+                  };
+
+                  const ema9 = calculateEMAForBot(candles, 9);
+                  const ema20 = calculateEMAForBot(candles, 20);
+                  const rsi = calculateRSIForBot(candles, 14);
+
+                  const trend = lastCandle.close > ema20 ? '📈 BULLISH (Above EMA 20)' : '📉 BEARISH (Below EMA 20)';
+                  const crossover = ema9 > ema20 ? 'Bullish (EMA 9 > EMA 20)' : 'Bearish (EMA 9 < EMA 20)';
+
+                  const chartMsg = `📊 *Intraday 5M Chart Technical Summary (${symbol}):* \n\n` +
+                    `• *Current Spot Price*: ${spot.toFixed(2)}\n` +
+                    `• *Last Candle Close*: ${lastCandle.close.toFixed(2)}\n` +
+                    `• *EMA 9*: ${ema9.toFixed(2)} | *EMA 20*: ${ema20.toFixed(2)}\n` +
+                    `• *EMA Trend*: ${trend}\n` +
+                    `• *EMA Cross*: ${crossover}\n` +
+                    `• *RSI (14)*: ${rsi.toFixed(2)} (${rsi > 70 ? '⚠️ Overbought' : rsi < 30 ? '⚠️ Oversold' : 'Neutral'})\n` +
+                    `• *ATR Volatility*: ${latestAtrValues[symbol] || 'N/A'} pts\n`;
+
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: chartMsg,
+                    parse_mode: 'Markdown'
+                  });
+                } catch (calcErr) {
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: `❌ Analysis calculation error: ${calcErr.message}`
+                  });
+                }
+              } else if (text.startsWith('/optionchain')) {
+                const parts = text.split(' ');
+                const symbol = (parts[1] || 'NIFTY').toUpperCase();
+                const cacheKey = `${symbol}_first`;
+                const cached = getCachedData('optionChain', cacheKey, 3600000); 
+
+                if (!cached || !cached.data) {
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: `❌ No option chain data found in cache for *${symbol}*. Please wait for sync run.`,
+                    parse_mode: 'Markdown'
+                  });
+                  return;
+                }
+
+                try {
+                  const spot = cached.spotPrice;
+                  const expiry = cached.expiry;
+                  const strikesArray = cached.data;
+
+                  const totalCallOi = strikesArray.reduce((sum, row) => sum + row.callOi, 0);
+                  const totalPutOi = strikesArray.reduce((sum, row) => sum + row.putOi, 0);
+                  const pcr = totalCallOi > 0 ? totalPutOi / totalCallOi : 1.0;
+
+                  // Max Pain Strike calculation
+                  let minLoss = Infinity;
+                  let maxPainStrike = spot;
+                  strikesArray.forEach(targetStrike => {
+                    let totalLoss = 0;
+                    strikesArray.forEach(strikeRow => {
+                      if (targetStrike.strike > strikeRow.strike) {
+                        totalLoss += strikeRow.callOi * (targetStrike.strike - strikeRow.strike);
+                      }
+                      if (targetStrike.strike < strikeRow.strike) {
+                        totalLoss += strikeRow.putOi * (strikeRow.strike - targetStrike.strike);
+                      }
+                    });
+                    if (totalLoss < minLoss) {
+                      minLoss = totalLoss;
+                      maxPainStrike = targetStrike.strike;
+                    }
+                  });
+
+                  // Concentration Ratio
+                  const callStrikes = [...strikesArray].sort((a,b) => b.callOi - a.callOi).slice(0, 3);
+                  const putStrikes = [...strikesArray].sort((a,b) => b.putOi - a.putOi).slice(0, 3);
+                  const topCallOi = callStrikes.reduce((sum, s) => sum + s.callOi, 0);
+                  const topPutOi = putStrikes.reduce((sum, s) => sum + s.putOi, 0);
+                  const concentrationRatio = topCallOi > 0 ? topPutOi / topCallOi : 1.0;
+
+                  // Unwinding warnings
+                  let unwindingWarning = 'No major unwinding detected.';
+                  const callChangeTotal = strikesArray.reduce((sum, row) => sum + row.callChgOi, 0);
+                  const putChangeTotal = strikesArray.reduce((sum, row) => sum + row.putChgOi, 0);
+                  if (callChangeTotal < 0 && Math.abs(callChangeTotal) > totalCallOi * 0.05) {
+                    unwindingWarning = '⚠️ *Call Unwinding detected!* Short-covering squeeze upside risk.';
+                  } else if (putChangeTotal < 0 && Math.abs(putChangeTotal) > totalPutOi * 0.05) {
+                    unwindingWarning = '⚠️ *Put Unwinding detected!* Long liquidation breakdown risk.';
+                  }
+
+                  const optionMsg = `📉 *Option Chain Snapshot (${symbol}):* \n\n` +
+                    `• *Expiry*: ${expiry}\n` +
+                    `• *Spot Price*: ${spot.toFixed(2)}\n` +
+                    `• *Put-Call Ratio (PCR)*: ${pcr.toFixed(2)} (${pcr > 1.2 ? 'Bullish' : pcr < 0.8 ? 'Bearish' : 'Neutral Range'})\n` +
+                    `• *Max Pain Strike*: ${maxPainStrike.toFixed(2)}\n` +
+                    `• *Concentration Ratio*: ${concentrationRatio.toFixed(2)}\n` +
+                    `• *Total Call OI*: ${totalCallOi.toLocaleString()}\n` +
+                    `• *Total Put OI*: ${totalPutOi.toLocaleString()}\n` +
+                    `• *Unwinding Status*: ${unwindingWarning}\n`;
+
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: optionMsg,
+                    parse_mode: 'Markdown'
+                  });
+                } catch (optErr) {
+                  await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                    chat_id: currentTelegramChatId,
+                    text: `❌ Option chain analysis error: ${optErr.message}`
+                  });
+                }
               } else if (text.startsWith('/help') || text.startsWith('/start')) {
-                const helpMsg = `🤖 *OpenClaw AI Bot Commands:* \n\n` +
-                  `• \`/analyze NIFTY\` - Runs options and technical agent analysis.\n` +
-                  `• \`/status\` - Shows active pending trades and their target/SL status.\n` +
-                  `• \`/alerts on/off\` - Enable/Disable automatic background alerts.\n` +
-                  `• \`/profile [type]\` - Set active profile (\`micro_scalper\`, \`intraday_scalper\`, \`short_term_trend\`).\n` +
-                  `• \`/exit [SYMBOL]\` - Close an active trade in the database manually.\n` +
-                  `• \`/news\` - Get recent financial market headlines.\n` +
-                  `• \`/help\` - Show this help menu.`;
+                const helpMsg = `🤖 *OpenClaw AI Bot - Complete Commands:* \n\n` +
+                  `*Analysis & Status:*\n` +
+                  `• \`/analyze [symbol]\` - Runs options & technical agent analysis.\n` +
+                  `• \`/status\` - Shows active pending alerts and target/SL checks.\n` +
+                  `• \`/chart [symbol]\` - Shows 5M chart technical metrics (EMA, RSI, ATR).\n` +
+                  `• \`/optionchain [symbol]\` - Shows PCR, Max Pain, Concentration and warnings.\n` +
+                  `• \`/news\` - Gets recent financial news headlines.\n\n` +
+                  `*Settings Management:*\n` +
+                  `• \`/settings\` - Displays all active system settings.\n` +
+                  `• \`/safeguards on/off\` - Toggle Strict Trend Filter guards.\n` +
+                  `• \`/alerts on/off\` - Toggle background automated alert generation.\n` +
+                  `• \`/profile [type]\` - Set profile (\`micro_scalper\`, \`intraday_scalper\`, \`short_term_trend\`).\n` +
+                  `• \`/set_sl [multiplier]\` - Set Stoploss ATR multiplier (e.g. \`/set_sl 1.5\`).\n` +
+                  `• \`/set_min_conf [conf]\` - Set min confidence threshold (e.g. \`/set_min_conf 80\`).\n\n` +
+                  `*Paper Trading Portfolio:*\n` +
+                  `• \`/wallet\` - Displays paper wallet balance and active positions count.\n` +
+                  `• \`/positions\` - Lists active paper trades with live dynamic PnL.\n` +
+                  `• \`/close [ID/symbol]\` - Manually close a paper trade (e.g. \`/close 3\` or \`/close NIFTY\`).\n` +
+                  `• \`/reset_wallet\` - Erase portfolio and reset balance to ₹10,00,000.\n` +
+                  `• \`/exit [symbol]\` - Close background alerts for index symbol.\n\n` +
+                  `• \`/help\` - Displays this detailed help menu.`;
                 await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
                   chat_id: currentTelegramChatId,
                   text: helpMsg,

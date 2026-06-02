@@ -1822,7 +1822,133 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
     });
   };
 
+  const getHistoricalOptionChain15m = () => {
+    return new Promise((resolve) => {
+      db.get(
+        `SELECT data FROM option_chain_history 
+         WHERE symbol = ? AND timestamp <= datetime('now', '-15 minutes') 
+         ORDER BY timestamp DESC LIMIT 1`,
+        [symbolStr],
+        (err, row) => {
+          if (err || !row) {
+            resolve(null);
+          } else {
+            try {
+              resolve(JSON.parse(row.data));
+            } catch (e) {
+              resolve(null);
+            }
+          }
+        }
+      );
+    });
+  };
+
   const historicalPcrs = await getHistoricalPcrs();
+  const oldStrikesArray = await getHistoricalOptionChain15m();
+
+  let smartMoneyDetails = "Not enough historical data to calculate 15-minute institutional build-up.";
+  let smartMoneySentiment = "NEUTRAL";
+  let freshResistanceWall15m = "N/A";
+  let freshSupportWall15m = "N/A";
+  let total15mCallOiChange = 0;
+  let total15mPutOiChange = 0;
+  let smartMoneyUnwindingWarning = "No panic detected.";
+
+  if (oldStrikesArray && oldStrikesArray.length > 0 && strikesArray && strikesArray.length > 0) {
+    const changes15m = [];
+    let maxCallWritingChg = -Infinity;
+    let maxPutWritingChg = -Infinity;
+    let maxCallUnwindingChg = Infinity;
+    let maxPutUnwindingChg = Infinity;
+
+    let resStrike15m = null;
+    let supStrike15m = null;
+    let callPanicStrike15m = null;
+    let putPanicStrike15m = null;
+
+    const atmObjTmp = strikesArray.reduce((prev, curr) => 
+      Math.abs(curr.strike - spotPrice) < Math.abs(prev.strike - spotPrice) ? curr : prev
+    );
+    const atmStrikeVal = atmObjTmp.strike;
+    const atmIndexTmp = strikesArray.findIndex(s => s.strike === atmStrikeVal);
+
+    if (atmIndexTmp !== -1) {
+      const startIndex = Math.max(0, atmIndexTmp - 5);
+      const endIndex = Math.min(strikesArray.length - 1, atmIndexTmp + 5);
+
+      for (let i = startIndex; i <= endIndex; i++) {
+        const currStrike = strikesArray[i];
+        const oldStrike = oldStrikesArray.find(s => s.strike === currStrike.strike);
+        
+        if (oldStrike) {
+          const callOiChg = currStrike.callOi - oldStrike.callOi;
+          const putOiChg = currStrike.putOi - oldStrike.putOi;
+          
+          total15mCallOiChange += callOiChg;
+          total15mPutOiChange += putOiChg;
+
+          changes15m.push({
+            strike: currStrike.strike,
+            callOiChg,
+            putOiChg,
+            currCallOi: currStrike.callOi,
+            currPutOi: currStrike.putOi
+          });
+
+          if (callOiChg > maxCallWritingChg) {
+            maxCallWritingChg = callOiChg;
+            resStrike15m = currStrike.strike;
+          }
+          if (putOiChg > maxPutWritingChg) {
+            maxPutWritingChg = putOiChg;
+            supStrike15m = currStrike.strike;
+          }
+
+          if (callOiChg < 0 && callOiChg < maxCallUnwindingChg) {
+            maxCallUnwindingChg = callOiChg;
+            callPanicStrike15m = currStrike.strike;
+          }
+          if (putOiChg < 0 && putOiChg < maxPutUnwindingChg) {
+            maxPutUnwindingChg = putOiChg;
+            putPanicStrike15m = currStrike.strike;
+          }
+        }
+      }
+    }
+
+    if (changes15m.length > 0) {
+      const thresholdUnwinding = -10000;
+      let isCallPanic = maxCallUnwindingChg < thresholdUnwinding;
+      let isPutPanic = maxPutUnwindingChg < thresholdUnwinding;
+
+      if (isCallPanic && isPutPanic) {
+        smartMoneySentiment = "SIDEWAYS_UNWINDING";
+        smartMoneyUnwindingWarning = "⚠️ BOTH Call & Put writers are covering. High volatility chop.";
+      } else if (isCallPanic) {
+        smartMoneySentiment = "SHORT_COVERING_PANIC";
+        smartMoneyUnwindingWarning = `⚠️ Call writers covering in panic at strike ${callPanicStrike15m} (Change: ${maxCallUnwindingChg}). Upward squeeze breakout expected!`;
+      } else if (isPutPanic) {
+        smartMoneySentiment = "LONG_UNWINDING_PANIC";
+        smartMoneyUnwindingWarning = `⚠️ Put writers covering in panic at strike ${putPanicStrike15m} (Change: ${maxPutUnwindingChg}). Downward breakdown expected!`;
+      } else {
+        if (total15mPutOiChange > total15mCallOiChange && total15mPutOiChange > 0) {
+          smartMoneySentiment = "BULLISH_BUILDUP";
+        } else if (total15mCallOiChange > total15mPutOiChange && total15mCallOiChange > 0) {
+          smartMoneySentiment = "BEARISH_BUILDUP";
+        } else {
+          smartMoneySentiment = "NEUTRAL";
+        }
+      }
+
+      freshResistanceWall15m = resStrike15m && maxCallWritingChg > 0 ? `${resStrike15m} (Added: +${maxCallWritingChg})` : "None";
+      freshSupportWall15m = supStrike15m && maxPutWritingChg > 0 ? `${supStrike15m} (Added: +${maxPutWritingChg})` : "None";
+
+      smartMoneyDetails = changes15m.map(c => 
+        `  * Strike ${c.strike}: Call OI 15m Change = ${c.callOiChg >= 0 ? '+' : ''}${c.callOiChg}, Put OI 15m Change = ${c.putOiChg >= 0 ? '+' : ''}${c.putOiChg} (Current Call OI: ${c.currCallOi}, Current Put OI: ${c.currPutOi})`
+      ).join('\n');
+    }
+  }
 
   // Calculate PCR Velocity
   let pcrVelocity = "STABLE";
@@ -2001,7 +2127,7 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   }
 
   const prompt = `You are the 'OpenClaw AI Agent Hub Orchestrator'. You manage three sub-agents to analyze the NIFTY/BANKNIFTY market and issue high-accuracy trading alerts:
-1. **Option Chain Agent**: Analyzes PCR, PCR change velocity, and Call/Put Open Interest blocks (resistance and support). You MUST thoroughly inspect the "Full 20-Strike Change in OI Activity (ATM ±10 strikes)" data to detect where the heavy call writing (bearish ceiling) or heavy put writing (bullish floor) is concentrating, and check if call unwinding (short covering) or put unwinding (long liquidation) is occurring near the ATM strike.
+1. **Option Chain Agent**: Analyzes PCR, PCR change velocity, and Call/Put Open Interest blocks (resistance and support). You MUST thoroughly inspect the "Full 20-Strike Change in OI Activity (ATM ±10 strikes)" data to detect where the heavy call writing (bearish ceiling) or heavy put writing (bullish floor) is concentrating, and check if call unwinding (short covering) or put unwinding (long liquidation) is occurring near the ATM strike. Furthermore, inspect the "15-Minute Institutional Smart Money OI Activity" to see what the big players (FII/DII option writers) have been doing in the last 15 minutes. Focus heavily on "Smart Money Unwinding Panic Alerts" — if Call writers are in panic at a strike, it is a strong bullish breakout sign; if Put writers are in panic, it is a strong bearish breakdown sign. Ensure your signal aligns with the direction of the big players' panic or fresh build-ups.
 2. **Chart Pattern Agent**: Analyzes trend direction (using EMA 9/21 crossover), momentum (using RSI), and price action patterns (support/resistance breakout, double tops/bottoms, candlestick structures like engulfing/pin-bars) from the "Last 15 Candles" list provided in the data.
 3. **News Sentiment Agent**: Analyzes the recent financial news headlines and scores the market mood as BULLISH, BEARISH, or NEUTRAL.
 
@@ -2067,6 +2193,14 @@ ${last15CandlesStr}
   * Multi-Timeframe Trend Concurrence: ${trendConcurrence} (Short-term, Mid-term, and Higher-term alignment check)
   * Volume Surge (Latest candle vol vs 10-period Avg Vol): ${isVolumeSpiked ? 'YES (Volume spike detected)' : 'NO (Normal volume)'} (Latest Vol: ${latestVolume}, Avg Vol: ${averageVolume})
   * PCR Velocity (OI Change direction): ${pcrVelocity}
+
+- 15-Minute Institutional Smart Money OI Activity:
+  * Smart Money Sentiment (15m): ${smartMoneySentiment}
+  * Smart Money Unwinding Panic Alert: ${smartMoneyUnwindingWarning}
+  * Fresh Resistance Wall Build-up (15m): ${freshResistanceWall15m}
+  * Fresh Support Wall Build-up (15m): ${freshSupportWall15m}
+  * Strike-by-Strike 15m OI changes details:
+${smartMoneyDetails}
 
 - Nearby Strike Option Chain Activity (Spot: ${spotPrice}):
   * Strongest Resistance Strike: ${resistanceStrike ? resistanceStrike.strike : 'N/A'} (Call OI: ${resistanceStrike ? resistanceStrike.callOi : 0})
@@ -2196,6 +2330,29 @@ INSTRUCTIONS FOR WRITING:
       parsedResult.optionStoploss = null;
       parsedResult.trailingStoploss = null;
       parsedResult.summary = `[SAFEGUARD OVERRIDE] PUT signal blocked because active Call Unwinding (short covering/short squeeze) was detected near ATM strikes.`;
+    }
+
+    // Smart Money Safeguards:
+    if (parsedResult.action === 'CALL' && (smartMoneySentiment === 'LONG_UNWINDING_PANIC' || smartMoneySentiment === 'BEARISH_BUILDUP')) {
+      console.log(`[OpenClaw Safeguard] Overriding CALL signal for ${symbolStr} due to Bearish Smart Money 15m Sentiment: ${smartMoneySentiment}`);
+      parsedResult.action = 'WAIT';
+      parsedResult.suggestedOptionContract = null;
+      parsedResult.optionPremiumLtp = null;
+      parsedResult.optionTarget1 = null;
+      parsedResult.optionTarget2 = null;
+      parsedResult.optionStoploss = null;
+      parsedResult.trailingStoploss = null;
+      parsedResult.summary = `[SAFEGUARD OVERRIDE] CALL signal blocked because 15-minute Smart Money (FII/DII) is building Bearish pressure (${smartMoneySentiment}).`;
+    } else if (parsedResult.action === 'PUT' && (smartMoneySentiment === 'SHORT_COVERING_PANIC' || smartMoneySentiment === 'BULLISH_BUILDUP')) {
+      console.log(`[OpenClaw Safeguard] Overriding PUT signal for ${symbolStr} due to Bullish Smart Money 15m Sentiment: ${smartMoneySentiment}`);
+      parsedResult.action = 'WAIT';
+      parsedResult.suggestedOptionContract = null;
+      parsedResult.optionPremiumLtp = null;
+      parsedResult.optionTarget1 = null;
+      parsedResult.optionTarget2 = null;
+      parsedResult.optionStoploss = null;
+      parsedResult.trailingStoploss = null;
+      parsedResult.summary = `[SAFEGUARD OVERRIDE] PUT signal blocked because 15-minute Smart Money (FII/DII) is building Bullish pressure (${smartMoneySentiment}).`;
     }
   }
 

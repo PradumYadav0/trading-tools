@@ -2490,6 +2490,109 @@ app.delete('/api/signals', (req, res) => {
   });
 });
 
+async function sendTradeClosureNotification(row, newStatus, exitSpot) {
+  const settings = await getSystemSettings();
+  const tgToken = settings['telegram_token'];
+  const tgChatId = settings['telegram_chat_id'];
+  
+  if (!tgToken || !tgChatId) return;
+
+  const pnl = row.type === 'CALL' 
+    ? (exitSpot - row.entry_price) 
+    : (row.entry_price - exitSpot);
+  const pnlSign = pnl >= 0 ? '+' : '';
+  
+  const message = `🔔 *OpenClaw Trade Closure Alert* 🔔\n\n` +
+    `*Symbol*: ${row.symbol}\n` +
+    `*Action*: ${row.type === 'CALL' ? 'BUY CALL / BULLISH' : 'BUY PUT / BEARISH'}\n` +
+    `*Source*: ${row.source}\n` +
+    `*Status*: ${newStatus === 'SUCCESS' ? '✅ SUCCESS (Target Hit)' : '❌ FAILED (Stoploss Hit)'}\n\n` +
+    `📊 *Trade Details*:\n` +
+    `  • Entry Price: ${row.entry_price.toFixed(2)}\n` +
+    `  • Target Price: ${row.target_price ? row.target_price.toFixed(2) : 'N/A'}\n` +
+    `  • Stoploss Price: ${row.stoploss_price ? row.stoploss_price.toFixed(2) : 'N/A'}\n` +
+    `  • Exit Spot Price: ${exitSpot.toFixed(2)}\n` +
+    `  • PnL: *${pnlSign}${pnl.toFixed(2)} Points*\n\n` +
+    `🤖 Powered by OpenClaw AI Engine.`;
+
+  try {
+    const url = `https://api.telegram.org/bot${tgToken}/sendMessage`;
+    await axios.post(url, {
+      chat_id: tgChatId,
+      text: message,
+      parse_mode: 'Markdown'
+    });
+    console.log(`[Background Closure Alert] Telegram alert dispatched for ${row.symbol} (${newStatus})`);
+  } catch (e) {
+    console.error(`[Background Closure Alert] Telegram dispatch error for ${row.symbol}:`, e.message);
+  }
+
+  // Discord
+  const discordWebhook = settings['discord_webhook'];
+  if (discordWebhook) {
+    try {
+      await axios.post(discordWebhook, {
+        content: message.replace(/\*/g, '**')
+      });
+      console.log(`[Background Closure Alert] Discord alert dispatched for ${row.symbol}`);
+    } catch (e) {
+      console.error(`[Background Closure Alert] Discord dispatch error for ${row.symbol}:`, e.message);
+    }
+  }
+
+  // WhatsApp
+  const waPhone = settings['whatsapp_phone'];
+  const waApiKey = settings['whatsapp_apikey'];
+  if (waPhone && waApiKey) {
+    try {
+      const cleanPhone = waPhone.replace(/[^0-9]/g, '');
+      const waText = encodeURIComponent(message.replace(/\*/g, ''));
+      const waUrl = `https://api.callmebot.com/whatsapp.php?phone=${cleanPhone}&text=${waText}&apikey=${waApiKey}`;
+      await axios.get(waUrl);
+      console.log(`[Background Closure Alert] WhatsApp alert dispatched for ${row.symbol}`);
+    } catch (e) {
+      console.error(`[Background Closure Alert] WhatsApp dispatch error for ${row.symbol}:`, e.message);
+    }
+  }
+}
+
+async function sendActiveTradesStatusUpdate() {
+  const settings = await getSystemSettings();
+  const tgToken = settings['telegram_token'];
+  const tgChatId = settings['telegram_chat_id'];
+  if (!tgToken || !tgChatId) return;
+
+  db.all(`SELECT * FROM ai_signals WHERE source = 'OPENCLAW' AND status = 'PENDING' ORDER BY created_at DESC`, [], async (err, rows) => {
+    if (err || !rows || rows.length === 0) return;
+
+    let statusMsg = `📋 *OpenClaw Active Trades Update:* \n\n`;
+    rows.forEach((row, index) => {
+      const spot = latestSpotPrices[row.symbol] || row.entry_price;
+      const change = row.type === 'CALL' ? (spot - row.entry_price) : (row.entry_price - spot);
+      const changeSign = change >= 0 ? '+' : '';
+      statusMsg += `${index + 1}. *${row.symbol} ${row.type}*\n` +
+        `  • Entry: ${row.entry_price.toFixed(2)}\n` +
+        `  • Target: ${row.target_price.toFixed(2)}\n` +
+        `  • Stoploss: ${row.stoploss_price.toFixed(2)}\n` +
+        `  • Current Spot: ${spot.toFixed(2)} (${changeSign}${change.toFixed(2)} pts)\n` +
+        `  • Status: ⏳ MONITORING\n\n`;
+    });
+    statusMsg += `🤖 Powered by OpenClaw AI Engine.`;
+
+    try {
+      const url = `https://api.telegram.org/bot${tgToken}/sendMessage`;
+      await axios.post(url, {
+        chat_id: tgChatId,
+        text: statusMsg,
+        parse_mode: 'Markdown'
+      });
+      console.log(`[Background Status Update] Sent active trades report to Telegram.`);
+    } catch (e) {
+      console.error(`[Background Status Update] Telegram dispatch error:`, e.message);
+    }
+  });
+}
+
 // Function to update PENDING signals in background using latestSpotPrices cache
 const updatePendingSignals = () => {
   return new Promise((resolve, reject) => {
@@ -2511,7 +2614,6 @@ const updatePendingSignals = () => {
 
         let newStatus = 'PENDING';
         let maxSpotSeen = row.max_spot_seen || row.entry_price;
-        let stoplossPrice = row.stoploss_price;
         let maxSpotChanged = false;
 
         if (row.type === 'CALL') {
@@ -2519,45 +2621,39 @@ const updatePendingSignals = () => {
             maxSpotSeen = currentSpot;
             maxSpotChanged = true;
           }
-          const slDistance = row.entry_price - (row.stoploss_price || (row.entry_price - 30));
-          const trailedSl = maxSpotSeen - slDistance;
-          if (trailedSl > stoplossPrice) {
-            stoplossPrice = parseFloat(trailedSl.toFixed(2));
-            maxSpotChanged = true;
-          }
 
           if (row.target_price && currentSpot >= row.target_price) {
             newStatus = 'SUCCESS';
-          } else if (currentSpot <= stoplossPrice) {
-            newStatus = stoplossPrice >= row.entry_price ? 'SUCCESS' : 'FAILED';
+          } else if (row.stoploss_price && currentSpot <= row.stoploss_price) {
+            newStatus = 'FAILED';
           }
         } else if (row.type === 'PUT') {
           if (currentSpot < maxSpotSeen) {
             maxSpotSeen = currentSpot;
             maxSpotChanged = true;
           }
-          const slDistance = (row.stoploss_price || (row.entry_price + 30)) - row.entry_price;
-          const trailedSl = maxSpotSeen + slDistance;
-          if (trailedSl < stoplossPrice) {
-            stoplossPrice = parseFloat(trailedSl.toFixed(2));
-            maxSpotChanged = true;
-          }
 
           if (row.target_price && currentSpot <= row.target_price) {
             newStatus = 'SUCCESS';
-          } else if (currentSpot >= stoplossPrice) {
-            newStatus = stoplossPrice <= row.entry_price ? 'SUCCESS' : 'FAILED';
+          } else if (row.stoploss_price && currentSpot >= row.stoploss_price) {
+            newStatus = 'FAILED';
           }
         }
 
         if (newStatus !== 'PENDING' || maxSpotChanged) {
           db.run(
             `UPDATE ai_signals 
-             SET status = ?, max_spot_seen = ?, stoploss_price = ?, updated_at = CURRENT_TIMESTAMP 
+             SET status = ?, max_spot_seen = ?, updated_at = CURRENT_TIMESTAMP 
              WHERE id = ?`, 
-            [newStatus, maxSpotSeen, stoplossPrice, row.id], 
-            function(err) {
-              if (!err && newStatus !== 'PENDING') updatedCount++;
+            [newStatus, maxSpotSeen, row.id], 
+            async function(err) {
+              if (!err) {
+                if (newStatus !== 'PENDING') {
+                  updatedCount++;
+                  // Trigger closure notifications asynchronously
+                  await sendTradeClosureNotification(row, newStatus, currentSpot);
+                }
+              }
               pendingUpdates--;
               if (pendingUpdates === 0) resolve(updatedCount);
             }
@@ -3036,6 +3132,7 @@ function getSystemSettings() {
 }
 
 let lastOpenClawAlertMinute = -1;
+let lastActiveReportTime = 0;
 const lastAlertSpotPrices = {
   NIFTY: 0,
   BANKNIFTY: 0,
@@ -3860,6 +3957,18 @@ async function runAllDecoders() {
     const updated = await updatePendingSignals();
     if (updated > 0) {
       console.log(`[Background] Automated signal verification updated ${updated} pending signals.`);
+    }
+
+    // Check if we should send periodic active trades status report (every 15 minutes)
+    const now = Date.now();
+    const REPORT_INTERVAL = 15 * 60 * 1000; // 15 minutes
+    if (now - lastActiveReportTime >= REPORT_INTERVAL) {
+      db.get(`SELECT COUNT(*) as count FROM ai_signals WHERE source = 'OPENCLAW' AND status = 'PENDING'`, [], (err, row) => {
+        if (!err && row && row.count > 0) {
+          sendActiveTradesStatusUpdate();
+          lastActiveReportTime = now;
+        }
+      });
     }
   } catch (err) {
     console.error('Failed to run automated background signal verification:', err.message);

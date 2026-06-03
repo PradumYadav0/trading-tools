@@ -76,6 +76,7 @@ const OpenClawAi = () => {
   const [signalsLoading, setSignalsLoading] = useState(false);
   const [dateFilter, setDateFilter] = useState('all'); // 'all', 'today', 'weekly', 'monthly', 'custom'
   const [customDate, setCustomDate] = useState(new Date().toISOString().split('T')[0]);
+  const [symbolFilter, setSymbolFilter] = useState('all'); // 'all', 'NIFTY', 'BANKNIFTY', etc.
 
   const fetchSignals = async () => {
     setSignalsLoading(true);
@@ -1773,18 +1774,24 @@ const OpenClawAi = () => {
           
           return true;
         });
+
+        // Filter based on selected symbol
+        const finalFilteredSignals = dateFilteredSignals.filter(s => {
+          if (symbolFilter === 'all') return true;
+          return s.symbol === symbolFilter;
+        });
         
         // Calculate Stats
-        const total = dateFilteredSignals.length;
-        const success = dateFilteredSignals.filter(s => s.status === 'SUCCESS').length;
-        const failed = dateFilteredSignals.filter(s => s.status === 'FAILED').length;
-        const pending = dateFilteredSignals.filter(s => s.status === 'PENDING').length;
+        const total = finalFilteredSignals.length;
+        const success = finalFilteredSignals.filter(s => s.status === 'SUCCESS').length;
+        const failed = finalFilteredSignals.filter(s => s.status === 'FAILED').length;
+        const pending = finalFilteredSignals.filter(s => s.status === 'PENDING').length;
         
         const active = success + failed;
         const winRate = active > 0 ? parseFloat(((success / active) * 100).toFixed(1)) : 0;
         
         let netPoints = 0;
-        dateFilteredSignals.forEach(signal => {
+        finalFilteredSignals.forEach(signal => {
           if (signal.status === 'SUCCESS') {
             if (signal.type === 'CALL') {
               netPoints += (signal.target_price - signal.entry_price);
@@ -1812,6 +1819,29 @@ const OpenClawAi = () => {
                 </p>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <select
+                  value={symbolFilter}
+                  onChange={(e) => setSymbolFilter(e.target.value)}
+                  style={{
+                    background: '#1c2128',
+                    border: '1px solid var(--border-color)',
+                    color: 'white',
+                    padding: '0.45rem 1rem',
+                    borderRadius: '8px',
+                    fontSize: '0.8rem',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    outline: 'none',
+                    marginRight: '0.5rem'
+                  }}
+                >
+                  <option value="all">🔍 All Symbols</option>
+                  <option value="NIFTY">🔍 NIFTY</option>
+                  <option value="BANKNIFTY">🔍 BANKNIFTY</option>
+                  <option value="FINNIFTY">🔍 FINNIFTY</option>
+                  <option value="MIDCPNIFTY">🔍 MIDCPNIFTY</option>
+                </select>
+
                 <select
                   value={dateFilter}
                   onChange={(e) => setDateFilter(e.target.value)}
@@ -1920,6 +1950,10 @@ const OpenClawAi = () => {
               <div style={{ background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.05) 0%, rgba(99, 102, 241, 0.05) 100%)', padding: '1rem', borderRadius: '10px', border: '1px solid rgba(168,85,247,0.1)', textAlign: 'center' }}>
                 <div style={{ color: '#c084fc', fontSize: '0.75rem', marginBottom: '0.25rem' }}>OpenClaw Win Rate</div>
                 <div style={{ fontSize: '1.5rem', fontWeight: '800', color: '#c084fc' }}>{winRate}%</div>
+                <div style={{ height: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '2px', marginTop: '0.5rem', overflow: 'hidden', display: 'flex' }}>
+                  <div style={{ width: `${winRate}%`, background: '#10b981', height: '100%' }}></div>
+                  <div style={{ width: `${100 - winRate}%`, background: '#ef4444', height: '100%' }}></div>
+                </div>
               </div>
               <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.03)', textAlign: 'center' }}>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Net P&L Points</div>
@@ -1930,9 +1964,9 @@ const OpenClawAi = () => {
             </div>
 
             {/* Active and History Trades List */}
-            {dateFilteredSignals.length === 0 ? (
+            {finalFilteredSignals.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                No OpenClaw trades tracked for the selected period. Run manual analysis and click "Save to AI Testing" or enable "Auto-Alerts" to populate this tracker.
+                No OpenClaw trades tracked for the selected period/symbol. Run manual analysis and click "Save to AI Testing" or enable "Auto-Alerts" to populate this tracker.
               </div>
             ) : (
               <div style={{ maxHeight: '400px', overflowY: 'auto', overflowX: 'auto', paddingRight: '0.25rem' }} className="signals-table-container">
@@ -1946,11 +1980,12 @@ const OpenClawAi = () => {
                       <th style={{ padding: '0.75rem 0.5rem' }}>Target</th>
                       <th style={{ padding: '0.75rem 0.5rem' }}>Stoploss</th>
                       <th style={{ padding: '0.75rem 0.5rem' }}>Status</th>
+                      <th style={{ padding: '0.75rem 0.5rem' }}>PnL (Pts)</th>
                       <th style={{ padding: '0.75rem 0.5rem', textAlign: 'center' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {[...dateFilteredSignals].slice(0, 20).map((signal) => {
+                    {[...finalFilteredSignals].slice(0, 20).map((signal) => {
                       const dateStr = signal.created_at.endsWith('Z') || signal.created_at.endsWith('UTC') ? signal.created_at : signal.created_at + ' UTC';
                       const formattedTime = new Date(dateStr).toLocaleString('en-IN', {
                         timeZone: 'Asia/Kolkata',
@@ -1961,6 +1996,13 @@ const OpenClawAi = () => {
                         hour12: true
                       });
                       
+                      let tradePnl = 0;
+                      if (signal.status === 'SUCCESS') {
+                        tradePnl = signal.type === 'CALL' ? (signal.target_price - signal.entry_price) : (signal.entry_price - signal.target_price);
+                      } else if (signal.status === 'FAILED') {
+                        tradePnl = signal.type === 'CALL' ? (signal.stoploss_price - signal.entry_price) : (signal.entry_price - signal.stoploss_price);
+                      }
+
                       return (
                         <tr key={signal.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
                           <td style={{ padding: '0.75rem 0.5rem', color: 'var(--text-secondary)' }}>{formattedTime}</td>
@@ -1982,6 +2024,14 @@ const OpenClawAi = () => {
                             }}>
                               {signal.status}
                             </span>
+                          </td>
+                          <td style={{ 
+                            padding: '0.75rem 0.5rem', 
+                            fontFamily: 'monospace', 
+                            fontWeight: 'bold',
+                            color: signal.status === 'PENDING' ? 'var(--text-secondary)' : tradePnl >= 0 ? '#10b981' : '#ef4444' 
+                          }}>
+                            {signal.status === 'PENDING' ? '⏳ PENDING' : (tradePnl >= 0 ? `+${tradePnl.toFixed(2)}` : tradePnl.toFixed(2))}
                           </td>
                           <td style={{ padding: '0.75rem 0.5rem', textAlign: 'center' }}>
                             <button

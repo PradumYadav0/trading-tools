@@ -2016,6 +2016,8 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   let itmStrikeCall = 0;
   let itmCallLtp = 0;
   let itmStrikePut = 0;
+  let atm3Pcr = 0;
+  let atm3Vpcr = 0;
   let itmPutLtp = 0;
   
   let atmCallName = '';
@@ -2046,6 +2048,27 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
     averageIv = (atmCallIv + atmPutIv) / 2;
 
     const atmIndex = strikesArray.findIndex(s => s.strike === atmStrike);
+    
+    // Calculate ATM ±3 Strikes PCR & VPCR
+    if (atmIndex !== -1) {
+      let callOi3 = 0;
+      let putOi3 = 0;
+      let callVol3 = 0;
+      let putVol3 = 0;
+
+      const startIdx = Math.max(0, atmIndex - 3);
+      const endIdx = Math.min(strikesArray.length - 1, atmIndex + 3);
+
+      for (let i = startIdx; i <= endIdx; i++) {
+        callOi3 += strikesArray[i].callOi || 0;
+        putOi3 += strikesArray[i].putOi || 0;
+        callVol3 += strikesArray[i].callVolume || 0;
+        putVol3 += strikesArray[i].putVolume || 0;
+      }
+
+      atm3Pcr = callOi3 > 0 ? parseFloat((putOi3 / callOi3).toFixed(2)) : 0;
+      atm3Vpcr = callVol3 > 0 ? parseFloat((putVol3 / callVol3).toFixed(2)) : 0;
+    }
     
     // Call ITM strike (1 strike below ATM)
     const itmCallObj = atmIndex > 0 ? strikesArray[atmIndex - 1] : atmObj;
@@ -2206,8 +2229,10 @@ ${memorySection}
 
 Data for ${symbolStr}:
 - Current Spot Price: ${spotPrice}
-- Current PCR: ${pcr}
-- Current PCVR (Put-Call Volume Ratio): ${pcvr}
+- Current PCR (Full Option Chain): ${pcr}
+- Current PCVR (Put-Call Volume Ratio - Full Chain): ${pcvr}
+- ATM ±3 Strikes PCR: ${atm3Pcr} (Highly sensitive Put/Call Open Interest ratio for FII/DII activity)
+- ATM ±3 Strikes Volume PCR: ${atm3Vpcr} (Put-Call Volume Ratio for immediate momentum confirmation)
 - PCR values for last few minutes (newest to oldest): ${historicalPcrs.map(v => v.toFixed(2)).join(', ')}
 - Last 15 Candles (${primaryInterval}-minute interval):
 ${last15CandlesStr}
@@ -2448,7 +2473,9 @@ INSTRUCTIONS FOR WRITING:
       freshSupportWall15m,
       priceChange15m,
       cumulativeOiDelta15m,
-      oiDivergenceStatus
+      oiDivergenceStatus,
+      atm3Pcr,
+      atm3Vpcr
     }
   };
 }
@@ -3330,6 +3357,8 @@ async function sendOpenClawNotifications(symbol, actionData, settings, indicator
     `*Confidence*: ${actionData.confidence}%\n` +
     `*1H Trend*: ${hourlyTrend}\n` +
     `*ATM IV*: ${averageIv ? averageIv.toFixed(1) + '%' : 'N/A'}\n` +
+    `*ATM ±3 PCR*: ${indicators.atm3Pcr || 'N/A'}\n` +
+    `*ATM ±3 Vol PCR*: ${indicators.atm3Vpcr || 'N/A'}\n` +
     `*OI Divergence Status*: ${indicators.oiDivergenceStatus || 'NO_DIVERGENCE'}\n` +
     `*Buy Range*: ${actionData.buyRange}\n` +
     `*Target 1*: ${actionData.target1}\n` +

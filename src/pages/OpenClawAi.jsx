@@ -74,6 +74,7 @@ const OpenClawAi = () => {
 
   const [signals, setSignals] = useState([]);
   const [signalsLoading, setSignalsLoading] = useState(false);
+  const [dateFilter, setDateFilter] = useState('all'); // 'all', 'today', 'weekly', 'monthly'
 
   const fetchSignals = async () => {
     setSignalsLoading(true);
@@ -1731,18 +1732,49 @@ const OpenClawAi = () => {
       {/* OpenClaw Live Trade Monitor & Backtesting Panel */}
       {(() => {
         const openClawSignals = signals.filter(s => s.source === 'OPENCLAW');
+
+        // Filter based on selected date
+        const dateFilteredSignals = openClawSignals.filter(s => {
+          if (dateFilter === 'all') return true;
+          
+          const dateStr = s.created_at.endsWith('Z') || s.created_at.endsWith('UTC') ? s.created_at : s.created_at + ' UTC';
+          const signalDate = new Date(dateStr);
+          const now = new Date();
+          
+          // Reset hours for date-only comparison
+          const signalDateOnly = new Date(signalDate.getFullYear(), signalDate.getMonth(), signalDate.getDate());
+          const nowDateOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          
+          if (dateFilter === 'today') {
+            return signalDateOnly.getTime() === nowDateOnly.getTime();
+          }
+          
+          if (dateFilter === 'weekly') {
+            const sevenDaysAgo = new Date(nowDateOnly);
+            sevenDaysAgo.setDate(nowDateOnly.getDate() - 7);
+            return signalDateOnly >= sevenDaysAgo;
+          }
+          
+          if (dateFilter === 'monthly') {
+            const thirtyDaysAgo = new Date(nowDateOnly);
+            thirtyDaysAgo.setDate(nowDateOnly.getDate() - 30);
+            return signalDateOnly >= thirtyDaysAgo;
+          }
+          
+          return true;
+        });
         
         // Calculate Stats
-        const total = openClawSignals.length;
-        const success = openClawSignals.filter(s => s.status === 'SUCCESS').length;
-        const failed = openClawSignals.filter(s => s.status === 'FAILED').length;
-        const pending = openClawSignals.filter(s => s.status === 'PENDING').length;
+        const total = dateFilteredSignals.length;
+        const success = dateFilteredSignals.filter(s => s.status === 'SUCCESS').length;
+        const failed = dateFilteredSignals.filter(s => s.status === 'FAILED').length;
+        const pending = dateFilteredSignals.filter(s => s.status === 'PENDING').length;
         
         const active = success + failed;
         const winRate = active > 0 ? parseFloat(((success / active) * 100).toFixed(1)) : 0;
         
         let netPoints = 0;
-        openClawSignals.forEach(signal => {
+        dateFilteredSignals.forEach(signal => {
           if (signal.status === 'SUCCESS') {
             if (signal.type === 'CALL') {
               netPoints += (signal.target_price - signal.entry_price);
@@ -1770,6 +1802,28 @@ const OpenClawAi = () => {
                 </p>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <select
+                  value={dateFilter}
+                  onChange={(e) => setDateFilter(e.target.value)}
+                  style={{
+                    background: '#1c2128',
+                    border: '1px solid var(--border-color)',
+                    color: 'white',
+                    padding: '0.45rem 1rem',
+                    borderRadius: '8px',
+                    fontSize: '0.8rem',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    outline: 'none',
+                    marginRight: '0.5rem'
+                  }}
+                >
+                  <option value="all">📅 All Time</option>
+                  <option value="today">📅 Today</option>
+                  <option value="weekly">📅 Last 7 Days</option>
+                  <option value="monthly">📅 Last 30 Days</option>
+                </select>
+
                 <button 
                   onClick={clearAllOpenClawSignals} 
                   disabled={signalsLoading || openClawSignals.length === 0}
@@ -1846,9 +1900,9 @@ const OpenClawAi = () => {
             </div>
 
             {/* Active and History Trades List */}
-            {openClawSignals.length === 0 ? (
+            {dateFilteredSignals.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                No OpenClaw trades tracked yet. Run manual analysis and click "Save to AI Testing" or enable "Auto-Alerts" to populate this tracker.
+                No OpenClaw trades tracked for the selected period. Run manual analysis and click "Save to AI Testing" or enable "Auto-Alerts" to populate this tracker.
               </div>
             ) : (
               <div style={{ maxHeight: '400px', overflowY: 'auto', overflowX: 'auto', paddingRight: '0.25rem' }} className="signals-table-container">
@@ -1866,7 +1920,7 @@ const OpenClawAi = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {[...openClawSignals].slice(0, 20).map((signal) => {
+                    {[...dateFilteredSignals].slice(0, 20).map((signal) => {
                       const dateStr = signal.created_at.endsWith('Z') || signal.created_at.endsWith('UTC') ? signal.created_at : signal.created_at + ' UTC';
                       const formattedTime = new Date(dateStr).toLocaleString('en-IN', {
                         timeZone: 'Asia/Kolkata',

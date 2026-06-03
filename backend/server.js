@@ -2139,6 +2139,13 @@ You must weight their importance according to the weights assigned by the user:
 *CRITICAL RULES FOR NEWS SENTIMENT & SAFEGUARDS:*
 - If News Sentiment Agent weight is greater than 0, and you detect a major risk/panic headline (e.g. GDP contraction, war escalation, high interest rate warnings, massive index crashes, inflation surge), you MUST trigger the safety protocol: force "action" to "WAIT" and set "confidence" lower, prioritizing safety over indicators.
 
+*HIGH QUALITY TRADE SAFEGUARDS (Strict Accuracy Filters):*
+- Never recommend "CALL" if the spot price is within 0.15% below the Strongest Resistance Strike (e.g. if Resistance is 23200, Nifty Spot must NOT be between 23165 and 23200) unless active Call Unwinding (Short Covering) is detected.
+- Never recommend "PUT" if the spot price is within 0.15% above the Strongest Support Strike (e.g. if Support is 23100, Nifty Spot must NOT be between 23100 and 23135) unless active Put Unwinding (Long Unwinding) is detected.
+- If ATM Implied Volatility (IV) is exceptionally high (NIFTY > 18%, BANKNIFTY/FINNIFTY/MIDCPNIFTY > 22%), option premiums are overpriced. Significantly reduce confidence score or recommend "WAIT" to protect the user from Volatility Crush (Vega decay).
+- Prioritize breakout setups that are accompanied by a Volume Surge ("YES"). If volume is low or trend indicators conflict, prefer "WAIT".
+- Keep trade quality extremely high. It is better to recommend "WAIT" and skip a trade than to suggest a low-probability entry.
+
 *MULTI-TIMEFRAME TREND CONFIRMATION & ALIGNMENT:*
 - You are provided with a 1-Hour chart trend confirmation ("hourlyTrend"): "${hourlyTrend}".
 - Ideally:

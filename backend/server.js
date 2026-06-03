@@ -1950,6 +1950,28 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
     }
   }
 
+  // Calculate Cumulative OI Delta Divergence (Trap Filter)
+  const intervalMin = parseInt(primaryInterval, 10) || 5;
+  const lookbackCount = Math.round(15 / intervalMin) || 3;
+  let price15mAgo = spotPrice;
+  if (chartCandles.length > lookbackCount) {
+    price15mAgo = chartCandles[chartCandles.length - 1 - lookbackCount].close;
+  } else if (chartCandles.length > 0) {
+    price15mAgo = chartCandles[0].close;
+  }
+
+  const priceChange15m = spotPrice - price15mAgo;
+  const cumulativeOiDelta15m = total15mPutOiChange - total15mCallOiChange;
+  
+  const divThreshold = symbolStr.includes('BANKNIFTY') ? 30000 : 50000;
+  let oiDivergenceStatus = "NO_DIVERGENCE";
+
+  if (priceChange15m > 0.001 * spotPrice && cumulativeOiDelta15m < -divThreshold) {
+    oiDivergenceStatus = "BULL_TRAP_WARNING";
+  } else if (priceChange15m < -0.001 * spotPrice && cumulativeOiDelta15m > divThreshold) {
+    oiDivergenceStatus = "BEAR_TRAP_WARNING";
+  }
+
   // Calculate PCR Velocity
   let pcrVelocity = "STABLE";
   if (historicalPcrs.length >= 2) {
@@ -2140,6 +2162,8 @@ You must weight their importance according to the weights assigned by the user:
 - If News Sentiment Agent weight is greater than 0, and you detect a major risk/panic headline (e.g. GDP contraction, war escalation, high interest rate warnings, massive index crashes, inflation surge), you MUST trigger the safety protocol: force "action" to "WAIT" and set "confidence" lower, prioritizing safety over indicators.
 
 *HIGH QUALITY TRADE SAFEGUARDS (Strict Accuracy Filters):*
+- Never recommend "CALL" if Cumulative OI Delta Divergence Status is "BULL_TRAP_WARNING" (Price rising but institutional sellers are writing Calls heavily, signalling a trap).
+- Never recommend "PUT" if Cumulative OI Delta Divergence Status is "BEAR_TRAP_WARNING" (Price falling but institutional sellers are writing Puts heavily, signalling a trap).
 - Never recommend "CALL" if the spot price is within 0.15% below the Strongest Resistance Strike (e.g. if Resistance is 23200, Nifty Spot must NOT be between 23165 and 23200) unless active Call Unwinding (Short Covering) is detected.
 - Never recommend "PUT" if the spot price is within 0.15% above the Strongest Support Strike (e.g. if Support is 23100, Nifty Spot must NOT be between 23100 and 23135) unless active Put Unwinding (Long Unwinding) is detected.
 - If ATM Implied Volatility (IV) is exceptionally high (NIFTY > 18%, BANKNIFTY/FINNIFTY/MIDCPNIFTY > 22%), option premiums are overpriced. Significantly reduce confidence score or recommend "WAIT" to protect the user from Volatility Crush (Vega decay).
@@ -2206,6 +2230,9 @@ ${last15CandlesStr}
   * Smart Money Unwinding Panic Alert: ${smartMoneyUnwindingWarning}
   * Fresh Resistance Wall Build-up (15m): ${freshResistanceWall15m}
   * Fresh Support Wall Build-up (15m): ${freshSupportWall15m}
+  * Cumulative OI Delta (15m): ${cumulativeOiDelta15m} (Put OI Change - Call OI Change)
+  * Spot Price Change (15m): ${priceChange15m.toFixed(2)} (Current Spot: ${spotPrice}, 15m ago: ${price15mAgo.toFixed(2)})
+  * Cumulative OI Delta Divergence Status: ${oiDivergenceStatus}
   * Strike-by-Strike 15m OI changes details:
 ${smartMoneyDetails}
 
@@ -2361,6 +2388,29 @@ INSTRUCTIONS FOR WRITING:
       parsedResult.trailingStoploss = null;
       parsedResult.summary = `[SAFEGUARD OVERRIDE] PUT signal blocked because 15-minute Smart Money (FII/DII) is building Bullish pressure (${smartMoneySentiment}).`;
     }
+
+    // Cumulative OI Delta Divergence Safeguard overrides (Trap Filter):
+    if (parsedResult.action === 'CALL' && oiDivergenceStatus === 'BULL_TRAP_WARNING') {
+      console.log(`[OpenClaw Safeguard] Overriding CALL signal for ${symbolStr} due to Bull Trap (OI Divergence Status: BULL_TRAP_WARNING).`);
+      parsedResult.action = 'WAIT';
+      parsedResult.suggestedOptionContract = null;
+      parsedResult.optionPremiumLtp = null;
+      parsedResult.optionTarget1 = null;
+      parsedResult.optionTarget2 = null;
+      parsedResult.optionStoploss = null;
+      parsedResult.trailingStoploss = null;
+      parsedResult.summary = `[SAFEGUARD OVERRIDE] CALL signal blocked because a BULL TRAP was detected (Price rising but smart money writing Calls aggressively: Divergence negative).`;
+    } else if (parsedResult.action === 'PUT' && oiDivergenceStatus === 'BEAR_TRAP_WARNING') {
+      console.log(`[OpenClaw Safeguard] Overriding PUT signal for ${symbolStr} due to Bear Trap (OI Divergence Status: BEAR_TRAP_WARNING).`);
+      parsedResult.action = 'WAIT';
+      parsedResult.suggestedOptionContract = null;
+      parsedResult.optionPremiumLtp = null;
+      parsedResult.optionTarget1 = null;
+      parsedResult.optionTarget2 = null;
+      parsedResult.optionStoploss = null;
+      parsedResult.trailingStoploss = null;
+      parsedResult.summary = `[SAFEGUARD OVERRIDE] PUT signal blocked because a BEAR TRAP was detected (Price falling but smart money writing Puts aggressively: Divergence positive).`;
+    }
   }
 
   return {
@@ -2395,7 +2445,10 @@ INSTRUCTIONS FOR WRITING:
       smartMoneySentiment,
       smartMoneyUnwindingWarning,
       freshResistanceWall15m,
-      freshSupportWall15m
+      freshSupportWall15m,
+      priceChange15m,
+      cumulativeOiDelta15m,
+      oiDivergenceStatus
     }
   };
 }
@@ -3277,6 +3330,7 @@ async function sendOpenClawNotifications(symbol, actionData, settings, indicator
     `*Confidence*: ${actionData.confidence}%\n` +
     `*1H Trend*: ${hourlyTrend}\n` +
     `*ATM IV*: ${averageIv ? averageIv.toFixed(1) + '%' : 'N/A'}\n` +
+    `*OI Divergence Status*: ${indicators.oiDivergenceStatus || 'NO_DIVERGENCE'}\n` +
     `*Buy Range*: ${actionData.buyRange}\n` +
     `*Target 1*: ${actionData.target1}\n` +
     `*Target 2*: ${actionData.target2}\n` +

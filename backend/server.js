@@ -2475,7 +2475,8 @@ INSTRUCTIONS FOR WRITING:
       cumulativeOiDelta15m,
       oiDivergenceStatus,
       atm3Pcr,
-      atm3Vpcr
+      atm3Vpcr,
+      activeSignal
     }
   };
 }
@@ -3226,6 +3227,12 @@ const lastAlertSpotPrices = {
   FINNIFTY: 0,
   MIDCPNIFTY: 0
 };
+const lastSentTrailingSl = {
+  NIFTY: '',
+  BANKNIFTY: '',
+  FINNIFTY: '',
+  MIDCPNIFTY: ''
+};
 
 async function triggerOpenClawBackgroundAlerts() {
   try {
@@ -3310,6 +3317,16 @@ async function triggerOpenClawBackgroundAlerts() {
           logToBackground(`🚨 Strong signal detected for ${symbol}: ${actionData.action} (${actionData.confidence}%)`, 'success');
           await sendOpenClawNotifications(symbol, actionData, settings, indicators);
           saveOpenClawSignalToDb(symbol, actionData, indicators.spotPrice);
+        } else if (indicators.activeSignal && actionData.trailingStoploss) {
+          const cleanSlText = actionData.trailingStoploss.trim();
+          if (cleanSlText && cleanSlText.toLowerCase() !== 'null' && cleanSlText !== lastSentTrailingSl[symbol]) {
+            await sendOpenClawActiveTradeUpdate(symbol, actionData, settings, indicators);
+            lastSentTrailingSl[symbol] = cleanSlText;
+          }
+        }
+
+        if (!indicators.activeSignal) {
+          lastSentTrailingSl[symbol] = '';
         }
       } catch (err) {
         logToBackground(`Error scanning ${symbol}: ${err.message}`, 'error');
@@ -3320,6 +3337,55 @@ async function triggerOpenClawBackgroundAlerts() {
     }
   } catch (error) {
     logToBackground(`Error in background scanner loop: ${error.message}`, 'error');
+  }
+}
+
+async function sendOpenClawActiveTradeUpdate(symbol, actionData, settings, indicators) {
+  const activeSignal = indicators.activeSignal;
+  if (!activeSignal) return;
+
+  const spotPrice = indicators.spotPrice || 'N/A';
+  const tgToken = settings['telegram_token'];
+  const tgChatId = settings['telegram_chat_id'];
+  if (!tgToken || !tgChatId) return;
+
+  const currentPnl = activeSignal.type === 'CALL' 
+    ? (spotPrice - activeSignal.entry_price) 
+    : (activeSignal.entry_price - spotPrice);
+  const pnlSign = currentPnl >= 0 ? '+' : '';
+
+  const currentTime = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
+  }).format(new Date());
+
+  const message = `🔔 *OpenClaw Active Trade Update* 🔔\n\n` +
+    `*Symbol*: ${symbol}\n` +
+    `*Active Position*: Buy ${activeSignal.type}\n` +
+    `*Entry Price*: ${activeSignal.entry_price.toFixed(2)}\n` +
+    `*Current Spot*: ${spotPrice.toFixed(2)} (${pnlSign}${currentPnl.toFixed(2)} pts)\n` +
+    `*Time (IST)*: ${currentTime}\n\n` +
+    `📈 *AI Trailing SL / Target Update*:\n` +
+    `  • *Trailing Recommendation*: ${actionData.trailingStoploss}\n` +
+    `  • *AI Assessment*: ${actionData.summary}\n\n` +
+    `🤖 Powered by OpenClaw AI Multi-Agent Engine.`;
+
+  try {
+    const url = `https://api.telegram.org/bot${tgToken}/sendMessage`;
+    await axios.post(url, {
+      chat_id: tgChatId,
+      text: message,
+      parse_mode: 'Markdown'
+    });
+    console.log(`[Background Alert] Active trade update sent to Telegram for ${symbol}`);
+  } catch (e) {
+    console.error(`[Background Alert] Telegram active update error for ${symbol}:`, e.message);
   }
 }
 

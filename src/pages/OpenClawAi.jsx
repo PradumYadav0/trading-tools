@@ -74,7 +74,8 @@ const OpenClawAi = () => {
 
   const [signals, setSignals] = useState([]);
   const [signalsLoading, setSignalsLoading] = useState(false);
-  const [dateFilter, setDateFilter] = useState('all'); // 'all', 'today', 'weekly', 'monthly'
+  const [dateFilter, setDateFilter] = useState('all'); // 'all', 'today', 'weekly', 'monthly', 'custom'
+  const [customDate, setCustomDate] = useState(new Date().toISOString().split('T')[0]);
 
   const fetchSignals = async () => {
     setSignalsLoading(true);
@@ -1739,8 +1740,17 @@ const OpenClawAi = () => {
           
           const dateStr = s.created_at.endsWith('Z') || s.created_at.endsWith('UTC') ? s.created_at : s.created_at + ' UTC';
           const signalDate = new Date(dateStr);
-          const now = new Date();
           
+          if (dateFilter === 'custom') {
+            if (!customDate) return true;
+            const year = signalDate.getFullYear();
+            const month = String(signalDate.getMonth() + 1).padStart(2, '0');
+            const day = String(signalDate.getDate()).padStart(2, '0');
+            const signalDateString = `${year}-${month}-${day}`;
+            return signalDateString === customDate;
+          }
+
+          const now = new Date();
           // Reset hours for date-only comparison
           const signalDateOnly = new Date(signalDate.getFullYear(), signalDate.getMonth(), signalDate.getDate());
           const nowDateOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -1822,7 +1832,27 @@ const OpenClawAi = () => {
                   <option value="today">📅 Today</option>
                   <option value="weekly">📅 Last 7 Days</option>
                   <option value="monthly">📅 Last 30 Days</option>
+                  <option value="custom">📅 Custom Date</option>
                 </select>
+
+                {dateFilter === 'custom' && (
+                  <input
+                    type="date"
+                    value={customDate}
+                    onChange={(e) => setCustomDate(e.target.value)}
+                    style={{
+                      background: '#1c2128',
+                      border: '1px solid var(--border-color)',
+                      color: 'white',
+                      padding: '0.45rem 1rem',
+                      borderRadius: '8px',
+                      fontSize: '0.8rem',
+                      fontWeight: '600',
+                      outline: 'none',
+                      marginRight: '0.5rem'
+                    }}
+                  />
+                )}
 
                 <button 
                   onClick={clearAllOpenClawSignals} 

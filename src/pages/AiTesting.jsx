@@ -97,7 +97,19 @@ const AiTesting = () => {
 
     let netPoints = 0;
     filteredSignals.forEach(signal => {
-      if (signal.status === 'SUCCESS') {
+      let exitPrice = signal.exit_price;
+      if (!exitPrice || exitPrice <= 0) {
+        if (signal.status === 'SUCCESS') exitPrice = signal.target_price;
+        else if (signal.status === 'FAILED') exitPrice = signal.stoploss_price;
+      }
+
+      if (exitPrice && exitPrice > 0) {
+        if (signal.type === 'CALL') {
+          netPoints += (exitPrice - signal.entry_price);
+        } else if (signal.type === 'PUT') {
+          netPoints += (signal.entry_price - exitPrice);
+        }
+      } else if (signal.status === 'SUCCESS') {
         if (signal.type === 'CALL') {
           netPoints += (signal.target_price - signal.entry_price);
         } else if (signal.type === 'PUT') {
@@ -634,7 +646,7 @@ const AiTesting = () => {
           </div>
         ) : (
           <div style={{ maxHeight: '520px', overflowY: 'auto', paddingRight: '0.25rem' }} className="signals-table-container">
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '850px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '950px' }}>
             <thead>
               <tr style={{ borderBottom: '2px solid rgba(255,255,255,0.08)', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
                 <th style={{ padding: '1rem 0.75rem' }}>Timestamp</th>
@@ -642,6 +654,7 @@ const AiTesting = () => {
                 <th style={{ padding: '1rem 0.75rem' }}>Source / Type</th>
                 <th style={{ padding: '1rem 0.75rem' }}>Trade Type</th>
                 <th style={{ padding: '1rem 0.75rem' }}>Entry Price</th>
+                <th style={{ padding: '1rem 0.75rem' }}>Exit Price</th>
                 <th style={{ padding: '1rem 0.75rem' }}>Target Price</th>
                 <th style={{ padding: '1rem 0.75rem' }}>Stop Loss</th>
                 <th style={{ padding: '1rem 0.75rem' }}>Status</th>
@@ -668,7 +681,8 @@ const AiTesting = () => {
                       {signal.status !== 'PENDING' && (
                         <div style={{ fontSize: '0.8rem', color: '#A5B4FC', marginTop: '0.1rem' }}>
                           Exit: {(() => {
-                            const dateStr = signal.updated_at.endsWith('Z') || signal.updated_at.endsWith('UTC') ? signal.updated_at : signal.updated_at + ' UTC';
+                            const exitTimeVal = signal.exit_time || signal.updated_at;
+                            const dateStr = exitTimeVal.endsWith('Z') || exitTimeVal.endsWith('UTC') ? exitTimeVal : exitTimeVal + ' UTC';
                             return new Date(dateStr).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' });
                           })()}
                         </div>
@@ -715,6 +729,14 @@ const AiTesting = () => {
                     </td>
                     
                     <td style={{ padding: '1rem 0.75rem', fontFamily: 'monospace' }}>{signal.entry_price.toFixed(2)}</td>
+                    <td style={{ padding: '1rem 0.75rem', fontFamily: 'monospace', color: signal.status === 'SUCCESS' ? '#34D399' : signal.status === 'FAILED' ? '#F87171' : 'var(--text-secondary)' }}>
+                      {(() => {
+                        if (signal.exit_price && signal.exit_price > 0) return signal.exit_price.toFixed(2);
+                        if (signal.status === 'SUCCESS' && signal.target_price) return signal.target_price.toFixed(2);
+                        if (signal.status === 'FAILED' && signal.stoploss_price) return signal.stoploss_price.toFixed(2);
+                        return '-';
+                      })()}
+                    </td>
                     <td style={{ padding: '1rem 0.75rem', color: '#34D399', fontFamily: 'monospace', fontWeight: '600' }}>
                       {signal.target_price ? signal.target_price.toFixed(2) : 'N/A'}
                     </td>

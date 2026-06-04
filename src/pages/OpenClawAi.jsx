@@ -1795,7 +1795,19 @@ const OpenClawAi = () => {
         
         let netPoints = 0;
         finalFilteredSignals.forEach(signal => {
-          if (signal.status === 'SUCCESS') {
+          let exitPrice = signal.exit_price;
+          if (!exitPrice || exitPrice <= 0) {
+            if (signal.status === 'SUCCESS') exitPrice = signal.target_price;
+            else if (signal.status === 'FAILED') exitPrice = signal.stoploss_price;
+          }
+
+          if (exitPrice && exitPrice > 0) {
+            if (signal.type === 'CALL') {
+              netPoints += (exitPrice - signal.entry_price);
+            } else if (signal.type === 'PUT') {
+              netPoints += (signal.entry_price - exitPrice);
+            }
+          } else if (signal.status === 'SUCCESS') {
             if (signal.type === 'CALL') {
               netPoints += (signal.target_price - signal.entry_price);
             } else if (signal.type === 'PUT') {
@@ -1973,13 +1985,15 @@ const OpenClawAi = () => {
               </div>
             ) : (
               <div style={{ maxHeight: '400px', overflowY: 'auto', overflowX: 'auto', paddingRight: '0.25rem' }} className="signals-table-container">
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '700px', fontSize: '0.85rem' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '950px', fontSize: '0.85rem' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-secondary)' }}>
                       <th style={{ padding: '0.75rem 0.5rem' }}>Time (IST)</th>
+                      <th style={{ padding: '0.75rem 0.5rem' }}>Exit Time</th>
                       <th style={{ padding: '0.75rem 0.5rem' }}>Symbol</th>
                       <th style={{ padding: '0.75rem 0.5rem' }}>Action</th>
                       <th style={{ padding: '0.75rem 0.5rem' }}>Entry</th>
+                      <th style={{ padding: '0.75rem 0.5rem' }}>Exit Spot</th>
                       <th style={{ padding: '0.75rem 0.5rem' }}>Target</th>
                       <th style={{ padding: '0.75rem 0.5rem' }}>Stoploss</th>
                       <th style={{ padding: '0.75rem 0.5rem' }}>Status</th>
@@ -1998,72 +2012,99 @@ const OpenClawAi = () => {
                         minute: '2-digit',
                         hour12: true
                       });
+
+                      const exitDateVal = signal.exit_time || (signal.status !== 'PENDING' ? signal.updated_at : null);
+                      const exitDateStr = exitDateVal
+                        ? (exitDateVal.endsWith('Z') || exitDateVal.endsWith('UTC') ? exitDateVal : exitDateVal + ' UTC')
+                        : null;
+                      const formattedExitTime = exitDateStr 
+                        ? new Date(exitDateStr).toLocaleString('en-IN', {
+                            timeZone: 'Asia/Kolkata',
+                            day: '2-digit',
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            hour12: true
+                          })
+                        : '-';
+
+                      let exitPrice = signal.exit_price;
+                      if (!exitPrice || exitPrice <= 0) {
+                        if (signal.status === 'SUCCESS') exitPrice = signal.target_price;
+                        else if (signal.status === 'FAILED') exitPrice = signal.stoploss_price;
+                      }
                       
                       let tradePnl = 0;
-                      if (signal.status === 'SUCCESS') {
+                      if (exitPrice && exitPrice > 0) {
+                        tradePnl = signal.type === 'CALL' ? (exitPrice - signal.entry_price) : (signal.entry_price - exitPrice);
+                      } else if (signal.status === 'SUCCESS') {
                         tradePnl = signal.type === 'CALL' ? (signal.target_price - signal.entry_price) : (signal.entry_price - signal.target_price);
                       } else if (signal.status === 'FAILED') {
                         tradePnl = signal.type === 'CALL' ? (signal.stoploss_price - signal.entry_price) : (signal.entry_price - signal.stoploss_price);
                       }
-
-                      return (
-                        <tr key={signal.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                          <td style={{ padding: '0.75rem 0.5rem', color: 'var(--text-secondary)' }}>{formattedTime}</td>
-                          <td style={{ padding: '0.75rem 0.5rem', fontWeight: 'bold' }}>{signal.symbol}</td>
-                          <td style={{ padding: '0.75rem 0.5rem', fontWeight: '700', color: signal.type === 'CALL' ? '#10b981' : '#ef4444' }}>
-                            {signal.type}
-                          </td>
-                          <td style={{ padding: '0.75rem 0.5rem', fontFamily: 'monospace' }}>{signal.entry_price.toFixed(2)}</td>
-                          <td style={{ padding: '0.75rem 0.5rem', fontFamily: 'monospace', color: '#10b981' }}>
-                            {signal.target_price ? signal.target_price.toFixed(2) : 'N/A'}
-                          </td>
-                          <td style={{ padding: '0.75rem 0.5rem', fontFamily: 'monospace', color: '#ef4444' }}>
-                            {signal.stoploss_price ? signal.stoploss_price.toFixed(2) : 'N/A'}
-                          </td>
-                          <td style={{ padding: '0.75rem 0.5rem' }}>
-                            <span style={{
-                              fontWeight: 'bold',
-                              color: signal.status === 'SUCCESS' ? '#10b981' : signal.status === 'FAILED' ? '#ef4444' : '#eab308'
-                            }}>
-                              {signal.status}
-                            </span>
-                          </td>
-                          <td style={{ 
-                            padding: '0.75rem 0.5rem', 
-                            fontFamily: 'monospace', 
-                            fontWeight: 'bold',
-                            color: signal.status === 'PENDING' ? 'var(--text-secondary)' : tradePnl >= 0 ? '#10b981' : '#ef4444' 
-                          }}>
-                            {signal.status === 'PENDING' ? '⏳ PENDING' : (tradePnl >= 0 ? `+${tradePnl.toFixed(2)}` : tradePnl.toFixed(2))}
-                          </td>
-                          <td style={{ padding: '0.75rem 0.5rem', textAlign: 'center' }}>
-                            <button
-                              onClick={() => deleteSignal(signal.id)}
-                              style={{
-                                background: 'none',
-                                border: 'none',
-                                color: '#F87171',
-                                cursor: 'pointer',
-                                padding: '4px',
-                                borderRadius: '4px',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                transition: 'all 0.2s'
-                              }}
-                              title="Delete Log"
-                              onMouseEnter={(e) => e.currentTarget.style.color = '#EF4444'}
-                              onMouseLeave={(e) => e.currentTarget.style.color = '#F87171'}
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+ 
+                       return (
+                         <tr key={signal.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                           <td style={{ padding: '0.75rem 0.5rem', color: 'var(--text-secondary)' }}>{formattedTime}</td>
+                           <td style={{ padding: '0.75rem 0.5rem', color: 'var(--text-secondary)' }}>{formattedExitTime}</td>
+                           <td style={{ padding: '0.75rem 0.5rem', fontWeight: 'bold' }}>{signal.symbol}</td>
+                           <td style={{ padding: '0.75rem 0.5rem', fontWeight: '700', color: signal.type === 'CALL' ? '#10b981' : '#ef4444' }}>
+                             {signal.type}
+                           </td>
+                           <td style={{ padding: '0.75rem 0.5rem', fontFamily: 'monospace' }}>{signal.entry_price.toFixed(2)}</td>
+                           <td style={{ padding: '0.75rem 0.5rem', fontFamily: 'monospace', color: signal.status === 'SUCCESS' ? '#10b981' : signal.status === 'FAILED' ? '#ef4444' : 'var(--text-secondary)' }}>
+                             {exitPrice ? exitPrice.toFixed(2) : '-'}
+                           </td>
+                           <td style={{ padding: '0.75rem 0.5rem', fontFamily: 'monospace', color: '#10b981' }}>
+                             {signal.target_price ? signal.target_price.toFixed(2) : 'N/A'}
+                           </td>
+                           <td style={{ padding: '0.75rem 0.5rem', fontFamily: 'monospace', color: '#ef4444' }}>
+                             {signal.stoploss_price ? signal.stoploss_price.toFixed(2) : 'N/A'}
+                           </td>
+                           <td style={{ padding: '0.75rem 0.5rem' }}>
+                             <span style={{
+                               fontWeight: 'bold',
+                               color: signal.status === 'SUCCESS' ? '#10b981' : signal.status === 'FAILED' ? '#ef4444' : '#eab308'
+                             }}>
+                               {signal.status}
+                             </span>
+                           </td>
+                           <td style={{ 
+                             padding: '0.75rem 0.5rem', 
+                             fontFamily: 'monospace', 
+                             fontWeight: 'bold',
+                             color: signal.status === 'PENDING' ? 'var(--text-secondary)' : tradePnl >= 0 ? '#10b981' : '#ef4444' 
+                           }}>
+                             {signal.status === 'PENDING' ? '⏳ PENDING' : (tradePnl >= 0 ? `+${tradePnl.toFixed(2)}` : tradePnl.toFixed(2))}
+                           </td>
+                           <td style={{ padding: '0.75rem 0.5rem', textAlign: 'center' }}>
+                             <button
+                               onClick={() => deleteSignal(signal.id)}
+                               style={{
+                                 background: 'none',
+                                 border: 'none',
+                                 color: '#F87171',
+                                 cursor: 'pointer',
+                                 padding: '4px',
+                                 borderRadius: '4px',
+                                 display: 'inline-flex',
+                                 alignItems: 'center',
+                                 justifyContent: 'center',
+                                 transition: 'all 0.2s'
+                               }}
+                               title="Delete Log"
+                               onMouseEnter={(e) => e.currentTarget.style.color = '#EF4444'}
+                               onMouseLeave={(e) => e.currentTarget.style.color = '#F87171'}
+                             >
+                               <Trash2 size={13} />
+                             </button>
+                           </td>
+                         </tr>
+                       );
+                     })}
+                   </tbody>
+                 </table>
+               </div>
             )}
           </div>
         );

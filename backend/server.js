@@ -142,6 +142,8 @@ const db = new sqlite3.Database('./option_chain.db', (err) => {
       source TEXT DEFAULT 'OPTION_CHAIN',
       status TEXT DEFAULT 'PENDING',
       max_spot_seen REAL,
+      exit_time DATETIME,
+      exit_price REAL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`, () => {
@@ -156,6 +158,16 @@ const db = new sqlite3.Database('./option_chain.db', (err) => {
       db.run(`ALTER TABLE ai_signals ADD COLUMN max_spot_seen REAL`, (alterErr) => {
         if (!alterErr) {
           console.log("Successfully migrated database: added 'max_spot_seen' column to ai_signals.");
+        }
+      });
+      db.run(`ALTER TABLE ai_signals ADD COLUMN exit_time DATETIME`, (alterErr) => {
+        if (!alterErr) {
+          console.log("Successfully migrated database: added 'exit_time' column to ai_signals.");
+        }
+      });
+      db.run(`ALTER TABLE ai_signals ADD COLUMN exit_price REAL`, (alterErr) => {
+        if (!alterErr) {
+          console.log("Successfully migrated database: added 'exit_price' column to ai_signals.");
         }
       });
     });
@@ -2757,11 +2769,20 @@ const updatePendingSignals = () => {
             }
 
             if (newStatus !== 'PENDING' || maxSpotChanged) {
+              const query = newStatus !== 'PENDING'
+                ? `UPDATE ai_signals 
+                   SET status = ?, max_spot_seen = ?, exit_time = CURRENT_TIMESTAMP, exit_price = ?, updated_at = CURRENT_TIMESTAMP 
+                   WHERE id = ?`
+                : `UPDATE ai_signals 
+                   SET status = ?, max_spot_seen = ?, updated_at = CURRENT_TIMESTAMP 
+                   WHERE id = ?`;
+              const params = newStatus !== 'PENDING'
+                ? [newStatus, maxSpotSeen, currentSpot, row.id]
+                : [newStatus, maxSpotSeen, row.id];
+
               db.run(
-                `UPDATE ai_signals 
-                 SET status = ?, max_spot_seen = ?, updated_at = CURRENT_TIMESTAMP 
-                 WHERE id = ?`, 
-                [newStatus, maxSpotSeen, row.id], 
+                query, 
+                params, 
                 async function(err) {
                   if (!err) {
                     if (newStatus !== 'PENDING') {
@@ -4420,11 +4441,12 @@ async function startTelegramBotListener() {
                 const parts = text.split(' ');
                 const symbol = (parts[1] || '').toUpperCase();
                 if (symbol) {
+                  const exitPrice = latestSpotPrices[symbol] || 0;
                   db.run(
                     `UPDATE ai_signals 
-                     SET status = 'CLOSED', updated_at = CURRENT_TIMESTAMP 
+                     SET status = 'CLOSED', exit_time = CURRENT_TIMESTAMP, exit_price = ?, updated_at = CURRENT_TIMESTAMP 
                      WHERE symbol = ? AND status = 'PENDING' AND source = 'OPENCLAW'`,
-                    [symbol],
+                    [exitPrice, symbol],
                     async function (err) {
                       let replyText;
                       if (err) {

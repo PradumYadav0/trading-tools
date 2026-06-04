@@ -984,6 +984,9 @@ const OpenClawAi = () => {
                           padding: '0.35rem 0.5rem', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer'
                         }}
                       >
+                        <option value="1">1 Minute</option>
+                        <option value="2">2 Minutes</option>
+                        <option value="3">3 Minutes</option>
                         <option value="5">5 Minutes</option>
                         <option value="15">15 Minutes</option>
                         <option value="30">30 Minutes</option>

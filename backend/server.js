@@ -229,6 +229,20 @@ const cleanupDatabaseHistory = () => {
       console.log(`Cleaned up ${this.changes} records older than 7 days from option_chain_history database.`);
     }
   });
+
+  // Auto-expire any pending signals from previous calendar days (IST)
+  db.run(`
+    UPDATE ai_signals 
+    SET status = 'EXPIRED', updated_at = CURRENT_TIMESTAMP 
+    WHERE status = 'PENDING' 
+      AND date(created_at, '+5.5 hours') < date('now', '+5.5 hours')
+  `, function(expireErr) {
+    if (expireErr) {
+      console.error('Error auto-expiring old signals:', expireErr.message);
+    } else if (this.changes > 0) {
+      console.log(`Auto-expired ${this.changes} pending signals from previous days.`);
+    }
+  });
 };
 
 // Periodic database cleanup every 12 hours
@@ -2684,74 +2698,88 @@ async function sendActiveTradesStatusUpdate() {
 // Function to update PENDING signals in background using latestSpotPrices cache
 const updatePendingSignals = () => {
   return new Promise((resolve, reject) => {
-    db.all(`SELECT * FROM ai_signals WHERE status = 'PENDING'`, [], (err, rows) => {
-      if (err) return reject(err);
-      
-      if (rows.length === 0) return resolve(0);
-
-      let pendingUpdates = rows.length;
-      let updatedCount = 0;
-
-      rows.forEach(row => {
-        const currentSpot = latestSpotPrices[row.symbol];
-        if (!currentSpot || currentSpot <= 0) {
-          pendingUpdates--;
-          if (pendingUpdates === 0) resolve(updatedCount);
-          return;
+    // Auto-expire any pending signals from previous calendar days (IST) before checking status
+    db.run(
+      `UPDATE ai_signals 
+       SET status = 'EXPIRED', updated_at = CURRENT_TIMESTAMP 
+       WHERE status = 'PENDING' 
+         AND date(created_at, '+5.5 hours') < date('now', '+5.5 hours')`,
+      [],
+      (expireErr) => {
+        if (expireErr) {
+          console.error('[Background] Error auto-expiring old signals:', expireErr.message);
         }
 
-        let newStatus = 'PENDING';
-        let maxSpotSeen = row.max_spot_seen || row.entry_price;
-        let maxSpotChanged = false;
+        db.all(`SELECT * FROM ai_signals WHERE status = 'PENDING'`, [], (err, rows) => {
+          if (err) return reject(err);
+          
+          if (rows.length === 0) return resolve(0);
 
-        if (row.type === 'CALL') {
-          if (currentSpot > maxSpotSeen) {
-            maxSpotSeen = currentSpot;
-            maxSpotChanged = true;
-          }
+          let pendingUpdates = rows.length;
+          let updatedCount = 0;
 
-          if (row.target_price && currentSpot >= row.target_price) {
-            newStatus = 'SUCCESS';
-          } else if (row.stoploss_price && currentSpot <= row.stoploss_price) {
-            newStatus = 'FAILED';
-          }
-        } else if (row.type === 'PUT') {
-          if (currentSpot < maxSpotSeen) {
-            maxSpotSeen = currentSpot;
-            maxSpotChanged = true;
-          }
+          rows.forEach(row => {
+            const currentSpot = latestSpotPrices[row.symbol];
+            if (!currentSpot || currentSpot <= 0) {
+              pendingUpdates--;
+              if (pendingUpdates === 0) resolve(updatedCount);
+              return;
+            }
 
-          if (row.target_price && currentSpot <= row.target_price) {
-            newStatus = 'SUCCESS';
-          } else if (row.stoploss_price && currentSpot >= row.stoploss_price) {
-            newStatus = 'FAILED';
-          }
-        }
+            let newStatus = 'PENDING';
+            let maxSpotSeen = row.max_spot_seen || row.entry_price;
+            let maxSpotChanged = false;
 
-        if (newStatus !== 'PENDING' || maxSpotChanged) {
-          db.run(
-            `UPDATE ai_signals 
-             SET status = ?, max_spot_seen = ?, updated_at = CURRENT_TIMESTAMP 
-             WHERE id = ?`, 
-            [newStatus, maxSpotSeen, row.id], 
-            async function(err) {
-              if (!err) {
-                if (newStatus !== 'PENDING') {
-                  updatedCount++;
-                  // Trigger closure notifications asynchronously
-                  await sendTradeClosureNotification(row, newStatus, currentSpot);
-                }
+            if (row.type === 'CALL') {
+              if (currentSpot > maxSpotSeen) {
+                maxSpotSeen = currentSpot;
+                maxSpotChanged = true;
               }
+
+              if (row.target_price && currentSpot >= row.target_price) {
+                newStatus = 'SUCCESS';
+              } else if (row.stoploss_price && currentSpot <= row.stoploss_price) {
+                newStatus = 'FAILED';
+              }
+            } else if (row.type === 'PUT') {
+              if (currentSpot < maxSpotSeen) {
+                maxSpotSeen = currentSpot;
+                maxSpotChanged = true;
+              }
+
+              if (row.target_price && currentSpot <= row.target_price) {
+                newStatus = 'SUCCESS';
+              } else if (row.stoploss_price && currentSpot >= row.stoploss_price) {
+                newStatus = 'FAILED';
+              }
+            }
+
+            if (newStatus !== 'PENDING' || maxSpotChanged) {
+              db.run(
+                `UPDATE ai_signals 
+                 SET status = ?, max_spot_seen = ?, updated_at = CURRENT_TIMESTAMP 
+                 WHERE id = ?`, 
+                [newStatus, maxSpotSeen, row.id], 
+                async function(err) {
+                  if (!err) {
+                    if (newStatus !== 'PENDING') {
+                      updatedCount++;
+                      // Trigger closure notifications asynchronously
+                      await sendTradeClosureNotification(row, newStatus, currentSpot);
+                    }
+                  }
+                  pendingUpdates--;
+                  if (pendingUpdates === 0) resolve(updatedCount);
+                }
+              );
+            } else {
               pendingUpdates--;
               if (pendingUpdates === 0) resolve(updatedCount);
             }
-          );
-        } else {
-          pendingUpdates--;
-          if (pendingUpdates === 0) resolve(updatedCount);
-        }
-      });
-    });
+          });
+        });
+      }
+    );
   });
 };
 

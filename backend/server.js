@@ -2767,7 +2767,9 @@ const updatePendingSignals = () => {
                     if (newStatus !== 'PENDING') {
                       updatedCount++;
                       // Trigger closure notifications asynchronously
-                      await sendTradeClosureNotification(row, newStatus, currentSpot);
+                      if (row.source === 'OPENCLAW') {
+                        await sendTradeClosureNotification(row, newStatus, currentSpot);
+                      }
                     }
                   }
                   pendingUpdates--;

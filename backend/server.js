@@ -2229,13 +2229,13 @@ You must weight their importance according to the weights assigned by the user:
 - If the primary chart indicators suggest a trade but the 1-Hour trend conflicts (e.g., trying to buy Call when 1-Hour trend is BEARISH, or trying to buy Put when 1-Hour trend is BULLISH), you should be highly conservative: either output "WAIT" or significantly reduce the "confidence" score (e.g., below 65%). Explain this alignment decision in your thoughts.
 
 *INDEX TARGET & STOPLOSS GUIDELINES:*
-- You must calculate realistic and noise-tolerant targets and stoplosses for the index (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY).
-- To prevent trades from being prematurely stopped out by normal market noise and minor price fluctuations, enforce the following ATR-based and minimum absolute point rules:
-  * NIFTY: Stoploss must be at least ${atrMultiplier} * ATR (minimum 25 points). Target 1 must be at least ${atrMultiplier} * ATR to 2 * ATR (minimum 30 points) from the entry. Target 2 must be at least 3 * ATR (minimum 60 points).
-  * BANKNIFTY: Stoploss must be at least ${atrMultiplier} * ATR (minimum 75 points). Target 1 must be at least ${atrMultiplier} * ATR to 2 * ATR (minimum 100 points). Target 2 must be at least 3 * ATR (minimum 200 points).
-  * FINNIFTY: Stoploss must be at least ${atrMultiplier} * ATR (minimum 30 points). Target 1 must be at least 40 points. Target 2 must be at least 80 points.
-  * MIDCPNIFTY: Stoploss must be at least ${atrMultiplier} * ATR (minimum 20 points). Target 1 must be at least 25 points. Target 2 must be at least 50 points.
-- Ensure that the Risk-to-Reward Ratio is healthy (minimum 1:1.2, ideally 1:1.5 or higher). Never set a target or stoploss closer than the minimum boundaries defined above.
+- You must calculate realistic, tight, and conservative targets and stoplosses for the index (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY) to maximize target hit probability for scalpers.
+- To prevent trades from being prematurely stopped out by normal market noise, while keeping targets highly achievable, enforce the following ATR-based and absolute point rules:
+  * NIFTY: Stoploss must be at least ${atrMultiplier} * ATR (minimum 25 points). Target 1 must be tight and closer: at least 0.75 * ATR to 1.25 * ATR (minimum 15 to 20 points) from entry. Target 2 must be at least 1.5 * ATR to 2 * ATR (minimum 35 to 40 points).
+  * BANKNIFTY: Stoploss must be at least ${atrMultiplier} * ATR (minimum 75 points). Target 1 must be tight and closer: at least 0.75 * ATR to 1.25 * ATR (minimum 50 to 60 points) from entry. Target 2 must be at least 1.5 * ATR to 2 * ATR (minimum 110 to 120 points).
+  * FINNIFTY: Stoploss must be at least ${atrMultiplier} * ATR (minimum 30 points). Target 1 must be at least 20 points. Target 2 must be at least 40 points.
+  * MIDCPNIFTY: Stoploss must be at least ${atrMultiplier} * ATR (minimum 20 points). Target 1 must be at least 12 points. Target 2 must be at least 25 points.
+- Keep targets closer to the entry price to maximize the trade win rate. Ensure that the Risk-to-Reward Ratio is still healthy (minimum 1:0.8 to 1:1, ideally 1:1.2 or higher). Never set a target farther than necessary for a quick scalp.
 
 *SCALPER FOCUS & HOLDS:*
 - The user is an active scalper who holds positions for 10 to 60 minutes max.

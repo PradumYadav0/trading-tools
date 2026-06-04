@@ -1495,13 +1495,14 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   const settings = await getSystemSettings();
   const atrMultiplier = parseFloat(settings['stoploss_atr_multiplier']) || 1.5;
 
-  // Fetch active pending signal for this symbol from SQLite DB (Memory Technique)
+  // Fetch active pending signal for this symbol from SQLite DB (Memory Technique) - Only select from today (IST)
   const getActiveSignal = () => {
     return new Promise((resolve) => {
       db.get(
         `SELECT id, type, entry_price, target_price, stoploss_price, created_at 
          FROM ai_signals 
          WHERE symbol = ? AND status = 'PENDING' AND source = 'OPENCLAW'
+           AND date(created_at, '+5.5 hours') = date('now', '+5.5 hours')
          ORDER BY id DESC LIMIT 1`,
         [symbolStr],
         (err, row) => {

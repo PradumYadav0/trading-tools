@@ -3347,11 +3347,19 @@ async function triggerOpenClawBackgroundAlerts() {
           logToBackground(`🚨 Strong signal detected for ${symbol}: ${actionData.action} (${actionData.confidence}%)`, 'success');
           await sendOpenClawNotifications(symbol, actionData, settings, indicators);
           saveOpenClawSignalToDb(symbol, actionData, indicators.spotPrice);
+          // Set initial trailing SL to prevent immediate duplicate update notification
+          lastSentTrailingSl[symbol] = actionData.trailingStoploss ? actionData.trailingStoploss.trim() : '';
         } else if (indicators.activeSignal && actionData.trailingStoploss) {
           const cleanSlText = actionData.trailingStoploss.trim();
-          if (cleanSlText && cleanSlText.toLowerCase() !== 'null' && cleanSlText !== lastSentTrailingSl[symbol]) {
-            await sendOpenClawActiveTradeUpdate(symbol, actionData, settings, indicators);
-            lastSentTrailingSl[symbol] = cleanSlText;
+          if (cleanSlText && cleanSlText.toLowerCase() !== 'null') {
+            if (lastSentTrailingSl[symbol] === '') {
+              // Initialize current trailing SL on startup or manual trade detection without sending duplicate notification
+              lastSentTrailingSl[symbol] = cleanSlText;
+            } else if (cleanSlText !== lastSentTrailingSl[symbol]) {
+              // Only dispatch update if it actually changes
+              await sendOpenClawActiveTradeUpdate(symbol, actionData, settings, indicators);
+              lastSentTrailingSl[symbol] = cleanSlText;
+            }
           }
         }
 

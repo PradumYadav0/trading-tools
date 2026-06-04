@@ -1377,18 +1377,20 @@ IMPORTANT INSTRUCTIONS for the tone and format:
 
 // Helper for calculating EMA
 const calculateEMA = (data, period) => {
-  if (data.length < period) return 0;
+  if (!data || data.length < period) return [];
   const k = 2 / (period + 1);
+  let emaList = [];
   let ema = data[0].close;
-  for (let i = 1; i < data.length; i++) {
+  for (let i = 0; i < data.length; i++) {
     ema = (data[i].close * k) + (ema * (1 - k));
+    emaList.push(ema);
   }
-  return parseFloat(ema.toFixed(2));
+  return emaList;
 };
 
 // Helper for calculating RSI
 const calculateRSI = (data, period = 14) => {
-  if (data.length <= period) return 50;
+  if (!data || data.length <= period) return Array(data ? data.length : 0).fill(50);
   let gains = 0;
   let losses = 0;
 
@@ -1403,22 +1405,21 @@ const calculateRSI = (data, period = 14) => {
 
   let avgGain = gains / period;
   let avgLoss = losses / period;
+  let rsiList = Array(period).fill(50);
+  const firstRS = avgLoss === 0 ? 100 : avgGain / avgLoss;
+  rsiList.push(100 - (100 / (1 + firstRS)));
 
   for (let i = period + 1; i < data.length; i++) {
     const diff = data[i].close - data[i - 1].close;
-    if (diff > 0) {
-      avgGain = (avgGain * (period - 1) + diff) / period;
-      avgLoss = (avgLoss * (period - 1)) / period;
-    } else {
-      avgGain = (avgGain * (period - 1)) / period;
-      avgLoss = (avgLoss * (period - 1) - diff) / period;
-    }
+    const gain = diff > 0 ? diff : 0;
+    const loss = diff < 0 ? -diff : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+    const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+    rsiList.push(100 - (100 / (1 + rs)));
   }
 
-  if (avgLoss === 0) return 100;
-  const rs = avgGain / avgLoss;
-  const rsi = 100 - (100 / (1 + rs));
-  return parseFloat(rsi.toFixed(2));
+  return rsiList;
 };
 
 // Helper for calculating ATR

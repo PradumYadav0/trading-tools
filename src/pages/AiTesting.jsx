@@ -658,6 +658,7 @@ const AiTesting = () => {
                 <th style={{ padding: '1rem 0.75rem' }}>Target Price</th>
                 <th style={{ padding: '1rem 0.75rem' }}>Stop Loss</th>
                 <th style={{ padding: '1rem 0.75rem' }}>Status</th>
+                <th style={{ padding: '1rem 0.75rem' }}>Trade ID</th>
                 <th style={{ padding: '1rem 0.75rem', textAlign: 'center' }}>Actions</th>
               </tr>
             </thead>
@@ -758,6 +759,20 @@ const AiTesting = () => {
                         {signal.status === 'FAILED' && <XCircle size={15} />}
                         {signal.status === 'PENDING' && <Clock size={15} />}
                         {signal.status}
+                      </span>
+                    </td>
+                    <td style={{ padding: '1rem 0.75rem' }}>
+                      <span style={{
+                        fontFamily: 'monospace',
+                        fontSize: '0.75rem',
+                        background: 'rgba(99,102,241,0.1)',
+                        color: '#a5b4fc',
+                        border: '1px solid rgba(99,102,241,0.2)',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        CLAW-{signal.symbol}-{signal.id}
                       </span>
                     </td>
                     <td style={{ padding: '1rem 0.75rem', textAlign: 'center' }}>

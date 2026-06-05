@@ -1998,6 +1998,7 @@ const OpenClawAi = () => {
                       <th style={{ padding: '0.75rem 0.5rem' }}>Stoploss</th>
                       <th style={{ padding: '0.75rem 0.5rem' }}>Status</th>
                       <th style={{ padding: '0.75rem 0.5rem' }}>PnL (Pts)</th>
+                      <th style={{ padding: '0.75rem 0.5rem' }}>Trade ID</th>
                       <th style={{ padding: '0.75rem 0.5rem', textAlign: 'center' }}>Actions</th>
                     </tr>
                   </thead>
@@ -2076,6 +2077,20 @@ const OpenClawAi = () => {
                              color: signal.status === 'PENDING' ? 'var(--text-secondary)' : tradePnl >= 0 ? '#10b981' : '#ef4444' 
                            }}>
                              {signal.status === 'PENDING' ? '⏳ PENDING' : (tradePnl >= 0 ? `+${tradePnl.toFixed(2)}` : tradePnl.toFixed(2))}
+                           </td>
+                           <td style={{ padding: '0.75rem 0.5rem' }}>
+                             <span style={{
+                               fontFamily: 'monospace',
+                               fontSize: '0.75rem',
+                               background: 'rgba(99,102,241,0.1)',
+                               color: '#a5b4fc',
+                               border: '1px solid rgba(99,102,241,0.2)',
+                               padding: '2px 6px',
+                               borderRadius: '4px',
+                               whiteSpace: 'nowrap'
+                             }}>
+                               CLAW-{signal.symbol}-{signal.id}
+                             </span>
                            </td>
                            <td style={{ padding: '0.75rem 0.5rem', textAlign: 'center' }}>
                              <button

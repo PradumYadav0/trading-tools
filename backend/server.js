@@ -65,6 +65,43 @@ const processDhanQueue = async () => {
   isProcessingQueue = false;
 };
 
+// Helper to call Gemini API with retry, exponential backoff, and descriptive error parsing
+async function callGeminiWithRetry(url, payload, maxRetries = 3, initialDelay = 1500) {
+  let delay = initialDelay;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await axios.post(url, payload);
+    } catch (error) {
+      const isRateLimit = error.response && error.response.status === 429;
+      const isServerErr = error.response && error.response.status >= 500;
+      
+      // Extract Google API descriptive message if present
+      const details = error.response?.data?.error?.message || error.response?.data?.message || error.message;
+      
+      if ((isRateLimit || isServerErr) && attempt < maxRetries) {
+        console.warn(`[Gemini Retry] Attempt ${attempt} failed: ${details}. Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay *= 2.5; // Exponential backoff (1.5s, 3.75s, 9.375s)
+      } else {
+        // Enforce a more descriptive error message to be captured by the UI log
+        let errorMessage = details;
+        if (isRateLimit) {
+          errorMessage = `Gemini API Rate Limit Exceeded (429): ${details}. ` +
+            `Ensure your API Key is associated with a Google AI Studio project with active billing enabled. ` +
+            `Free tier keys are subject to strict RPM and daily quotas.`;
+        } else if (error.response && error.response.status === 400 && details.includes('API key expired')) {
+          errorMessage = `Gemini API Error (400): API key expired. Please renew the API key in your Google AI Studio account.`;
+        }
+        
+        const enhancedError = new Error(errorMessage);
+        enhancedError.status = error.response?.status || 500;
+        enhancedError.response = error.response;
+        throw enhancedError;
+      }
+    }
+  }
+}
+
 // Function to refresh Dhan Token automatically
 const refreshDhanToken = async () => {
   const secret = process.env.DHAN_TOTP_SECRET;
@@ -1364,7 +1401,7 @@ IMPORTANT INSTRUCTIONS for the tone and format:
       });
     }
 
-    const geminiResponse = await axios.post(geminiUrl, {
+    const geminiResponse = await callGeminiWithRetry(geminiUrl, {
       contents: [{
         parts: parts
       }]
@@ -2349,7 +2386,7 @@ INSTRUCTIONS FOR WRITING:
 
   // 5. Call Gemini (using low-cost gemini-3.1-flash-lite)
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`;
-  const geminiResponse = await axios.post(geminiUrl, {
+  const geminiResponse = await callGeminiWithRetry(geminiUrl, {
     contents: [{ parts: [{ text: prompt }] }]
   });
 
@@ -2613,15 +2650,16 @@ async function sendTradeClosureNotification(row, newStatus, exitSpot) {
   
   if (!tgToken || !tgChatId) return;
 
+  const tradeIdStr = `CLAW-${row.symbol}-${row.id}`;
   const pnl = row.type === 'CALL' 
     ? (exitSpot - row.entry_price) 
     : (row.entry_price - exitSpot);
   const pnlSign = pnl >= 0 ? '+' : '';
   
   const message = `🔔 *OpenClaw Trade Closure Alert* 🔔\n\n` +
+    `*Trade ID*: \`${tradeIdStr}\`\n` +
     `*Symbol*: ${row.symbol}\n` +
     `*Action*: ${row.type === 'CALL' ? 'BUY CALL / BULLISH' : 'BUY PUT / BEARISH'}\n` +
-    `*Source*: ${row.source}\n` +
     `*Status*: ${newStatus === 'SUCCESS' ? '✅ SUCCESS (Target Hit)' : '❌ FAILED (Stoploss Hit)'}\n\n` +
     `📊 *Trade Details*:\n` +
     `  • Entry Price: ${row.entry_price.toFixed(2)}\n` +
@@ -2686,7 +2724,8 @@ async function sendActiveTradesStatusUpdate() {
       const spot = latestSpotPrices[row.symbol] || row.entry_price;
       const change = row.type === 'CALL' ? (spot - row.entry_price) : (row.entry_price - spot);
       const changeSign = change >= 0 ? '+' : '';
-      statusMsg += `${index + 1}. *${row.symbol} ${row.type}*\n` +
+      const tradeId = `CLAW-${row.symbol}-${row.id}`;
+      statusMsg += `${index + 1}. *${row.symbol} ${row.type}* \`${tradeId}\`\n` +
         `  • Entry: ${row.entry_price.toFixed(2)}\n` +
         `  • Target: ${row.target_price.toFixed(2)}\n` +
         `  • Stoploss: ${row.stoploss_price.toFixed(2)}\n` +
@@ -2709,8 +2748,16 @@ async function sendActiveTradesStatusUpdate() {
   });
 }
 
+// Mutex flag — prevents concurrent execution of updatePendingSignals
+let isUpdatingPendingSignals = false;
+
 // Function to update PENDING signals in background using latestSpotPrices cache
 const updatePendingSignals = () => {
+  if (isUpdatingPendingSignals) {
+    console.log('[Background] updatePendingSignals skipped — already running.');
+    return Promise.resolve(0);
+  }
+  isUpdatingPendingSignals = true;
   return new Promise((resolve, reject) => {
     // Auto-expire any pending signals from previous calendar days (IST) before checking status
     db.run(
@@ -2769,13 +2816,14 @@ const updatePendingSignals = () => {
             }
 
             if (newStatus !== 'PENDING' || maxSpotChanged) {
+              // Always filter by AND status = 'PENDING' to prevent double-firing
               const query = newStatus !== 'PENDING'
                 ? `UPDATE ai_signals 
                    SET status = ?, max_spot_seen = ?, exit_time = CURRENT_TIMESTAMP, exit_price = ?, updated_at = CURRENT_TIMESTAMP 
-                   WHERE id = ?`
+                   WHERE id = ? AND status = 'PENDING'`
                 : `UPDATE ai_signals 
                    SET status = ?, max_spot_seen = ?, updated_at = CURRENT_TIMESTAMP 
-                   WHERE id = ?`;
+                   WHERE id = ? AND status = 'PENDING'`;
               const params = newStatus !== 'PENDING'
                 ? [newStatus, maxSpotSeen, currentSpot, row.id]
                 : [newStatus, maxSpotSeen, row.id];
@@ -2784,10 +2832,10 @@ const updatePendingSignals = () => {
                 query, 
                 params, 
                 async function(err) {
-                  if (!err) {
+                  if (!err && this.changes > 0) {
+                    // Only fire closure alert if we actually updated the row (this.changes > 0 prevents double-fire)
                     if (newStatus !== 'PENDING') {
                       updatedCount++;
-                      // Trigger closure notifications asynchronously
                       if (row.source === 'OPENCLAW') {
                         await sendTradeClosureNotification(row, newStatus, currentSpot);
                       }
@@ -2805,6 +2853,8 @@ const updatePendingSignals = () => {
         });
       }
     );
+  }).finally(() => {
+    isUpdatingPendingSignals = false;
   });
 };
 
@@ -3280,12 +3330,7 @@ const lastAlertSpotPrices = {
   FINNIFTY: 0,
   MIDCPNIFTY: 0
 };
-const lastSentTrailingSl = {
-  NIFTY: '',
-  BANKNIFTY: '',
-  FINNIFTY: '',
-  MIDCPNIFTY: ''
-};
+
 
 async function triggerOpenClawBackgroundAlerts() {
   try {
@@ -3368,26 +3413,9 @@ async function triggerOpenClawBackgroundAlerts() {
 
         if ((actionData.action === 'CALL' || actionData.action === 'PUT') && actionData.confidence >= minConfidence) {
           logToBackground(`🚨 Strong signal detected for ${symbol}: ${actionData.action} (${actionData.confidence}%)`, 'success');
-          await sendOpenClawNotifications(symbol, actionData, settings, indicators);
-          saveOpenClawSignalToDb(symbol, actionData, indicators.spotPrice);
-          // Set initial trailing SL to prevent immediate duplicate update notification
-          lastSentTrailingSl[symbol] = actionData.trailingStoploss ? actionData.trailingStoploss.trim() : '';
-        } else if (indicators.activeSignal && actionData.trailingStoploss) {
-          const cleanSlText = actionData.trailingStoploss.trim();
-          if (cleanSlText && cleanSlText.toLowerCase() !== 'null') {
-            if (lastSentTrailingSl[symbol] === '') {
-              // Initialize current trailing SL on startup or manual trade detection without sending duplicate notification
-              lastSentTrailingSl[symbol] = cleanSlText;
-            } else if (cleanSlText !== lastSentTrailingSl[symbol]) {
-              // Only dispatch update if it actually changes
-              await sendOpenClawActiveTradeUpdate(symbol, actionData, settings, indicators);
-              lastSentTrailingSl[symbol] = cleanSlText;
-            }
-          }
-        }
-
-        if (!indicators.activeSignal) {
-          lastSentTrailingSl[symbol] = '';
+          // Save to DB FIRST to get the unique Trade ID, then send alert with that ID
+          const signalId = await saveOpenClawSignalToDb(symbol, actionData, indicators.spotPrice);
+          await sendOpenClawNotifications(symbol, actionData, settings, indicators, signalId);
         }
       } catch (err) {
         logToBackground(`Error scanning ${symbol}: ${err.message}`, 'error');
@@ -3401,59 +3429,12 @@ async function triggerOpenClawBackgroundAlerts() {
   }
 }
 
-async function sendOpenClawActiveTradeUpdate(symbol, actionData, settings, indicators) {
-  const activeSignal = indicators.activeSignal;
-  if (!activeSignal) return;
 
-  const spotPrice = indicators.spotPrice || 'N/A';
-  const tgToken = settings['telegram_token'];
-  const tgChatId = settings['telegram_chat_id'];
-  if (!tgToken || !tgChatId) return;
-
-  const currentPnl = activeSignal.type === 'CALL' 
-    ? (spotPrice - activeSignal.entry_price) 
-    : (activeSignal.entry_price - spotPrice);
-  const pnlSign = currentPnl >= 0 ? '+' : '';
-
-  const currentTime = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Kolkata',
-    year: 'numeric',
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: true
-  }).format(new Date());
-
-  const message = `🔔 *OpenClaw Active Trade Update* 🔔\n\n` +
-    `*Symbol*: ${symbol}\n` +
-    `*Active Position*: Buy ${activeSignal.type}\n` +
-    `*Entry Price*: ${activeSignal.entry_price.toFixed(2)}\n` +
-    `*Current Spot*: ${spotPrice.toFixed(2)} (${pnlSign}${currentPnl.toFixed(2)} pts)\n` +
-    `*Time (IST)*: ${currentTime}\n\n` +
-    `📈 *AI Trailing SL / Target Update*:\n` +
-    `  • *Trailing Recommendation*: ${actionData.trailingStoploss}\n` +
-    `  • *AI Assessment*: ${actionData.summary}\n\n` +
-    `🤖 Powered by OpenClaw AI Multi-Agent Engine.`;
-
-  try {
-    const url = `https://api.telegram.org/bot${tgToken}/sendMessage`;
-    await axios.post(url, {
-      chat_id: tgChatId,
-      text: message,
-      parse_mode: 'Markdown'
-    });
-    console.log(`[Background Alert] Active trade update sent to Telegram for ${symbol}`);
-  } catch (e) {
-    console.error(`[Background Alert] Telegram active update error for ${symbol}:`, e.message);
-  }
-}
-
-async function sendOpenClawNotifications(symbol, actionData, settings, indicators) {
+async function sendOpenClawNotifications(symbol, actionData, settings, indicators, signalId) {
   const spotPrice = indicators.spotPrice || 'N/A';
   const hourlyTrend = indicators.hourlyTrend || 'N/A';
   const averageIv = indicators.averageIv || 0;
+  const tradeIdStr = signalId ? `CLAW-${symbol}-${signalId}` : 'CLAW-UNKNOWN';
 
   const currentTime = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Kolkata',
@@ -3473,11 +3454,11 @@ async function sendOpenClawNotifications(symbol, actionData, settings, indicator
       `*Premium Target 1*: ₹${actionData.optionTarget1}\n` +
       `*Premium Target 2*: ₹${actionData.optionTarget2}\n` +
       `*Premium Stoploss*: ₹${actionData.optionStoploss}\n` +
-      `*Expected Hold*: ⏳ ${actionData.expectedHoldTime}\n` +
-      `*Trailing SL*: 📈 ${actionData.trailingStoploss || 'N/A'}\n\n`;
+      `*Expected Hold*: ⏳ ${actionData.expectedHoldTime}\n\n`;
   }
 
   const messageContent = `🚨 *OpenClaw AI Trade Alert* 🚨\n\n` +
+    `*Trade ID*: \`${tradeIdStr}\`\n` +
     `*Symbol*: ${symbol}\n` +
     `*Action*: ${actionData.action === 'CALL' ? 'BUY CALL / BULLISH' : 'BUY PUT / BEARISH'}\n` +
     `*Spot Price*: ${spotPrice}\n` +
@@ -3544,18 +3525,22 @@ async function sendOpenClawNotifications(symbol, actionData, settings, indicator
 
 function saveOpenClawSignalToDb(symbol, actionData, spotPrice) {
   const signalType = actionData.action === 'CALL' ? 'CALL' : 'PUT';
-  db.run(
-    `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price, source, status) 
-     VALUES (?, ?, ?, ?, ?, 'OPENCLAW', 'PENDING')`,
-    [symbol, signalType, spotPrice, actionData.target1, actionData.stoploss],
-    (err) => {
-      if (err) {
-        console.error(`[Background Alert] Error logging signal for ${symbol} to DB:`, err.message);
-      } else {
-        console.log(`[Background Alert] Saved ${symbol} ${signalType} signal to database for AI Testing backtest tracking.`);
+  return new Promise((resolve, reject) => {
+    db.run(
+      `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price, source, status) 
+       VALUES (?, ?, ?, ?, ?, 'OPENCLAW', 'PENDING')`,
+      [symbol, signalType, spotPrice, actionData.target1, actionData.stoploss],
+      function(err) {
+        if (err) {
+          console.error(`[Background Alert] Error logging signal for ${symbol} to DB:`, err.message);
+          reject(err);
+        } else {
+          console.log(`[Background Alert] Saved ${symbol} ${signalType} signal to DB with Trade ID: CLAW-${symbol}-${this.lastID}`);
+          resolve(this.lastID);
+        }
       }
-    }
-  );
+    );
+  });
 }
 
 // Scan alert interval is triggered inside syncMarketData()
@@ -4279,11 +4264,36 @@ async function startTelegramBotListener() {
                       `*Premium Target 1*: ₹${actionData.optionTarget1}\n` +
                       `*Premium Target 2*: ₹${actionData.optionTarget2}\n` +
                       `*Premium Stoploss*: ₹${actionData.optionStoploss}\n` +
-                      `*Expected Hold*: ⏳ ${actionData.expectedHoldTime}\n` +
-                      `*Trailing SL*: 📈 ${actionData.trailingStoploss || 'N/A'}\n\n`;
+                      `*Expected Hold*: ⏳ ${actionData.expectedHoldTime}\n\n`;
+                  }
+
+                  // Save to DB FIRST (with duplicate guard) — get Trade ID before sending alert
+                  let tradeIdStr = 'CLAW-MANUAL';
+                  if (actionData.action === 'CALL' || actionData.action === 'PUT') {
+                    // Duplicate guard: only save if no existing PENDING OPENCLAW trade for this symbol today
+                    const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+                    const existing = await new Promise((res) => {
+                      db.get(
+                        `SELECT id FROM ai_signals WHERE symbol = ? AND source = 'OPENCLAW' AND status = 'PENDING' AND date(created_at, '+5.5 hours') = ?`,
+                        [symbol, todayIst],
+                        (e, row) => res(row)
+                      );
+                    });
+                    if (!existing) {
+                      try {
+                        const newId = await saveOpenClawSignalToDb(symbol, actionData, indicators.spotPrice);
+                        tradeIdStr = `CLAW-${symbol}-${newId}`;
+                      } catch (dbErr) {
+                        console.error('[Telegram Bot] DB save error:', dbErr.message);
+                      }
+                    } else {
+                      tradeIdStr = `CLAW-${symbol}-${existing.id}`;
+                      console.log(`[Telegram Bot] Duplicate guard: OPENCLAW signal for ${symbol} already exists (ID: ${existing.id}). Skipping DB insert.`);
+                    }
                   }
 
                   const responseMsg = `🚨 *OpenClaw AI Trade Alert* 🚨\n\n` +
+                    `*Trade ID*: \`${tradeIdStr}\`\n` +
                     `*Symbol*: ${symbol}\n` +
                     `*Action*: ${actionData.action === 'CALL' ? 'BUY CALL / BULLISH' : actionData.action === 'PUT' ? 'BUY PUT / BEARISH' : 'WAIT / NEUTRAL'}\n` +
                     `*Spot Price*: ${indicators.spotPrice || 'N/A'}\n` +
@@ -4304,11 +4314,6 @@ async function startTelegramBotListener() {
                     text: responseMsg,
                     parse_mode: 'Markdown'
                   });
-
-                  // Log to DB for Live Tracker
-                  if (actionData.action === 'CALL' || actionData.action === 'PUT') {
-                    saveOpenClawSignalToDb(symbol, actionData, indicators.spotPrice);
-                  }
                 } catch (analysisErr) {
                   console.error('[Telegram Bot] Analysis error:', analysisErr.message);
                   await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {

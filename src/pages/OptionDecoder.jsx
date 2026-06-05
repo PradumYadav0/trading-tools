@@ -23,7 +23,7 @@ const OptionDecoder = () => {
   const [trapAlert, setTrapAlert] = useState({ active: false, type: '', message: '', color: '' });
   
   // For PCR Velocity
-  const prevPcrRef = useRef(1.0);
+  const prevPcrRef = useRef(null);
 
   const calculateMaxPain = (data) => {
     if (!data || data.length === 0) return 'N/A';
@@ -69,7 +69,7 @@ const OptionDecoder = () => {
         const pcr = totalCallOi > 0 ? totalPutOi / totalCallOi : 1.0;
         
         const prevPcr = prevPcrRef.current;
-        const velocity = pcr > prevPcr ? 'Rising 📈' : pcr < prevPcr ? 'Falling 📉' : 'Stable ➡️';
+        const velocity = prevPcr === null ? 'Stable ➡️' : pcr > prevPcr ? 'Rising 📈' : pcr < prevPcr ? 'Falling 📉' : 'Stable ➡️';
         prevPcrRef.current = pcr;
 
         setPcrData({

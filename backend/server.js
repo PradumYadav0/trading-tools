@@ -2599,16 +2599,31 @@ app.post('/api/signals', (req, res) => {
 
   const signalSource = source || 'OPTION_CHAIN';
 
-  const query = `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price, source) 
-                 VALUES (?, ?, ?, ?, ?, ?)`;
-  
-  db.run(query, [symbol, type, entry_price, target_price, stoploss_price, signalSource], function(err) {
-    if (err) {
-      console.error('Error saving signal:', err.message);
-      return res.status(500).json({ success: false, message: err.message });
+  // Check if a pending signal for the same symbol and source already exists
+  db.get(
+    `SELECT id FROM ai_signals WHERE symbol = ? AND source = ? AND status = 'PENDING'`,
+    [symbol, signalSource],
+    (err, row) => {
+      if (err) {
+        console.error('Error checking duplicate signal:', err.message);
+        return res.status(500).json({ success: false, message: err.message });
+      }
+      if (row) {
+        return res.json({ success: true, id: row.id, message: 'Pending signal already exists for this symbol and source' });
+      }
+
+      const query = `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price, source) 
+                     VALUES (?, ?, ?, ?, ?, ?)`;
+      
+      db.run(query, [symbol, type, entry_price, target_price, stoploss_price, signalSource], function(err) {
+        if (err) {
+          console.error('Error saving signal:', err.message);
+          return res.status(500).json({ success: false, message: err.message });
+        }
+        res.json({ success: true, id: this.lastID });
+      });
     }
-    res.json({ success: true, id: this.lastID });
-  });
+  );
 });
 
 // Endpoint to delete a single signal by ID

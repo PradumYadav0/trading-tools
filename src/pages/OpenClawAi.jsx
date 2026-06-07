@@ -656,7 +656,11 @@ const OpenClawAi = () => {
       });
       const res = await response.json();
       if (res.success) {
-        alert('Trade signal successfully locked and sent to AI Testing page for backtesting tracker!');
+        if (res.message && res.message.includes('already exists')) {
+          alert(`⚠️ ${symbol} ka ek PENDING trade already monitor ho raha hai (ID: CLAW-${symbol}-${res.id}). Duplicate trade save nahi hua. Pehle wala close hone ke baad naya save karein.`);
+        } else {
+          alert('✅ Trade signal successfully locked and sent to AI Testing page for backtesting tracker!');
+        }
         fetchSignals(); // Refresh signals to immediately display the new trade
       } else {
         alert('Failed to save signal: ' + res.message);

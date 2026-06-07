@@ -1371,6 +1371,62 @@ const OpenClawAi = () => {
               }`
             }}>
               
+              {/* ── Signal Safety Banner ── */}
+              {(() => {
+                const isSafeguardOverride = analysisResult.summary && analysisResult.summary.includes('SAFEGUARD OVERRIDE');
+                const isWait = analysisResult.action === 'WAIT';
+                const isTrendAligned =
+                  (analysisResult.action === 'CALL' && indicatorData && indicatorData.hourlyTrend === 'BULLISH') ||
+                  (analysisResult.action === 'PUT'  && indicatorData && indicatorData.hourlyTrend === 'BEARISH');
+                const isHighConf = analysisResult.confidence >= 75;
+
+                let bannerBg, bannerBorder, bannerColor, bannerIcon, riskLabel, bannerText;
+
+                if (isSafeguardOverride || isWait) {
+                  bannerBg     = 'rgba(239,68,68,0.12)';
+                  bannerBorder = 'rgba(239,68,68,0.4)';
+                  bannerColor  = '#ef4444';
+                  bannerIcon   = '🚫';
+                  riskLabel    = 'TRADING RISK: HIGH — IS SIGNAL PE TRADE MAT LO';
+                  bannerText   = isSafeguardOverride
+                    ? 'System ne is signal ko BLOCK kar diya hai (Safeguard Override active). Market condition unfavorable hai. Sirf WAIT karo.'
+                    : 'AI ne WAIT suggest kiya hai. Koi clear direction nahi hai abhi. Trade nahi lena chahiye.';
+                } else if (isTrendAligned && isHighConf) {
+                  bannerBg     = 'rgba(16,185,129,0.1)';
+                  bannerBorder = 'rgba(16,185,129,0.35)';
+                  bannerColor  = '#10b981';
+                  bannerIcon   = '✅';
+                  riskLabel    = 'TRADING RISK: LOW — ENTRY RELATIVELY SAFE';
+                  bannerText   = `AI trend aur 1H hourly trend dono aligned hain (${indicatorData?.hourlyTrend}). Confidence ${analysisResult.confidence}% hai. Apna proper SL zaroor lagao.`;
+                } else {
+                  bannerBg     = 'rgba(234,179,8,0.1)';
+                  bannerBorder = 'rgba(234,179,8,0.35)';
+                  bannerColor  = '#eab308';
+                  bannerIcon   = '⚡';
+                  riskLabel    = 'TRADING RISK: MEDIUM — CAUTION';
+                  bannerText   = 'Signal hai lekin trend fully aligned nahi. Chhote lot size se entry lo aur strict SL rakho.';
+                }
+
+                return (
+                  <div style={{
+                    display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
+                    padding: '0.85rem 1rem', borderRadius: '8px',
+                    background: bannerBg, border: `1.5px solid ${bannerBorder}`,
+                    marginBottom: '1.25rem'
+                  }}>
+                    <span style={{ fontSize: '1.3rem', flexShrink: 0, lineHeight: 1 }}>{bannerIcon}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '0.8rem', fontWeight: '800', color: bannerColor, marginBottom: '0.2rem', letterSpacing: '0.3px' }}>
+                        {riskLabel}
+                      </div>
+                      <div style={{ fontSize: '0.77rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                        {bannerText}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Badges / Header */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
                 <div>
@@ -1644,26 +1700,29 @@ const OpenClawAi = () => {
               <div style={{ display: 'flex', gap: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1rem', flexWrap: 'wrap' }}>
                 <button
                   onClick={saveSignalToTesting}
+                  disabled={analysisResult.action === 'WAIT'}
+                  title={analysisResult.action === 'WAIT' ? 'WAIT signal ko save nahi kar sakte' : 'Save trade to tracker'}
                   style={{
                     flex: 1,
                     minWidth: '150px',
-                    background: 'rgba(255,255,255,0.05)',
-                    border: '1px solid var(--border-color)',
-                    color: '#fff',
+                    background: analysisResult.action === 'WAIT' ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${analysisResult.action === 'WAIT' ? 'rgba(255,255,255,0.05)' : 'var(--border-color)'}`,
+                    color: analysisResult.action === 'WAIT' ? '#555' : '#fff',
                     padding: '0.6rem 1rem',
                     borderRadius: '8px',
                     fontWeight: '600',
                     fontSize: '0.85rem',
-                    cursor: 'pointer',
+                    cursor: analysisResult.action === 'WAIT' ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '0.5rem',
+                    opacity: analysisResult.action === 'WAIT' ? 0.4 : 1,
                     transition: 'var(--transition-smooth)'
                   }}
                 >
-                  <ShieldCheck size={16} color="#10b981" />
-                  Save to AI Testing
+                  <ShieldCheck size={16} color={analysisResult.action === 'WAIT' ? '#555' : '#10b981'} />
+                  {analysisResult.action === 'WAIT' ? 'WAIT — Save Disabled' : 'Save to AI Testing'}
                 </button>
 
                 <button
@@ -1692,9 +1751,23 @@ const OpenClawAi = () => {
                 </button>
               </div>
 
+              {/* ⚠️ Risk Disclaimer */}
+              <div style={{
+                marginTop: '1rem',
+                padding: '0.6rem 0.85rem',
+                borderRadius: '6px',
+                background: 'rgba(255,255,255,0.01)',
+                border: '1px solid rgba(255,255,255,0.05)',
+                fontSize: '0.7rem',
+                color: 'rgba(139,148,158,0.7)',
+                lineHeight: '1.5'
+              }}>
+                ⚠️ <strong style={{ color: 'rgba(234,179,8,0.8)' }}>Disclaimer:</strong> Yeh AI-generated analysis hai, financial advice nahi. Real money mein trade karne se pehle apna khud ka analysis karo. Past performance future results ki guarantee nahi hai. Sirf utna invest karo jitna loss afford kar sako.
+              </div>
+
               {notificationStatus.message && (
                 <div style={{ 
-                  marginTop: '1rem', 
+                  marginTop: '0.75rem', 
                   padding: '0.5rem 1rem', 
                   borderRadius: '6px', 
                   fontSize: '0.85rem',
@@ -2322,6 +2395,59 @@ const OpenClawAi = () => {
         @media (max-width: 768px) {
           .coordinates-grid {
             grid-template-columns: 1fr 1fr;
+          }
+
+          .trade-card {
+            padding: 1rem;
+            margin-top: 1rem;
+          }
+
+          .terminal-box {
+            min-height: 180px;
+            max-height: 240px;
+          }
+
+          .action-badge {
+            font-size: 0.95rem;
+            padding: 0.3rem 0.75rem;
+          }
+
+          .signals-table-container {
+            font-size: 0.75rem;
+          }
+        }
+
+        @media (max-width: 480px) {
+          .coordinates-grid {
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+          }
+
+          .coordinate-item {
+            padding: 0.5rem 0.35rem;
+          }
+
+          .coord-value {
+            font-size: 0.95rem;
+          }
+
+          .trade-card {
+            padding: 0.85rem 0.75rem;
+            border-radius: 10px;
+          }
+
+          .terminal-box {
+            min-height: 150px;
+            max-height: 200px;
+            border-radius: 8px;
+          }
+
+          .terminal-body {
+            padding: 0.6rem;
+          }
+
+          .terminal-line {
+            font-size: 0.72rem;
           }
         }
       `}</style>

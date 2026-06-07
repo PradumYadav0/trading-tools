@@ -1488,6 +1488,69 @@ const calculateATR = (data, period = 14) => {
   return parseFloat(atr.toFixed(2));
 };
 
+// Helper for calculating MACD (12, 26, 9)
+const calculateMACD = (data) => {
+  if (!data || data.length < 26) {
+    return { macdLine: 0, signalLine: 0, histogram: 0, crossover: 'NEUTRAL', histogramTrend: 'FLAT', aboveZero: false };
+  }
+
+  // Step 1: EMA(12) and EMA(26) on close prices
+  const ema12List = calculateEMA(data, 12);
+  const ema26List = calculateEMA(data, 26);
+
+  // Step 2: MACD Line = EMA12 - EMA26
+  const macdValues = [];
+  for (let i = 0; i < data.length; i++) {
+    macdValues.push(ema12List[i] - ema26List[i]);
+  }
+
+  // Step 3: Signal Line = EMA(9) of MACD values
+  const signalValues = [];
+  if (macdValues.length >= 9) {
+    const k = 2 / (9 + 1);
+    let ema = macdValues[0];
+    for (let i = 0; i < macdValues.length; i++) {
+      ema = (macdValues[i] * k) + (ema * (1 - k));
+      signalValues.push(ema);
+    }
+  }
+
+  const lastMacd    = macdValues[macdValues.length - 1] || 0;
+  const prevMacd    = macdValues[macdValues.length - 2] || 0;
+  const lastSignal  = signalValues.length > 0 ? signalValues[signalValues.length - 1] : 0;
+  const prevSignal  = signalValues.length > 1 ? signalValues[signalValues.length - 2] : 0;
+  const histogram   = parseFloat((lastMacd - lastSignal).toFixed(2));
+  const prevHisto   = parseFloat((prevMacd - prevSignal).toFixed(2));
+
+  // Step 4: Detect crossover status
+  let crossover = 'NEUTRAL';
+  if (prevMacd <= prevSignal && lastMacd > lastSignal) {
+    crossover = 'BULLISH_CROSSOVER';   // Fresh BUY signal
+  } else if (prevMacd >= prevSignal && lastMacd < lastSignal) {
+    crossover = 'BEARISH_CROSSOVER';   // Fresh SELL signal
+  } else if (lastMacd > lastSignal) {
+    crossover = 'BULLISH';             // MACD above signal — bullish momentum
+  } else if (lastMacd < lastSignal) {
+    crossover = 'BEARISH';             // MACD below signal — bearish momentum
+  }
+
+  // Step 5: Histogram expansion/contraction trend
+  let histogramTrend = 'FLAT';
+  if      (histogram > 0 && histogram > prevHisto) histogramTrend = 'EXPANDING_BULLISH';   // Buying pressure increasing
+  else if (histogram > 0 && histogram < prevHisto) histogramTrend = 'SHRINKING_BULLISH';   // Buying pressure weakening
+  else if (histogram < 0 && histogram < prevHisto) histogramTrend = 'EXPANDING_BEARISH';   // Selling pressure increasing
+  else if (histogram < 0 && histogram > prevHisto) histogramTrend = 'SHRINKING_BEARISH';   // Selling pressure weakening
+
+  return {
+    macdLine:      parseFloat(lastMacd.toFixed(2)),
+    signalLine:    parseFloat(lastSignal.toFixed(2)),
+    histogram,
+    crossover,
+    histogramTrend,
+    aboveZero:     lastMacd > 0
+  };
+};
+
 // Scrapes Google News RSS for Indian Stock Market headlines (free, native, zero external dependencies)
 async function fetchRecentFinancialNews() {
   try {
@@ -1762,6 +1825,7 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   const ema21 = calculateEMA(chartCandles, 21);
   const rsi = calculateRSI(chartCandles, 14);
   const atr = calculateATR(chartCandles, 14) || latestAtrValues[symbolStr] || 15;
+  const macd = calculateMACD(chartCandles); // MACD (12, 26, 9)
 
   const lastClose = chartCandles.length > 0 ? chartCandles[chartCandles.length - 1].close : spotPrice;
   const lastEma9 = ema9.length > 0 ? parseFloat(ema9[ema9.length - 1].toFixed(2)) : lastClose;
@@ -2309,6 +2373,10 @@ ${last15CandlesStr}
   * EMA Crossover Status: ${lastEma9 > lastEma21 ? 'EMA 9 is above EMA 21 (Bullish Trend)' : 'EMA 9 is below EMA 21 (Bearish Trend)'}
   * RSI (14): ${lastRsi} (${lastRsi > 70 ? 'Overbought' : lastRsi < 30 ? 'Oversold' : 'Neutral'})
   * ATR (14): ${atr.toFixed(2)}
+  * MACD Line (12,26): ${macd.macdLine} | Signal Line (9): ${macd.signalLine} | Histogram: ${macd.histogram}
+  * MACD Crossover Status: ${macd.crossover} (${macd.crossover === 'BULLISH_CROSSOVER' ? 'FRESH BUY SIGNAL — strong bullish momentum just triggered' : macd.crossover === 'BEARISH_CROSSOVER' ? 'FRESH SELL SIGNAL — strong bearish momentum just triggered' : macd.crossover === 'BULLISH' ? 'MACD above Signal — bullish momentum ongoing' : macd.crossover === 'BEARISH' ? 'MACD below Signal — bearish momentum ongoing' : 'Neutral'})
+  * MACD Histogram Trend: ${macd.histogramTrend} (${macd.histogramTrend === 'EXPANDING_BULLISH' ? 'Buying pressure INCREASING — strong upward momentum' : macd.histogramTrend === 'SHRINKING_BULLISH' ? 'Buying pressure WEAKENING — potential reversal or slowdown ahead' : macd.histogramTrend === 'EXPANDING_BEARISH' ? 'Selling pressure INCREASING — strong downward momentum' : macd.histogramTrend === 'SHRINKING_BEARISH' ? 'Selling pressure WEAKENING — potential bullish reversal ahead' : 'No clear momentum direction'})
+  * MACD Zero Line: ${macd.aboveZero ? 'ABOVE ZERO — in bullish territory overall' : 'BELOW ZERO — in bearish territory overall'}
   * Major Trend (${trendTimeframe} timeframe filter): ${majorTrend}
   * 1-Hour Chart Trend filter: ${hourlyTrend} (EMA 20 at ${lastHourEma20}, Price at ${lastHourClose})
   * Multi-Timeframe Trend Concurrence: ${trendConcurrence} (Short-term, Mid-term, and Higher-term alignment check)

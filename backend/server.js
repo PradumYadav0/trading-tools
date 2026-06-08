@@ -3513,11 +3513,24 @@ async function triggerOpenClawBackgroundAlerts() {
 }
 
 
+// Helper: escape underscores in a string so Telegram Markdown v1 doesn't misparse them
+function escapeTgMd(str) {
+  if (str === null || str === undefined) return 'N/A';
+  return String(str).replace(/_/g, '\\_');
+}
+
 async function sendOpenClawNotifications(symbol, actionData, settings, indicators, signalId) {
   const spotPrice = indicators.spotPrice || 'N/A';
-  const hourlyTrend = indicators.hourlyTrend || 'N/A';
+  // Escape underscores in trend/divergence fields that are the root cause of Telegram 400 errors
+  const hourlyTrend = escapeTgMd(indicators.hourlyTrend || 'N/A');
+  const oiDivergenceStatus = escapeTgMd(indicators.oiDivergenceStatus || 'NO\_DIVERGENCE');
   const averageIv = indicators.averageIv || 0;
   const tradeIdStr = signalId ? `CLAW-${symbol}-${signalId}` : 'CLAW-UNKNOWN';
+  const aiSummary = escapeTgMd(actionData.summary);
+  const buyRange = escapeTgMd(actionData.buyRange);
+  const target1 = escapeTgMd(actionData.target1);
+  const target2 = escapeTgMd(actionData.target2);
+  const stoploss = escapeTgMd(actionData.stoploss);
 
   const currentTime = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Kolkata',
@@ -3532,33 +3545,35 @@ async function sendOpenClawNotifications(symbol, actionData, settings, indicator
 
   let optionDetails = '';
   if (actionData.suggestedOptionContract) {
-    optionDetails = `*Option Contract*: ${actionData.suggestedOptionContract}\n` +
-      `*Premium Entry*: ₹${actionData.optionPremiumLtp}\n` +
-      `*Premium Target 1*: ₹${actionData.optionTarget1}\n` +
-      `*Premium Target 2*: ₹${actionData.optionTarget2}\n` +
-      `*Premium Stoploss*: ₹${actionData.optionStoploss}\n` +
-      `*Expected Hold*: ⏳ ${actionData.expectedHoldTime}\n\n`;
+    optionDetails = `*Option Contract*: ${escapeTgMd(actionData.suggestedOptionContract)}\n` +
+      `*Premium Entry*: Rs ${actionData.optionPremiumLtp}\n` +
+      `*Premium Target 1*: Rs ${actionData.optionTarget1}\n` +
+      `*Premium Target 2*: Rs ${actionData.optionTarget2}\n` +
+      `*Premium Stoploss*: Rs ${actionData.optionStoploss}\n` +
+      `*Expected Hold*: ${escapeTgMd(actionData.expectedHoldTime)}\n\n`;
   }
+
+  const actionLabel = actionData.action === 'CALL' ? 'BUY CALL / BULLISH' : 'BUY PUT / BEARISH';
 
   const messageContent = `🚨 *OpenClaw AI Trade Alert* 🚨\n\n` +
     `*Trade ID*: \`${tradeIdStr}\`\n` +
     `*Symbol*: ${symbol}\n` +
-    `*Action*: ${actionData.action === 'CALL' ? 'BUY CALL / BULLISH' : 'BUY PUT / BEARISH'}\n` +
+    `*Action*: ${actionLabel}\n` +
     `*Spot Price*: ${spotPrice}\n` +
     `*Confidence*: ${actionData.confidence}%\n` +
     `*1H Trend*: ${hourlyTrend}\n` +
     `*ATM IV*: ${averageIv ? averageIv.toFixed(1) + '%' : 'N/A'}\n` +
-    `*ATM ±3 PCR*: ${indicators.atm3Pcr || 'N/A'}\n` +
-    `*ATM ±3 Vol PCR*: ${indicators.atm3Vpcr || 'N/A'}\n` +
-    `*OI Divergence Status*: ${indicators.oiDivergenceStatus || 'NO_DIVERGENCE'}\n` +
-    `*Buy Range*: ${actionData.buyRange}\n` +
-    `*Target 1*: ${actionData.target1}\n` +
-    `*Target 2*: ${actionData.target2}\n` +
-    `*Stoploss*: ${actionData.stoploss}\n` +
+    `*ATM +/- 3 PCR*: ${indicators.atm3Pcr || 'N/A'}\n` +
+    `*ATM +/- 3 Vol PCR*: ${indicators.atm3Vpcr || 'N/A'}\n` +
+    `*OI Divergence*: ${oiDivergenceStatus}\n` +
+    `*Buy Range*: ${buyRange}\n` +
+    `*Target 1*: ${target1}\n` +
+    `*Target 2*: ${target2}\n` +
+    `*Stoploss*: ${stoploss}\n` +
     `*Time (IST)*: ${currentTime}\n\n` +
     optionDetails +
-    `*AI Summary*: ${actionData.summary}\n\n` +
-    `🤖 Powered by OpenClaw AI Multi-Agent Engine.`;
+    `*AI Summary*: ${aiSummary}\n\n` +
+    `🤖 Powered by OpenClaw AI Multi\-Agent Engine.`;
 
   // Telegram
   const tgToken = settings['telegram_token'];
@@ -4244,9 +4259,9 @@ async function runAllDecoders() {
       console.log(`[Background] Automated signal verification updated ${updated} pending signals.`);
     }
 
-    // Check if we should send periodic active trades status report (every 15 minutes)
+    // Check if we should send periodic active trades status report (every 5 minutes)
     const now = Date.now();
-    const REPORT_INTERVAL = 15 * 60 * 1000; // 15 minutes
+    const REPORT_INTERVAL = 5 * 60 * 1000; // 5 minutes
     if (now - lastActiveReportTime >= REPORT_INTERVAL) {
       db.get(`SELECT COUNT(*) as count FROM ai_signals WHERE source = 'OPENCLAW' AND status = 'PENDING'`, [], (err, row) => {
         if (!err && row && row.count > 0) {
@@ -4381,16 +4396,16 @@ async function startTelegramBotListener() {
                     `*Action*: ${actionData.action === 'CALL' ? 'BUY CALL / BULLISH' : actionData.action === 'PUT' ? 'BUY PUT / BEARISH' : 'WAIT / NEUTRAL'}\n` +
                     `*Spot Price*: ${indicators.spotPrice || 'N/A'}\n` +
                     `*Confidence*: ${actionData.confidence}%\n` +
-                    `*1H Trend*: ${indicators.hourlyTrend || 'N/A'}\n` +
+                    `*1H Trend*: ${escapeTgMd(indicators.hourlyTrend || 'N/A')}\n` +
                     `*ATM IV*: ${indicators.averageIv ? indicators.averageIv.toFixed(1) + '%' : 'N/A'}\n` +
-                    `*Buy Range*: ${actionData.buyRange}\n` +
-                    `*Target 1*: ${actionData.target1}\n` +
-                    `*Target 2*: ${actionData.target2}\n` +
-                    `*Stoploss*: ${actionData.stoploss}\n` +
+                    `*Buy Range*: ${escapeTgMd(actionData.buyRange)}\n` +
+                    `*Target 1*: ${escapeTgMd(actionData.target1)}\n` +
+                    `*Target 2*: ${escapeTgMd(actionData.target2)}\n` +
+                    `*Stoploss*: ${escapeTgMd(actionData.stoploss)}\n` +
                     `*Time (IST)*: ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}\n\n` +
                     optionDetails +
-                    `*AI Summary*: ${actionData.summary}\n\n` +
-                    `🤖 Powered by OpenClaw AI Multi-Agent Engine.`;
+                    `*AI Summary*: ${escapeTgMd(actionData.summary)}\n\n` +
+                    `🤖 Powered by OpenClaw AI Multi\-Agent Engine.`;
 
                   await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
                     chat_id: currentTelegramChatId,

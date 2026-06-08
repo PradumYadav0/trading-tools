@@ -3485,6 +3485,30 @@ async function triggerOpenClawBackgroundAlerts() {
 
         // Run analysis with weights
         const tradingProfile = settings['trading_profile'] || 'intraday_scalper';
+
+        // Same-day Re-entry: Check cooldown (15 min) after last closed trade for this symbol
+        const RE_ENTRY_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
+        const lastClosedTime = await new Promise((resolve) => {
+          db.get(
+            `SELECT MAX(updated_at) as lastClose FROM ai_signals
+             WHERE symbol = ? AND source = 'OPENCLAW'
+               AND status IN ('SUCCESS', 'FAILED', 'CLOSED')
+               AND date(updated_at, '+5.5 hours') = date('now', '+5.5 hours')`,
+            [symbol],
+            (err, row) => {
+              if (err || !row || !row.lastClose) return resolve(null);
+              resolve(new Date(row.lastClose + 'Z').getTime()); // SQLite stores UTC
+            }
+          );
+        });
+
+        if (lastClosedTime && (Date.now() - lastClosedTime) < RE_ENTRY_COOLDOWN_MS) {
+          const minutesAgo = Math.floor((Date.now() - lastClosedTime) / 60000);
+          const minutesLeft = 15 - minutesAgo;
+          logToBackground(`Skipping ${symbol} — Re-entry cooldown active. Last trade closed ${minutesAgo}m ago. Next re-entry in ~${minutesLeft}m.`, 'info');
+          continue;
+        }
+
         const result = await executeOpenClawAnalysis(symbol, null, weightsObj, tradingProfile, true);
         const actionData = result.data;
         const indicators = result.indicators;

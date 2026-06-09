@@ -26,6 +26,7 @@
   flex-direction: column;
   min-height: 100vh;
   transition: margin-left 0.3s ease;
+  min-width: 0; /* Prevent layout stretching */
 }
 
 .header {
@@ -45,6 +46,7 @@
 .content-area {
   padding: 2rem;
   flex: 1;
+  min-width: 0; /* Prevent flex children from overflowing */
 }
 
 /* Sidebar Navigation */

@@ -649,17 +649,17 @@ const AiTesting = () => {
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '950px' }}>
             <thead>
               <tr style={{ borderBottom: '2px solid rgba(255,255,255,0.08)', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                <th style={{ padding: '1rem 0.75rem' }}>Timestamp</th>
-                <th style={{ padding: '1rem 0.75rem' }}>Symbol</th>
-                <th style={{ padding: '1rem 0.75rem' }}>Source / Type</th>
-                <th style={{ padding: '1rem 0.75rem' }}>Trade Type</th>
-                <th style={{ padding: '1rem 0.75rem' }}>Entry Price</th>
-                <th style={{ padding: '1rem 0.75rem' }}>Exit Price</th>
-                <th style={{ padding: '1rem 0.75rem' }}>Target Price</th>
-                <th style={{ padding: '1rem 0.75rem' }}>Stop Loss</th>
-                <th style={{ padding: '1rem 0.75rem' }}>Status</th>
-                <th style={{ padding: '1rem 0.75rem' }}>Trade ID</th>
-                <th style={{ padding: '1rem 0.75rem', textAlign: 'center' }}>Actions</th>
+                <th style={{ padding: '1rem 0.75rem', whiteSpace: 'nowrap' }}>Timestamp</th>
+                <th style={{ padding: '1rem 0.75rem', whiteSpace: 'nowrap' }}>Symbol</th>
+                <th style={{ padding: '1rem 0.75rem', whiteSpace: 'nowrap' }}>Source / Type</th>
+                <th style={{ padding: '1rem 0.75rem', whiteSpace: 'nowrap' }}>Trade Type</th>
+                <th style={{ padding: '1rem 0.75rem', whiteSpace: 'nowrap' }}>Entry Price</th>
+                <th style={{ padding: '1rem 0.75rem', whiteSpace: 'nowrap' }}>Exit Price</th>
+                <th style={{ padding: '1rem 0.75rem', whiteSpace: 'nowrap' }}>Target Price</th>
+                <th style={{ padding: '1rem 0.75rem', whiteSpace: 'nowrap' }}>Stop Loss</th>
+                <th style={{ padding: '1rem 0.75rem', whiteSpace: 'nowrap' }}>Status</th>
+                <th style={{ padding: '1rem 0.75rem', whiteSpace: 'nowrap' }}>Trade ID</th>
+                <th style={{ padding: '1rem 0.75rem', textAlign: 'center', whiteSpace: 'nowrap' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -692,12 +692,14 @@ const AiTesting = () => {
                     <td style={{ padding: '1rem 0.75rem', fontWeight: 'bold' }}>{signal.symbol}</td>
                     
                     {/* Source Badge */}
-                    <td style={{ padding: '1rem 0.75rem' }}>
+                    <td style={{ padding: '1rem 0.75rem', whiteSpace: 'nowrap' }}>
                       <span style={{ 
                         fontSize: '0.75rem',
                         fontWeight: 'bold',
                         padding: '0.25rem 0.6rem',
                         borderRadius: '12px',
+                        display: 'inline-block',
+                        whiteSpace: 'nowrap',
                         background: signal.source === 'OPTION_CHAIN' 
                           ? 'rgba(99, 102, 241, 0.15)' 
                           : signal.source === 'CHART'

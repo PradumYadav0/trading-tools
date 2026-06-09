@@ -38,8 +38,8 @@ const Header = ({ toggleSidebar }) => {
             <Menu size={24} />
           </button>
           
-          <h2 style={{ fontSize: '1.25rem', color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>Market Overview</h2>
-          <div style={{ 
+          <h2 className="header-title" style={{ fontSize: '1.25rem', color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>Market Overview</h2>
+          <div className="header-status" style={{ 
             display: 'flex', 
             alignItems: 'center', 
             gap: '0.5rem', 
@@ -54,7 +54,7 @@ const Header = ({ toggleSidebar }) => {
             transition: 'all 0.3s ease'
           }}>
             {marketStatus.isOpen ? <Wifi size={14} /> : <WifiOff size={14} />}
-            <span>Market: {marketStatus.isOpen ? 'OPEN' : `CLOSED (${marketStatus.reason})`}</span>
+            <span className="header-status-text">Market: {marketStatus.isOpen ? 'OPEN' : `CLOSED (${marketStatus.reason})`}</span>
           </div>
         </div>
       </div>
@@ -111,7 +111,7 @@ const Header = ({ toggleSidebar }) => {
             border: '1px solid var(--border-color)'
           }}>
             <User size={18} color="var(--text-secondary)" />
-            <span style={{ fontSize: '0.9rem', fontWeight: '500' }}>{username || 'Trader'}</span>
+            <span className="header-username" style={{ fontSize: '0.9rem', fontWeight: '500' }}>{username || 'Trader'}</span>
           </div>
 
           <button 

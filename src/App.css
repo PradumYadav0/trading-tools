@@ -135,6 +135,23 @@
   .search-container {
     display: none !important; /* Hide search on mobile header to save space */
   }
+
+  .header-title {
+    display: none !important;
+  }
+
+  .header-status-text {
+    display: none !important;
+  }
+
+  .header-status {
+    padding: 0.35rem 0.5rem !important;
+    gap: 0 !important;
+  }
+
+  .header-username {
+    display: none !important;
+  }
   
   /* Make Option Chain Header stack on mobile */
   .container > div:first-child {

@@ -377,7 +377,7 @@ const AiTesting = () => {
           {/* Head-to-Head Model Comparison Grid */}
           <div style={{ 
             display: 'grid', 
-            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', 
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', 
             gap: '1.5rem', 
             marginBottom: '2.5rem',
             alignItems: 'stretch'
@@ -557,7 +557,7 @@ const AiTesting = () => {
               <Zap size={18} /> Today's Performance Breakdown (कितना दूध कितना पानी)
             </h3>
             
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.25rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))', gap: '1.25rem' }}>
               <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1.25rem 1rem', borderRadius: '10px', textAlign: 'center', border: '1px solid rgba(255,255,255,0.03)' }}>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '0.35rem' }}>Trades Generated Today</div>
                 <div style={{ fontSize: '1.8rem', fontWeight: '800' }}>{todayStats.total}</div>
@@ -586,7 +586,7 @@ const AiTesting = () => {
       {activeTab !== 'overview' && (
         <div style={{ 
           display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', 
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))', 
           gap: '1.25rem', 
           marginBottom: '2rem',
           animation: 'fadeIn 0.3s ease-in-out'

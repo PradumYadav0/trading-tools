@@ -630,7 +630,7 @@ const AiTesting = () => {
       )}
 
       {/* SIGNALS TABLE LOG */}
-      <div className="glass-panel" style={{ padding: '1.75rem', overflowX: 'auto', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
+      <div className="glass-panel" style={{ padding: '1.75rem', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
           <h2 style={{ fontSize: '1.25rem', fontWeight: '700' }}>
             {activeTab === 'overview' ? 'Recent Signals Feed (All Sources)' : `${activeTab === 'option_chain' ? 'Option Chain' : activeTab === 'chart' ? 'Chart Technical' : activeTab === 'hybrid' ? 'Hybrid Convergence' : 'All'} Signals Logs`}
@@ -645,8 +645,8 @@ const AiTesting = () => {
             No signals captured for the current view yet. Active background tracker is analyzing indices...
           </div>
         ) : (
-          <div style={{ maxHeight: '520px', overflowY: 'auto', paddingRight: '0.25rem' }} className="signals-table-container">
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '950px' }}>
+          <div style={{ maxHeight: '520px', overflowY: 'auto', overflowX: 'auto', paddingRight: '0.25rem', width: '100%' }} className="signals-table-container">
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '1150px' }}>
             <thead>
               <tr style={{ borderBottom: '2px solid rgba(255,255,255,0.08)', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
                 <th style={{ padding: '1rem 0.75rem', whiteSpace: 'nowrap' }}>Timestamp</th>

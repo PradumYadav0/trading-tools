@@ -22,6 +22,12 @@ const AiTesting = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'option_chain', 'chart', 'all'
+  const [symbolFilter, setSymbolFilter] = useState('ALL');
+  const [dateFilter, setDateFilter] = useState('ALL'); // 'ALL', 'TODAY', 'YESTERDAY', 'LAST_7_DAYS', 'LAST_30_DAYS', 'CUSTOM'
+  
+  const todayIstStr = getIstDateString(new Date());
+  const [startDate, setStartDate] = useState(todayIstStr);
+  const [endDate, setEndDate] = useState(todayIstStr);
 
   useEffect(() => {
     fetchSignals();
@@ -79,24 +85,76 @@ const AiTesting = () => {
     }
   };
 
+  // Extract unique symbols dynamically
+  const uniqueSymbols = ['ALL', ...new Set(signals.map(s => s.symbol).filter(Boolean).map(sym => sym.toUpperCase()))].sort((a, b) => {
+    if (a === 'ALL') return -1;
+    if (b === 'ALL') return 1;
+    return a.localeCompare(b);
+  });
+
+  // Filter signals based on symbol and date range
+  const getFilteredData = () => {
+    const todayIst = getIstDateString(new Date());
+    
+    return signals.filter(s => {
+      // 1. Symbol Filter
+      if (symbolFilter !== 'ALL' && (!s.symbol || s.symbol.toUpperCase() !== symbolFilter.toUpperCase())) {
+        return false;
+      }
+      
+      // 2. Date Filter
+      if (dateFilter === 'ALL') return true;
+      
+      const dateStr = s.created_at.endsWith('Z') || s.created_at.endsWith('UTC') ? s.created_at : s.created_at + ' UTC';
+      const sDate = new Date(dateStr);
+      const sIstStr = getIstDateString(sDate);
+      
+      if (dateFilter === 'TODAY') {
+        return sIstStr === todayIst;
+      }
+      if (dateFilter === 'YESTERDAY') {
+        const yesterdayDate = new Date(new Date().getTime() - 24 * 60 * 60 * 1000);
+        const yesterdayIst = getIstDateString(yesterdayDate);
+        return sIstStr === yesterdayIst;
+      }
+      if (dateFilter === 'LAST_7_DAYS') {
+        const diffTime = new Date(todayIst).getTime() - new Date(sIstStr).getTime();
+        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+        return diffDays >= 0 && diffDays < 7;
+      }
+      if (dateFilter === 'LAST_30_DAYS') {
+        const diffTime = new Date(todayIst).getTime() - new Date(sIstStr).getTime();
+        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+        return diffDays >= 0 && diffDays < 30;
+      }
+      if (dateFilter === 'CUSTOM') {
+        return (!startDate || sIstStr >= startDate) && (!endDate || sIstStr <= endDate);
+      }
+      
+      return true;
+    });
+  };
+
+  const filteredSignals = getFilteredData();
+
   // Separate signals by source
-  const optionChainSignals = signals.filter(s => !s.source || s.source === 'OPTION_CHAIN');
-  const chartSignals = signals.filter(s => s.source === 'CHART');
-  const hybridSignals = signals.filter(s => s.source === 'HYBRID');
+  const optionChainSignals = filteredSignals.filter(s => !s.source || s.source === 'OPTION_CHAIN');
+  const chartSignals = filteredSignals.filter(s => s.source === 'CHART');
+  const hybridSignals = filteredSignals.filter(s => s.source === 'HYBRID');
 
   // Stats calculation helper
-  const calculateStats = (filteredSignals) => {
-    const total = filteredSignals.length;
-    const success = filteredSignals.filter(s => s.status === 'SUCCESS').length;
-    const failed = filteredSignals.filter(s => s.status === 'FAILED').length;
-    const pending = filteredSignals.filter(s => s.status === 'PENDING').length;
+  const calculateStats = (filteredSignalsList) => {
+    const total = filteredSignalsList.length;
+    const success = filteredSignalsList.filter(s => s.status === 'SUCCESS').length;
+    const failed = filteredSignalsList.filter(s => s.status === 'FAILED').length;
+    const pending = filteredSignalsList.filter(s => s.status === 'PENDING').length;
     
     // Win Rate logic (ignore pending trades)
     const activeTrades = success + failed;
     const winRate = activeTrades > 0 ? parseFloat(((success / activeTrades) * 100).toFixed(1)) : 0;
 
     let netPoints = 0;
-    filteredSignals.forEach(signal => {
+    filteredSignalsList.forEach(signal => {
       let exitPrice = signal.exit_price;
       if (!exitPrice || exitPrice <= 0) {
         if (signal.status === 'SUCCESS') exitPrice = signal.target_price;
@@ -130,11 +188,14 @@ const AiTesting = () => {
   const optionChainStats = calculateStats(optionChainSignals);
   const chartStats = calculateStats(chartSignals);
   const hybridStats = calculateStats(hybridSignals);
-  const overallStats = calculateStats(signals);
+  const overallStats = calculateStats(filteredSignals);
 
   // Calculate stats for TODAY (combining all sources for quick overview)
   const todayStr = getIstDateString(new Date());
   const todaySignals = signals.filter(s => {
+    if (symbolFilter !== 'ALL' && (!s.symbol || s.symbol.toUpperCase() !== symbolFilter.toUpperCase())) {
+      return false;
+    }
     const dateStr = s.created_at.endsWith('Z') || s.created_at.endsWith('UTC') ? s.created_at : s.created_at + ' UTC';
     return getIstDateString(new Date(dateStr)) === todayStr;
   });
@@ -195,7 +256,7 @@ const AiTesting = () => {
     if (activeTab === 'option_chain') return optionChainSignals;
     if (activeTab === 'chart') return chartSignals;
     if (activeTab === 'hybrid') return hybridSignals;
-    return signals; // 'all' or 'overview' shows all
+    return filteredSignals; // 'all' or 'overview' shows all filtered signals
   };
 
   const displaySignals = getFilteredSignals();
@@ -258,6 +319,159 @@ const AiTesting = () => {
             <RefreshCw size={16} className={loading ? 'spin' : ''} />
             Refresh & Sync Data
           </button>
+        </div>
+      </div>
+
+      {/* Dynamic Filters Bar */}
+      <div className="glass-panel" style={{
+        padding: '1.25rem 1.5rem',
+        borderRadius: '14px',
+        marginBottom: '2rem',
+        border: '1px solid rgba(255, 255, 255, 0.06)',
+        background: 'rgba(30, 41, 59, 0.4)',
+        backdropFilter: 'blur(12px)',
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '1.25rem'
+      }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '1.25rem', width: '100%', justifyContent: 'space-between' }}>
+          
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '1rem', flex: '1 1 auto' }}>
+            {/* Symbol Filter */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', minWidth: '150px', flex: '1 1 auto', maxWidth: '200px' }}>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: '600' }}>Filter by Symbol</label>
+              <select
+                value={symbolFilter}
+                onChange={(e) => setSymbolFilter(e.target.value)}
+                style={{
+                  background: 'rgba(15, 23, 42, 0.6)',
+                  color: 'white',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '8px',
+                  padding: '0.55rem 1rem',
+                  fontSize: '0.9rem',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  width: '100%',
+                  minHeight: '38px',
+                  transition: 'border-color 0.2s'
+                }}
+                onFocus={(e) => e.target.style.borderColor = '#6366F1'}
+                onBlur={(e) => e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)'}
+              >
+                {uniqueSymbols.map(sym => (
+                  <option key={sym} value={sym} style={{ background: '#0F172A', color: 'white' }}>
+                    {sym === 'ALL' ? 'All Symbols' : sym}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Date Range Filter */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', minWidth: '180px', flex: '1 1 auto', maxWidth: '220px' }}>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: '600' }}>Date Range</label>
+              <select
+                value={dateFilter}
+                onChange={(e) => setDateFilter(e.target.value)}
+                style={{
+                  background: 'rgba(15, 23, 42, 0.6)',
+                  color: 'white',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '8px',
+                  padding: '0.55rem 1rem',
+                  fontSize: '0.9rem',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  width: '100%',
+                  minHeight: '38px',
+                  transition: 'border-color 0.2s'
+                }}
+                onFocus={(e) => e.target.style.borderColor = '#6366F1'}
+                onBlur={(e) => e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)'}
+              >
+                <option value="ALL" style={{ background: '#0F172A', color: 'white' }}>All Time</option>
+                <option value="TODAY" style={{ background: '#0F172A', color: 'white' }}>Today (आज का)</option>
+                <option value="YESTERDAY" style={{ background: '#0F172A', color: 'white' }}>Yesterday</option>
+                <option value="LAST_7_DAYS" style={{ background: '#0F172A', color: 'white' }}>Last 7 Days</option>
+                <option value="LAST_30_DAYS" style={{ background: '#0F172A', color: 'white' }}>Last 30 Days</option>
+                <option value="CUSTOM" style={{ background: '#0F172A', color: 'white' }}>Custom Date Range</option>
+              </select>
+            </div>
+
+            {/* Custom Date Inputs */}
+            {dateFilter === 'CUSTOM' && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', minWidth: '130px' }}>
+                  <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: '600' }}>From</label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    style={{
+                      background: 'rgba(15, 23, 42, 0.6)',
+                      color: 'white',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '8px',
+                      padding: '0.45rem 0.75rem',
+                      fontSize: '0.9rem',
+                      outline: 'none',
+                      minHeight: '38px',
+                      colorScheme: 'dark'
+                    }}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', minWidth: '130px' }}>
+                  <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: '600' }}>To</label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    style={{
+                      background: 'rgba(15, 23, 42, 0.6)',
+                      color: 'white',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '8px',
+                      padding: '0.45rem 0.75rem',
+                      fontSize: '0.9rem',
+                      outline: 'none',
+                      minHeight: '38px',
+                      colorScheme: 'dark'
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Quick Clear Filter Option */}
+          {(symbolFilter !== 'ALL' || dateFilter !== 'ALL') && (
+            <button
+              onClick={() => {
+                setSymbolFilter('ALL');
+                setDateFilter('ALL');
+              }}
+              style={{
+                background: 'rgba(255, 255, 255, 0.05)',
+                color: 'var(--text-secondary)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                padding: '0.55rem 1.25rem',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                fontWeight: '600',
+                transition: 'all 0.2s',
+                minHeight: '38px',
+                whiteSpace: 'nowrap'
+              }}
+              onMouseEnter={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.08)'}
+              onMouseLeave={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.05)'}
+            >
+              Reset Filters
+            </button>
+          )}
+
         </div>
       </div>
 

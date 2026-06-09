@@ -382,7 +382,7 @@ const OptionChain = () => {
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
           {/* Column Toggle for Mobile */}
           <button
             className="mobile-only"

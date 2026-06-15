@@ -550,9 +550,17 @@ const OpenClawAi = () => {
       timeStyle: 'medium'
     });
 
+    let strategyLabel = 'TREND FOLLOWING (Trending Market)';
+    if (dataToUse.strategyUsed === 'RANGE_BOUND_MEAN_REVERSION') {
+      strategyLabel = 'RANGE SCALPING (Sideways Market)';
+    } else if (dataToUse.strategyUsed === 'SIT_OUT') {
+      strategyLabel = 'SIT OUT / NO TRADE';
+    }
+
     const messageContent = `🚨 *OpenClaw AI Trade Alert* 🚨\n\n` +
       `*Symbol*: ${symbol}\n` +
       `*Action*: ${dataToUse.action}\n` +
+      `*Strategy*: ${strategyLabel}\n` +
       `*Spot Price*: ${spotVal}\n` +
       `*Confidence*: ${dataToUse.confidence}%\n` +
       `*Buy Range*: ${dataToUse.buyRange}\n` +

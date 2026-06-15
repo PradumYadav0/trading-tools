@@ -3782,10 +3782,18 @@ async function sendOpenClawNotifications(symbol, actionData, settings, indicator
 
   const actionLabel = actionData.action === 'CALL' ? 'BUY CALL / BULLISH' : 'BUY PUT / BEARISH';
 
+  let strategyLabel = 'TREND FOLLOWING (Trending Market)';
+  if (actionData.strategyUsed === 'RANGE_BOUND_MEAN_REVERSION') {
+    strategyLabel = 'RANGE SCALPING (Sideways Market)';
+  } else if (actionData.strategyUsed === 'SIT_OUT') {
+    strategyLabel = 'SIT OUT / NO TRADE';
+  }
+
   const messageContent = `🚨 *OpenClaw AI Trade Alert* 🚨\n\n` +
     `*Trade ID*: \`${tradeIdStr}\`\n` +
     `*Symbol*: ${symbol}\n` +
     `*Action*: ${actionLabel}\n` +
+    `*Strategy*: ${strategyLabel}\n` +
     `*Spot Price*: ${spotPrice}\n` +
     `*Confidence*: ${actionData.confidence}%\n` +
     `*1H Trend*: ${hourlyTrend}\n` +
@@ -4617,10 +4625,18 @@ async function startTelegramBotListener() {
                     }
                   }
 
+                  let strategyLabel = 'TREND FOLLOWING (Trending Market)';
+                  if (actionData.strategyUsed === 'RANGE_BOUND_MEAN_REVERSION') {
+                    strategyLabel = 'RANGE SCALPING (Sideways Market)';
+                  } else if (actionData.strategyUsed === 'SIT_OUT') {
+                    strategyLabel = 'SIT OUT / NO TRADE';
+                  }
+
                   const responseMsg = `🚨 *OpenClaw AI Trade Alert* 🚨\n\n` +
                     `*Trade ID*: \`${tradeIdStr}\`\n` +
                     `*Symbol*: ${symbol}\n` +
                     `*Action*: ${actionData.action === 'CALL' ? 'BUY CALL / BULLISH' : actionData.action === 'PUT' ? 'BUY PUT / BEARISH' : 'WAIT / NEUTRAL'}\n` +
+                    `*Strategy*: ${strategyLabel}\n` +
                     `*Spot Price*: ${indicators.spotPrice || 'N/A'}\n` +
                     `*Confidence*: ${actionData.confidence}%\n` +
                     `*1H Trend*: ${escapeTgMd(indicators.hourlyTrend || 'N/A')}\n` +

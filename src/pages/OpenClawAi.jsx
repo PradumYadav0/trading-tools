@@ -514,6 +514,7 @@ const OpenClawAi = () => {
       await addLog('🧠 Option Chain Agent: Evaluating PCR velocity & OI wall distribution...', 'info', 600);
       await addLog(`📈 Chart Agent: Reading intraday ${interval}m candles...`, 'info', 500);
       await addLog(`📈 Chart Agent indicators: EMA 9: ${indicators.ema9}, EMA 21: ${indicators.ema21}, RSI: ${indicators.rsi}`, 'success', 500);
+      await addLog(`📈 Chart Agent indicators (Sideways): ADX: ${indicators.adx || 'N/A'}, Bollinger Bands: U ${indicators.bbUpper || 'N/A'} / L ${indicators.bbLower || 'N/A'}`, 'success', 400);
       await addLog('🛡️ Risk Orchestrator: Setting dynamic trade targets using ATR...', 'info', 600);
       await addLog(`⚙️ Submitting agent payload to Gemini LLM Engine...`, 'info', 400);
 
@@ -1449,6 +1450,31 @@ const OpenClawAi = () => {
                 </div>
               </div>
 
+              {/* Active Strategy Badge */}
+              <div style={{ 
+                marginBottom: '1.25rem', 
+                padding: '0.55rem 0.75rem', 
+                background: 'rgba(255, 255, 255, 0.02)', 
+                borderRadius: '8px', 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                border: '1px solid rgba(255, 255, 255, 0.05)' 
+              }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: '600' }}>ACTIVE STRATEGY:</span>
+                <span style={{ 
+                  fontSize: '0.75rem', 
+                  fontWeight: '700', 
+                  padding: '0.2rem 0.5rem', 
+                  borderRadius: '4px',
+                  background: analysisResult.strategyUsed === 'TREND_FOLLOWING' ? 'rgba(16, 185, 129, 0.15)' : analysisResult.strategyUsed === 'RANGE_BOUND_MEAN_REVERSION' ? 'rgba(168, 85, 247, 0.15)' : 'rgba(234, 179, 8, 0.15)',
+                  color: analysisResult.strategyUsed === 'TREND_FOLLOWING' ? '#10b981' : analysisResult.strategyUsed === 'RANGE_BOUND_MEAN_REVERSION' ? '#a855f7' : '#eab308',
+                }}>
+                  {analysisResult.strategyUsed === 'TREND_FOLLOWING' ? '⚡ TREND FOLLOWING' : 
+                   analysisResult.strategyUsed === 'RANGE_BOUND_MEAN_REVERSION' ? '↔️ RANGE SCALPING' : '💤 SIT OUT / FILTERED'}
+                </span>
+              </div>
+
               {/* Confidence Progress Bar */}
               <div style={{ height: '6px', width: '100%', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', marginBottom: '1.5rem', overflow: 'hidden' }}>
                 <div style={{ 
@@ -1523,6 +1549,50 @@ const OpenClawAi = () => {
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>No Unwinding</span>
                       ) : null}
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ADX and Bollinger Bands Indicator Bar */}
+              {indicatorData && (
+                <div style={{ 
+                  display: 'flex', 
+                  gap: '0.75rem', 
+                  flexWrap: 'wrap', 
+                  marginBottom: '1.25rem',
+                  padding: '0.75rem',
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(255, 255, 255, 0.05)',
+                  marginTop: '-0.75rem' // Tighten spacing between indicator bars
+                }}>
+                  <div style={{ flex: '1 1 120px' }}>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.15rem' }}>ADX Trend Strength</span>
+                    <span style={{ 
+                      fontSize: '0.85rem', 
+                      fontWeight: '700', 
+                      color: indicatorData.adx < 20 ? '#ef4444' : indicatorData.adx > 25 ? '#10b981' : '#eab308' 
+                    }}>
+                      {indicatorData.adx || 'N/A'} {indicatorData.adx ? (indicatorData.adx < 20 ? '(Sideways)' : indicatorData.adx > 25 ? '(Trending)' : '(Weak)') : ''}
+                    </span>
+                  </div>
+                  <div style={{ flex: '1 1 200px' }}>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.15rem' }}>Bollinger Bands (20, 2)</span>
+                    <span style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-secondary)' }}>
+                      L: <span style={{ color: 'var(--bearish)' }}>{indicatorData.bbLower ? indicatorData.bbLower.toFixed(0) : 'N/A'}</span> | 
+                      M: <span style={{ color: '#fff' }}>{indicatorData.bbMiddle ? indicatorData.bbMiddle.toFixed(0) : 'N/A'}</span> | 
+                      U: <span style={{ color: 'var(--bullish)' }}>{indicatorData.bbUpper ? indicatorData.bbUpper.toFixed(0) : 'N/A'}</span>
+                    </span>
+                  </div>
+                  <div style={{ flex: '1 1 120px' }}>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.15rem' }}>Market Regime</span>
+                    <span style={{ 
+                      fontSize: '0.85rem', 
+                      fontWeight: '700', 
+                      color: indicatorData.marketRegime === 'TRENDING' ? '#10b981' : indicatorData.marketRegime === 'CHOPPY' ? '#ef4444' : '#eab308' 
+                    }}>
+                      {indicatorData.marketRegime || 'N/A'} {indicatorData.choppinessScore ? `(${indicatorData.choppinessScore}%)` : ''}
+                    </span>
                   </div>
                 </div>
               )}

@@ -1384,8 +1384,8 @@ IMPORTANT INSTRUCTIONS for the tone and format:
 - Do NOT use markdown formatting like ###, **, or *. Just use simple plain text with line breaks for spacing.
 - Explain it in a simple way, like an expert friend giving advice.`;
 
-    // Call Gemini API (using low-cost gemini-3.1-flash-lite)
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`;
+    // Call Gemini API (using gemini-2.0-flash for better reasoning)
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
     
     const parts = [{ text: prompt }];
     
@@ -1486,6 +1486,112 @@ const calculateATR = (data, period = 14) => {
     atr = ((atr * (period - 1)) + trs[i]) / period;
   }
   return parseFloat(atr.toFixed(2));
+};
+
+// Helper for calculating ADX (Average Directional Index - Wilder's Smoothing)
+const calculateADX = (data, period = 14) => {
+  if (!data || data.length < period * 2) {
+    return 20; // Default flat ADX if not enough data
+  }
+
+  const trs = [];
+  const plusDMs = [];
+  const minusDMs = [];
+
+  for (let i = 1; i < data.length; i++) {
+    const high = data[i].high;
+    const low = data[i].low;
+    const prevHigh = data[i - 1].high;
+    const prevLow = data[i - 1].low;
+    const prevClose = data[i - 1].close;
+
+    // True Range (TR)
+    const tr = Math.max(
+      high - low,
+      Math.abs(high - prevClose),
+      Math.abs(low - prevClose)
+    );
+    trs.push(tr);
+
+    // Directional Movement (+DM and -DM)
+    const upMove = high - prevHigh;
+    const downMove = prevLow - low;
+
+    let plusDM = 0;
+    let minusDM = 0;
+
+    if (upMove > downMove && upMove > 0) {
+      plusDM = upMove;
+    }
+    if (downMove > upMove && downMove > 0) {
+      minusDM = downMove;
+    }
+
+    plusDMs.push(plusDM);
+    minusDMs.push(minusDM);
+  }
+
+  // Smooth using Wilder's Technique
+  let smoothedTR = trs.slice(0, period).reduce((a, b) => a + b, 0);
+  let smoothedPlusDM = plusDMs.slice(0, period).reduce((a, b) => a + b, 0);
+  let smoothedMinusDM = minusDMs.slice(0, period).reduce((a, b) => a + b, 0);
+
+  const dxValues = [];
+
+  // First values after first period
+  let plusDI = smoothedTR > 0 ? (smoothedPlusDM / smoothedTR) * 100 : 0;
+  let minusDI = smoothedTR > 0 ? (smoothedMinusDM / smoothedTR) * 100 : 0;
+  let dx = (plusDI + minusDI) > 0 ? (Math.abs(plusDI - minusDI) / (plusDI + minusDI)) * 100 : 0;
+  dxValues.push(dx);
+
+  for (let i = period; i < trs.length; i++) {
+    smoothedTR = smoothedTR - (smoothedTR / period) + trs[i];
+    smoothedPlusDM = smoothedPlusDM - (smoothedPlusDM / period) + plusDMs[i];
+    smoothedMinusDM = smoothedMinusDM - (smoothedMinusDM / period) + minusDMs[i];
+
+    plusDI = smoothedTR > 0 ? (smoothedPlusDM / smoothedTR) * 100 : 0;
+    minusDI = smoothedTR > 0 ? (smoothedMinusDM / smoothedTR) * 100 : 0;
+    dx = (plusDI + minusDI) > 0 ? (Math.abs(plusDI - minusDI) / (plusDI + minusDI)) * 100 : 0;
+    dxValues.push(dx);
+  }
+
+  // ADX = Smoothed DX
+  if (dxValues.length < period) return 20;
+
+  let adx = dxValues.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < dxValues.length; i++) {
+    adx = ((adx * (period - 1)) + dxValues[i]) / period;
+  }
+
+  return parseFloat(adx.toFixed(2));
+};
+
+// Helper for calculating Bollinger Bands (20 SMA, 2 StdDev)
+const calculateBollingerBands = (data, period = 20, stdDevMultiplier = 2) => {
+  if (!data || data.length < period) {
+    return { upper: null, middle: null, lower: null };
+  }
+  
+  // Get the last `period` candles
+  const slice = data.slice(-period);
+  const closes = slice.map(c => c.close);
+  
+  // Calculate SMA (Middle Band)
+  const sum = closes.reduce((acc, val) => acc + val, 0);
+  const middle = sum / period;
+  
+  // Calculate Standard Deviation
+  const variance = closes.reduce((acc, val) => acc + Math.pow(val - middle, 2), 0) / period;
+  const stdDev = Math.sqrt(variance);
+  
+  const upper = middle + (stdDevMultiplier * stdDev);
+  const lower = middle - (stdDevMultiplier * stdDev);
+  
+  return {
+    upper: parseFloat(upper.toFixed(2)),
+    middle: parseFloat(middle.toFixed(2)),
+    lower: parseFloat(lower.toFixed(2))
+  };
 };
 
 // Helper for calculating MACD (12, 26, 9)
@@ -1826,6 +1932,13 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   const rsi = calculateRSI(chartCandles, 14);
   const atr = calculateATR(chartCandles, 14) || latestAtrValues[symbolStr] || 15;
   const macd = calculateMACD(chartCandles); // MACD (12, 26, 9)
+  const adxVal = calculateADX(chartCandles, 14);
+  const bbVal = calculateBollingerBands(chartCandles, 20, 2);
+
+  const lastAdx = adxVal;
+  const lastBbUpper = bbVal.upper;
+  const lastBbMiddle = bbVal.middle;
+  const lastBbLower = bbVal.lower;
 
   const lastClose = chartCandles.length > 0 ? chartCandles[chartCandles.length - 1].close : spotPrice;
   const lastEma9 = ema9.length > 0 ? parseFloat(ema9[ema9.length - 1].toFixed(2)) : lastClose;
@@ -2101,6 +2214,34 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
     oiDivergenceStatus = "BEAR_TRAP_WARNING";
   }
 
+  // ── Market Regime Detection (TRENDING vs CHOPPY) ──────────────────────────────
+  // Uses ATR-based analysis: if candles are small relative to ATR, market is choppy
+  let marketRegime = "UNKNOWN";
+  let choppinessScore = 0;
+  if (chartCandles.length >= 10) {
+    const last10 = chartCandles.slice(-10);
+    // Directional Efficiency Ratio: net move / sum of individual candle moves
+    const netMove = Math.abs(last10[last10.length - 1].close - last10[0].open);
+    const totalMove = last10.reduce((sum, c) => sum + Math.abs(c.close - c.open), 0);
+    const efficiencyRatio = totalMove > 0 ? netMove / totalMove : 0;
+    // High Efficiency = Trending, Low Efficiency = Choppy/Sideways
+    choppinessScore = Math.round((1 - efficiencyRatio) * 100);
+    
+    // Combine ADX and Efficiency Ratio for more accurate sideways market classification
+    if (adxVal < 20) {
+      marketRegime = "CHOPPY";
+      choppinessScore = Math.max(choppinessScore, 75); // Ensure high choppiness when ADX is very low
+    } else if (adxVal >= 25 && efficiencyRatio >= 0.4) {
+      marketRegime = "TRENDING";
+    } else if (efficiencyRatio >= 0.5) {
+      marketRegime = "TRENDING";
+    } else if (efficiencyRatio >= 0.25 || adxVal >= 20) {
+      marketRegime = "MIXED";
+    } else {
+      marketRegime = "CHOPPY";
+    }
+  }
+
   // Calculate PCR Velocity
   let pcrVelocity = "STABLE";
   if (historicalPcrs.length >= 2) {
@@ -2322,6 +2463,26 @@ You must weight their importance according to the weights assigned by the user:
 - Prioritize breakout setups that are accompanied by a Volume Surge ("YES"). If volume is low or trend indicators conflict, prefer "WAIT".
 - Keep trade quality extremely high. It is better to recommend "WAIT" and skip a trade than to suggest a low-probability entry.
 
+- **MARKET REGIME & STRATEGY SELECTION RULES (Critical)**: You are provided with Market Regime data and indicators like ADX and Bollinger Bands. You MUST choose the correct strategy:
+  * **TREND_FOLLOWING Strategy**: Use this when Market Regime is "TRENDING" (ADX >= 22 & Choppiness Score <= 55) or when ADX is rising above 25. Standard trend momentum rules apply. Set \`"strategyUsed"\` to \`"TREND_FOLLOWING"\`.
+  * **RANGE_BOUND_MEAN_REVERSION Strategy**: Use this when Market Regime is "CHOPPY" (ADX < 20 or Choppiness Score > 55). Under this strategy:
+    - Do NOT chase breakouts or crossovers. Instead, buy calls near support and buy puts near resistance.
+    - Suggest "CALL" ONLY when:
+      1. Spot Price is at or very close to Lower Bollinger Band (within 0.1%).
+      2. AND RSI is oversold/low (< 40).
+      3. AND price is near the Strongest Support Strike.
+      - Target 1: Middle Bollinger Band or ATM Strike.
+      - Stoploss: Tight (10-15 Nifty points, 30-40 BankNifty points) just below Lower Bollinger Band or Support.
+    - Suggest "PUT" ONLY when:
+      1. Spot Price is at or very close to Upper Bollinger Band (within 0.1%).
+      2. AND RSI is overbought/high (> 60).
+      3. AND price is near the Strongest Resistance Strike.
+      - Target 1: Middle Bollinger Band or ATM Strike.
+      - Stoploss: Tight (10-15 Nifty points, 30-40 BankNifty points) just above Upper Bollinger Band or Resistance.
+    - Set \`"strategyUsed"\` to \`"RANGE_BOUND_MEAN_REVERSION"\` for these trades.
+    - If none of these conditions are met, output "WAIT" with \`"strategyUsed"\` to \`"SIT_OUT"\`.
+  * **MIXED Regime**: If ADX is between 20-22 or Choppiness is between 40-55, you can use either strategy but you must have high confirmation (confidence > 80%). If wait, set \`"strategyUsed"\` to \`"SIT_OUT"\`.
+
 *MULTI-TIMEFRAME TREND CONFIRMATION & ALIGNMENT:*
 - You are provided with a 1-Hour chart trend confirmation ("hourlyTrend"): "${hourlyTrend}".
 - Ideally:
@@ -2373,6 +2534,8 @@ ${last15CandlesStr}
   * EMA Crossover Status: ${lastEma9 > lastEma21 ? 'EMA 9 is above EMA 21 (Bullish Trend)' : 'EMA 9 is below EMA 21 (Bearish Trend)'}
   * RSI (14): ${lastRsi} (${lastRsi > 70 ? 'Overbought' : lastRsi < 30 ? 'Oversold' : 'Neutral'})
   * ATR (14): ${atr.toFixed(2)}
+  * ADX (14): ${lastAdx} (${lastAdx < 20 ? 'Weak/Sideways Trend' : lastAdx > 25 ? 'Strong Trend' : 'Normal Trend'})
+  * Bollinger Bands (20, 2): Upper = ${lastBbUpper}, Middle = ${lastBbMiddle}, Lower = ${lastBbLower} (Current Spot is ${spotPrice})
   * MACD Line (12,26): ${macd.macdLine} | Signal Line (9): ${macd.signalLine} | Histogram: ${macd.histogram}
   * MACD Crossover Status: ${macd.crossover} (${macd.crossover === 'BULLISH_CROSSOVER' ? 'FRESH BUY SIGNAL — strong bullish momentum just triggered' : macd.crossover === 'BEARISH_CROSSOVER' ? 'FRESH SELL SIGNAL — strong bearish momentum just triggered' : macd.crossover === 'BULLISH' ? 'MACD above Signal — bullish momentum ongoing' : macd.crossover === 'BEARISH' ? 'MACD below Signal — bearish momentum ongoing' : 'Neutral'})
   * MACD Histogram Trend: ${macd.histogramTrend} (${macd.histogramTrend === 'EXPANDING_BULLISH' ? 'Buying pressure INCREASING — strong upward momentum' : macd.histogramTrend === 'SHRINKING_BULLISH' ? 'Buying pressure WEAKENING — potential reversal or slowdown ahead' : macd.histogramTrend === 'EXPANDING_BEARISH' ? 'Selling pressure INCREASING — strong downward momentum' : macd.histogramTrend === 'SHRINKING_BEARISH' ? 'Selling pressure WEAKENING — potential bullish reversal ahead' : 'No clear momentum direction'})
@@ -2382,6 +2545,7 @@ ${last15CandlesStr}
   * Multi-Timeframe Trend Concurrence: ${trendConcurrence} (Short-term, Mid-term, and Higher-term alignment check)
   * Volume Surge (Latest candle vol vs 10-period Avg Vol): ${isVolumeSpiked ? 'YES (Volume spike detected)' : 'NO (Normal volume)'} (Latest Vol: ${latestVolume}, Avg Vol: ${averageVolume})
   * PCR Velocity (OI Change direction): ${pcrVelocity}
+  * Market Regime (last 10 candles): ${marketRegime} (Choppiness Score: ${choppinessScore}/100 — Higher = More Choppy/Sideways)
 
 - 15-Minute Institutional Smart Money OI Activity:
   * Smart Money Sentiment (15m): ${smartMoneySentiment}
@@ -2414,6 +2578,7 @@ ${headlines.length > 0 ? headlines.map((h, i) => `  * Headline ${i+1}: "${h.titl
 You must return a raw JSON response (without any markdown tags or backticks) in this exact format:
 {
   "action": "CALL" | "PUT" | "WAIT",
+  "strategyUsed": "TREND_FOLLOWING" | "RANGE_BOUND_MEAN_REVERSION" | "SIT_OUT",
   "confidence": <integer percentage between 0 and 100>,
   "newsSentiment": "BULLISH" | "BEARISH" | "NEUTRAL",
   "buyRange": "<suggested buy range, e.g. '22040 - 22065'>",
@@ -2452,8 +2617,8 @@ INSTRUCTIONS FOR WRITING:
     console.log(`[OpenClaw Background] Pre-filtering safeguard is bypassed. Executing Gemini API analysis for ${symbolStr}...`);
   }
 
-  // 5. Call Gemini (using low-cost gemini-3.1-flash-lite)
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`;
+  // 5. Call Gemini (using gemini-2.0-flash for better reasoning quality)
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
   const geminiResponse = await callGeminiWithRetry(geminiUrl, {
     contents: [{ parts: [{ text: prompt }] }]
   });
@@ -2474,30 +2639,62 @@ INSTRUCTIONS FOR WRITING:
     throw new Error('AI response was not in a valid JSON format');
   }
 
+  // Apply a default for strategyUsed if not parsed correctly
+  if (!parsedResult.strategyUsed) {
+    if (parsedResult.action === 'WAIT') {
+      parsedResult.strategyUsed = 'SIT_OUT';
+    } else {
+      parsedResult.strategyUsed = 'TREND_FOLLOWING';
+    }
+  }
+
   // Apply Strict Trend Filter and Unwinding safeguards on the parsed result
   const isStrictTrendFilterEnabled = settings['strict_trend_filter'] !== 'false';
   
   if (isStrictTrendFilterEnabled && !activeSignal) {
-    if (parsedResult.action === 'CALL' && hourlyTrend === 'BEARISH') {
-      console.log(`[OpenClaw Safeguard] Overriding CALL signal for ${symbolStr} because 1-Hour Trend is BEARISH.`);
+    // ── CHOPPY MARKET SAFEGUARD (Most Important Filter) ──────────────────
+    // If market is CHOPPY (sideways), block all trade signals — except if Range Scalping (mean reversion) strategy is specifically used!
+    if ((parsedResult.action === 'CALL' || parsedResult.action === 'PUT') && 
+        marketRegime === 'CHOPPY' && 
+        choppinessScore > 75 && 
+        parsedResult.strategyUsed !== 'RANGE_BOUND_MEAN_REVERSION') {
+      console.log(`[OpenClaw Safeguard] Blocking ${parsedResult.action} signal for ${symbolStr} — Market is CHOPPY (Score: ${choppinessScore}/100). No clear trend direction.`);
       parsedResult.action = 'WAIT';
+      parsedResult.strategyUsed = 'SIT_OUT';
       parsedResult.suggestedOptionContract = null;
       parsedResult.optionPremiumLtp = null;
       parsedResult.optionTarget1 = null;
       parsedResult.optionTarget2 = null;
       parsedResult.optionStoploss = null;
       parsedResult.trailingStoploss = null;
-      parsedResult.summary = `[SAFEGUARD OVERRIDE] AI suggested CALL, but trend-filter blocked it because 1-Hour trend is BEARISH. Waiting for trend alignment.`;
-    } else if (parsedResult.action === 'PUT' && hourlyTrend === 'BULLISH') {
-      console.log(`[OpenClaw Safeguard] Overriding PUT signal for ${symbolStr} because 1-Hour Trend is BULLISH.`);
-      parsedResult.action = 'WAIT';
-      parsedResult.suggestedOptionContract = null;
-      parsedResult.optionPremiumLtp = null;
-      parsedResult.optionTarget1 = null;
-      parsedResult.optionTarget2 = null;
-      parsedResult.optionStoploss = null;
-      parsedResult.trailingStoploss = null;
-      parsedResult.summary = `[SAFEGUARD OVERRIDE] AI suggested PUT, but trend-filter blocked it because 1-Hour trend is BULLISH. Waiting for trend alignment.`;
+      parsedResult.summary = `[CHOPPY MARKET BLOCK] Market is sideways/choppy (Choppiness Score: ${choppinessScore}/100). Trading in choppy conditions has very low win rate. Waiting for a clear trending move before taking any trade.`;
+    }
+
+    // Trend alignment check only applies to TREND_FOLLOWING strategy! Range Mean Reversion deliberately trades against/inside trends.
+    if (parsedResult.strategyUsed === 'TREND_FOLLOWING') {
+      if (parsedResult.action === 'CALL' && hourlyTrend === 'BEARISH') {
+        console.log(`[OpenClaw Safeguard] Overriding CALL signal for ${symbolStr} because 1-Hour Trend is BEARISH.`);
+        parsedResult.action = 'WAIT';
+        parsedResult.strategyUsed = 'SIT_OUT';
+        parsedResult.suggestedOptionContract = null;
+        parsedResult.optionPremiumLtp = null;
+        parsedResult.optionTarget1 = null;
+        parsedResult.optionTarget2 = null;
+        parsedResult.optionStoploss = null;
+        parsedResult.trailingStoploss = null;
+        parsedResult.summary = `[SAFEGUARD OVERRIDE] AI suggested CALL, but trend-filter blocked it because 1-Hour trend is BEARISH. Waiting for trend alignment.`;
+      } else if (parsedResult.action === 'PUT' && hourlyTrend === 'BULLISH') {
+        console.log(`[OpenClaw Safeguard] Overriding PUT signal for ${symbolStr} because 1-Hour Trend is BULLISH.`);
+        parsedResult.action = 'WAIT';
+        parsedResult.strategyUsed = 'SIT_OUT';
+        parsedResult.suggestedOptionContract = null;
+        parsedResult.optionPremiumLtp = null;
+        parsedResult.optionTarget1 = null;
+        parsedResult.optionTarget2 = null;
+        parsedResult.optionStoploss = null;
+        parsedResult.trailingStoploss = null;
+        parsedResult.summary = `[SAFEGUARD OVERRIDE] AI suggested PUT, but trend-filter blocked it because 1-Hour trend is BULLISH. Waiting for trend alignment.`;
+      }
     }
 
     // Short Covering / Long Unwinding Safeguards:
@@ -2607,6 +2804,12 @@ INSTRUCTIONS FOR WRITING:
       priceChange15m,
       cumulativeOiDelta15m,
       oiDivergenceStatus,
+      adx: lastAdx,
+      bbUpper: lastBbUpper,
+      bbMiddle: lastBbMiddle,
+      bbLower: lastBbLower,
+      marketRegime,
+      choppinessScore,
       atm3Pcr,
       atm3Vpcr,
       activeSignal

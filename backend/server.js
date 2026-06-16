@@ -1425,7 +1425,8 @@ IMPORTANT INSTRUCTIONS for the tone and format:
     if (error.response) {
       console.error('Gemini API Error Details:', error.response.data);
     }
-    res.status(500).json({ 
+    // Return 200 to bypass proxy error page overrides and let the client read the real message
+    res.status(200).json({ 
       success: false, 
       message: error.message,
       details: error.response?.data
@@ -2862,7 +2863,8 @@ app.post('/api/openclaw/analyze', async (req, res) => {
     } else {
       console.error('OpenClaw error details (no response):', error.stack);
     }
-    res.status(500).json({ 
+    // Return 200 to bypass proxy error page overrides and let the client read the real message
+    res.status(200).json({ 
       success: false, 
       message: error.message,
       details: error.response?.data

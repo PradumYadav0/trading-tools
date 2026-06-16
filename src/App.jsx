@@ -57,12 +57,19 @@ function App() {
       (response) => response,
       (error) => {
         if (error.response && error.response.status === 401) {
-          // Invalidate session
-          localStorage.removeItem('sessionToken');
-          localStorage.removeItem('username');
-          delete axios.defaults.headers.common['Authorization'];
-          setToken(null);
-          setUsername(null);
+          const errMsg = error.response.data?.message || '';
+          // Only invalidate session if it's actually an authentication session issue, not an upstream API issue
+          if (
+            errMsg.toLowerCase().includes('session') ||
+            errMsg.toLowerCase().includes('token') ||
+            errMsg.toLowerCase().includes('authorization')
+          ) {
+            localStorage.removeItem('sessionToken');
+            localStorage.removeItem('username');
+            delete axios.defaults.headers.common['Authorization'];
+            setToken(null);
+            setUsername(null);
+          }
         }
         return Promise.reject(error);
       }

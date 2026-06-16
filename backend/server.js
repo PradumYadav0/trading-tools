@@ -420,6 +420,14 @@ const authMiddleware = (req, res, next) => {
   next();
 };
 
+const sanitizeUpstreamStatus = (status) => {
+  const code = parseInt(status, 10);
+  if (code === 401 || code === 403) {
+    return 502; // Map upstream auth errors to Bad Gateway to prevent client-side logout
+  }
+  return code || 500;
+};
+
 // Auth: Check setup
 app.get('/api/auth/check-setup', (req, res) => {
   res.json({ success: true, isSetup: true });
@@ -987,7 +995,7 @@ app.get('/api/option-chain', async (req, res) => {
 
   } catch (error) {
     console.error('Dhan API Error:', error.message);
-    res.status(error.response?.status || 500).json({ 
+    res.status(sanitizeUpstreamStatus(error.response?.status)).json({ 
       success: false, 
       message: error.message,
       details: error.response?.data
@@ -1109,7 +1117,7 @@ app.get('/api/charts/intraday', async (req, res) => {
     }
   } catch (error) {
     console.error('Chart API Error:', error.message);
-    res.status(error.response?.status || 500).json({ 
+    res.status(sanitizeUpstreamStatus(error.response?.status)).json({ 
       success: false, 
       message: error.message,
       details: error.response?.data
@@ -1189,7 +1197,7 @@ app.get('/api/charts/historical', async (req, res) => {
       }
     } catch (error) {
       console.error('Historical Chart API Error:', error.message);
-      return res.status(error.response?.status || 500).json({ 
+      return res.status(sanitizeUpstreamStatus(error.response?.status)).json({ 
         success: false, 
         message: error.message,
         details: error.response?.data

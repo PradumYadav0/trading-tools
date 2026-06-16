@@ -7,6 +7,7 @@ const Settings = () => {
   const [pin, setPin] = useState('');
   const [totpSecret, setTotpSecret] = useState('');
   const [geminiApiKey, setGeminiApiKey] = useState('');
+  const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash');
   
   const [status, setStatus] = useState({ loading: true, data: null });
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -22,6 +23,9 @@ const Settings = () => {
       if (response.data.success) {
         setStatus({ loading: false, data: response.data });
         setClientId(response.data.clientId || '');
+        if (response.data.geminiModel) {
+          setGeminiModel(response.data.geminiModel);
+        }
       }
     } catch (error) {
       console.error('Failed to fetch settings:', error);
@@ -32,7 +36,7 @@ const Settings = () => {
   const handleSave = async () => {
     setMessage({ type: '', text: '' });
     try {
-      const payload = { clientId };
+      const payload = { clientId, geminiModel };
       if (pin) payload.pin = pin;
       if (totpSecret) payload.totpSecret = totpSecret;
       if (geminiApiKey) payload.geminiApiKey = geminiApiKey;
@@ -192,6 +196,33 @@ const Settings = () => {
                 }}
               />
             </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+              Gemini AI Model
+            </label>
+            <select
+              value={geminiModel}
+              onChange={(e) => setGeminiModel(e.target.value)}
+              style={{
+                width: '100%',
+                background: 'rgba(15, 23, 42, 0.8)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '10px',
+                padding: '0.75rem',
+                color: 'var(--text-primary)',
+                fontSize: '0.9rem',
+                outline: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              <option value="gemini-2.5-flash">Gemini 2.5 Flash (Recommended - Fast & Free Quota)</option>
+              <option value="gemini-3.5-flash">Gemini 3.5 Flash (Latest - Free Quota)</option>
+              <option value="gemini-2.5-pro">Gemini 2.5 Pro (High Intelligence)</option>
+              <option value="gemini-2.0-flash">Gemini 2.0 Flash (Fails on Free tier in some regions)</option>
+              <option value="gemini-flash-latest">Gemini 1.5 Flash (via gemini-flash-latest)</option>
+            </select>
           </div>
 
           <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', flexWrap: 'wrap' }}>

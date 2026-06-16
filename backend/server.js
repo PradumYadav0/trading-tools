@@ -1384,8 +1384,9 @@ IMPORTANT INSTRUCTIONS for the tone and format:
 - Do NOT use markdown formatting like ###, **, or *. Just use simple plain text with line breaks for spacing.
 - Explain it in a simple way, like an expert friend giving advice.`;
 
-    // Call Gemini API (using gemini-2.0-flash for better reasoning)
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+    // Call Gemini API (using the user-configured model, defaulting to gemini-2.5-flash)
+    const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`;
     
     const parts = [{ text: prompt }];
     
@@ -2617,8 +2618,9 @@ INSTRUCTIONS FOR WRITING:
     console.log(`[OpenClaw Background] Pre-filtering safeguard is bypassed. Executing Gemini API analysis for ${symbolStr}...`);
   }
 
-  // 5. Call Gemini (using gemini-2.0-flash for better reasoning quality)
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+  // 5. Call Gemini (using the user-configured model, defaulting to gemini-2.5-flash)
+  const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`;
   const geminiResponse = await callGeminiWithRetry(geminiUrl, {
     contents: [{ parts: [{ text: prompt }] }]
   });
@@ -3890,6 +3892,7 @@ app.get('/api/settings', (req, res) => {
       hasTotpSecret: !!env.DHAN_TOTP_SECRET,
       hasAccessToken: !!env.DHAN_ACCESS_TOKEN,
       hasGeminiKey: !!env.GEMINI_API_KEY,
+      geminiModel: env.GEMINI_MODEL || 'gemini-2.5-flash',
     });
   } catch (e) {
     res.status(500).json({ success: false, message: e.message });
@@ -3899,13 +3902,14 @@ app.get('/api/settings', (req, res) => {
 // POST to save credentials and trigger token refresh
 app.post('/api/settings', async (req, res) => {
   try {
-    const { pin, totpSecret, clientId, geminiApiKey } = req.body;
+    const { pin, totpSecret, clientId, geminiApiKey, geminiModel } = req.body;
     const env = readEnvFile();
 
     if (clientId) env.DHAN_CLIENT_ID = clientId;
     if (pin) env.DHAN_PIN = pin;
     if (totpSecret) env.DHAN_TOTP_SECRET = totpSecret;
     if (geminiApiKey) env.GEMINI_API_KEY = geminiApiKey;
+    if (geminiModel) env.GEMINI_MODEL = geminiModel;
 
     writeEnvFile(env);
 
@@ -3914,6 +3918,7 @@ app.post('/api/settings', async (req, res) => {
     if (pin) process.env.DHAN_PIN = pin;
     if (totpSecret) process.env.DHAN_TOTP_SECRET = totpSecret;
     if (geminiApiKey) process.env.GEMINI_API_KEY = geminiApiKey;
+    if (geminiModel) process.env.GEMINI_MODEL = geminiModel;
 
     res.json({ success: true, message: 'Settings saved successfully' });
   } catch (e) {

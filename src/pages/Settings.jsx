@@ -219,9 +219,14 @@ const Settings = () => {
             >
               <option value="gemini-2.5-flash">Gemini 2.5 Flash (Recommended - Fast & Free Quota)</option>
               <option value="gemini-3.5-flash">Gemini 3.5 Flash (Latest - Free Quota)</option>
-              <option value="gemini-2.5-pro">Gemini 2.5 Pro (High Intelligence)</option>
-              <option value="gemini-2.0-flash">Gemini 2.0 Flash (Fails on Free tier in some regions)</option>
-              <option value="gemini-flash-latest">Gemini 1.5 Flash (via gemini-flash-latest)</option>
+              <option value="gemini-2.5-pro">Gemini 2.5 Pro (High Reasoning & Accuracy)</option>
+              <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite (Fast, lightweight)</option>
+              <option value="gemini-2.0-flash">Gemini 2.0 Flash (Fast - Free Tier restricted in some regions)</option>
+              <option value="gemini-2.0-flash-lite">Gemini 2.0 Flash-Lite (Ultra-fast, lower quota)</option>
+              <option value="gemini-flash-latest">Gemini 1.5 Flash (Legacy - Stable & Free Quota)</option>
+              <option value="gemini-pro-latest">Gemini 1.5 Pro (Legacy - High Intelligence)</option>
+              <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite (Next-gen Lite Preview)</option>
+              <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Next-gen Pro Preview)</option>
             </select>
           </div>
 

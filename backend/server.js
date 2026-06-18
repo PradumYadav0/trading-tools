@@ -2519,9 +2519,12 @@ You must weight their importance according to the weights assigned by the user:
 
 *INDEX TARGET & STOPLOSS GUIDELINES:*
 - You must calculate realistic and noise-tolerant targets and stoplosses for the index (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY).
-- To prevent trades from being prematurely stopped out by normal market noise and minor price fluctuations, enforce the following ATR-based and minimum absolute point rules:
-  * NIFTY: Stoploss must be at least ${atrMultiplier} * ATR (minimum 25 points). Target 1 must be at least ${atrMultiplier} * ATR to 2 * ATR (minimum 30 points) from the entry. Target 2 must be at least 3 * ATR (minimum 60 points).
-  * BANKNIFTY: Stoploss must be at least ${atrMultiplier} * ATR (minimum 75 points). Target 1 must be at least ${atrMultiplier} * ATR to 2 * ATR (minimum 100 points). Target 2 must be at least 3 * ATR (minimum 200 points).
+- STRUCTURE-BASED STOPLOSS (SL Hunting Protection): Place stoplosses relative to structural support/resistance levels rather than arbitrary math points:
+  * For CALL trades (Bullish setup): Set stoploss 3-5 Nifty points (15-20 Banknifty points) BELOW the Lower Bollinger Band or Strongest Support Strike or recent swing low (whichever is closer below entry), adding this safety cushion to prevent SL hunting wicks.
+  * For PUT trades (Bearish setup): Set stoploss 3-5 Nifty points (15-20 Banknifty points) ABOVE the Upper Bollinger Band or Strongest Resistance Strike or recent swing high, adding this safety cushion.
+- Enforce the absolute minimum boundaries:
+  * NIFTY: Stoploss must be at least ${atrMultiplier} * ATR (minimum 25 points). Target 1 must be at least ${atrMultiplier} * ATR to 2 * ATR (minimum 30 points) from entry. Target 2 must be at least 60 points.
+  * BANKNIFTY: Stoploss must be at least ${atrMultiplier} * ATR (minimum 75 points). Target 1 must be at least ${atrMultiplier} * ATR to 2 * ATR (minimum 100 points). Target 2 must be at least 200 points.
   * FINNIFTY: Stoploss must be at least ${atrMultiplier} * ATR (minimum 30 points). Target 1 must be at least 40 points. Target 2 must be at least 80 points.
   * MIDCPNIFTY: Stoploss must be at least ${atrMultiplier} * ATR (minimum 20 points). Target 1 must be at least 25 points. Target 2 must be at least 50 points.
 - Ensure that the Risk-to-Reward Ratio is healthy (minimum 1:1.2, ideally 1:1.5 or higher). Never set a target or stoploss closer than the minimum boundaries defined above.
@@ -2619,6 +2622,8 @@ You must return a raw JSON response (without any markdown tags or backticks) in 
   "optionStoploss": <number> | null,
   "trailingStoploss": "<trailing stoploss rule, e.g., 'Trail to Cost when Target 1 is hit, then trail by 10 points' or null if WAIT>" | null,
   "expectedHoldTime": "<holding time estimation, e.g., '10 - 15 minutes'>" | null,
+  "activeTradeAction": "HOLD" | "EXIT_EARLY" | "TRAIL_SL",
+  "newStoploss": <number> | null,
   "agentThoughts": {
     "optionChainAgent": "<Ultra-short Hinglish status, max 7 words. Example: 'PCR neutral, call writing heavy.'>",
     "chartAgent": "<Ultra-short Hinglish status, max 7 words. Example: 'RSI oversold, support active.'>",
@@ -2634,9 +2639,14 @@ You must return a raw JSON response (without any markdown tags or backticks) in 
 INSTRUCTIONS FOR WRITING:
 - Write the agent thoughts, reasoning, and summary as ultra-short, concise sentences or phrases in friendly Hinglish (using English alphabet, e.g. 'Market strong bullish trend me hai').
 - STRICT LIMITS: agentThoughts fields must be max 7 words each. The reasoning array must contain EXACTLY 1 bullet point of max 10 words. The summary field must be max 12 words.
+- ACTIVE TRADE EVALUATION (if there is an active trade running in Active Trade Memory):
+  * If the trend has reversed (e.g. opposite EMA crossovers, Smart Money unwinding, or trap warning indicators conflicting), set \`activeTradeAction\` to \`EXIT_EARLY\` to exit immediately.
+  * If the price has moved significantly in our direction (e.g. Nifty +20 pts, Banknifty +50 pts from entry), set \`activeTradeAction\` to \`TRAIL_SL\` and calculate a smart trailing stoploss (e.g. trailing to entry price to make it a risk-free trade, or trailing to the Middle Bollinger Band/swing low) and write that trailing spot price in \`newStoploss\`.
+  * If the trade is normal and no exit or trail is needed, set \`activeTradeAction\` to \`HOLD\` and \`newStoploss\` to null.
+  * If there is no active trade in Active Trade Memory, default \`activeTradeAction\` to \`HOLD\` and \`newStoploss\` to null.
 - Do NOT write long paragraphs, greetings, or descriptions. Be extremely brief to conserve tokens.
 - Do NOT use Hindi script (like नमस्ते or बाज़ार).
-- Ensure all numbers (target1, target2, stoploss, optionPremiumLtp, optionTarget1, optionTarget2, optionStoploss) are valid numbers.
+- Ensure all numbers (target1, target2, stoploss, optionPremiumLtp, optionTarget1, optionTarget2, optionStoploss, newStoploss) are valid numbers.
 - Do NOT wrap in backticks or code blocks. Just output the clean JSON object.`;
 
   // Pre-filtering check bypassed by user request to ensure Gemini is called on every interval
@@ -3744,11 +3754,28 @@ async function triggerOpenClawBackgroundAlerts() {
         const result = await executeOpenClawAnalysis(symbol, null, weightsObj, tradingProfile, true);
         const actionData = result.data;
         const indicators = result.indicators;
+        const activeSignal = indicators.activeSignal;
 
         // Update last spot price
         lastAlertSpotPrices[symbol] = indicators.spotPrice;
 
         logToBackground(`${symbol} scan completed. Action: ${actionData.action}, Confidence: ${actionData.confidence}%`, actionData.action !== 'WAIT' ? 'success' : 'info');
+
+        // Check if there is an active signal running and handle early exits / trailing stoplosses
+        if (activeSignal && actionData.activeTradeAction) {
+          if (actionData.activeTradeAction === 'EXIT_EARLY') {
+            logToBackground(`[Active Trade] OpenClaw AI recommended EXIT_EARLY for ${symbol} (Signal ID: ${activeSignal.id}).`, 'warning');
+            await closeActiveSignalEarly(activeSignal.id, indicators.spotPrice, 'FAILED');
+            await sendEarlyExitNotifications(symbol, activeSignal, indicators.spotPrice, settings, actionData.reasoning?.[0] || 'Trend reversal detected by AI.');
+          } else if (actionData.activeTradeAction === 'TRAIL_SL' && actionData.newStoploss) {
+            const newSL = parseFloat(actionData.newStoploss);
+            if (newSL && newSL !== activeSignal.stoploss_price) {
+              logToBackground(`[Active Trade] OpenClaw AI trailed stoploss for ${symbol} from ${activeSignal.stoploss_price} to ${newSL}.`, 'success');
+              await updateActiveSignalStoploss(activeSignal.id, newSL);
+              await sendTrailingSlNotifications(symbol, activeSignal, newSL, settings);
+            }
+          }
+        }
 
         if ((actionData.action === 'CALL' || actionData.action === 'PUT') && actionData.confidence >= minConfidence) {
           logToBackground(`🚨 Strong signal detected for ${symbol}: ${actionData.action} (${actionData.confidence}%)`, 'success');
@@ -3903,6 +3930,170 @@ function saveOpenClawSignalToDb(symbol, actionData, spotPrice) {
       }
     );
   });
+}
+
+function closeActiveSignalEarly(id, exitPrice, status) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      `UPDATE ai_signals 
+       SET status = ?, exit_price = ?, exit_time = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND status = 'PENDING'`,
+      [status, exitPrice, id],
+      function(err) {
+        if (err) {
+          console.error(`[Background Alert] Error closing active signal ${id} early:`, err.message);
+          reject(err);
+        } else {
+          console.log(`[Background Alert] Closed active signal ${id} early with status ${status} and exit price ${exitPrice}.`);
+          resolve(this.changes);
+        }
+      }
+    );
+  });
+}
+
+function updateActiveSignalStoploss(id, newStoploss) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      `UPDATE ai_signals 
+       SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND status = 'PENDING'`,
+      [newStoploss, id],
+      function(err) {
+        if (err) {
+          console.error(`[Background Alert] Error updating stoploss for active signal ${id}:`, err.message);
+          reject(err);
+        } else {
+          console.log(`[Background Alert] Updated stoploss for active signal ${id} to ${newStoploss}.`);
+          resolve(this.changes);
+        }
+      }
+    );
+  });
+}
+
+async function sendEarlyExitNotifications(symbol, activeSignal, exitPrice, settings, reason) {
+  const tgToken = settings['telegram_token'];
+  const tgChatId = settings['telegram_chat_id'];
+  if (!tgToken || !tgChatId) return;
+
+  const tradeIdStr = `CLAW-${symbol}-${activeSignal.id}`;
+  const pnl = activeSignal.type === 'CALL' 
+    ? (exitPrice - activeSignal.entry_price) 
+    : (activeSignal.entry_price - exitPrice);
+  const pnlSign = pnl >= 0 ? '+' : '';
+  const escapedReason = escapeTgMd(reason || 'Trend reversal detected by AI');
+
+  const message = `⚠️ *[Early Exit Alert] OpenClaw AI Trade Exited Early* ⚠️\n\n` +
+    `*Trade ID*: \`${tradeIdStr}\`\n` +
+    `*Symbol*: ${symbol}\n` +
+    `*Action*: ${activeSignal.type === 'CALL' ? 'BUY CALL / BULLISH' : 'BUY PUT / BEARISH'}\n` +
+    `*Status*: ❌ CLOSED EARLY\n\n` +
+    `📊 *Exit Details*:\n` +
+    `  • Entry Price: ${activeSignal.entry_price.toFixed(2)}\n` +
+    `  • Exit Spot Price: ${exitPrice.toFixed(2)}\n` +
+    `  • PnL: *${pnlSign}${pnl.toFixed(2)} Points*\n` +
+    `  • Reason: ${escapedReason}\n\n` +
+    `🤖 - Powered by OpenClaw AI Engine.`;
+
+  try {
+    const url = `https://api.telegram.org/bot${tgToken}/sendMessage`;
+    await axios.post(url, {
+      chat_id: tgChatId,
+      text: message,
+      parse_mode: 'Markdown'
+    });
+    console.log(`[Background Early Exit] Telegram alert dispatched for ${symbol}`);
+  } catch (e) {
+    console.error(`[Background Early Exit] Telegram dispatch error for ${symbol}:`, e.message);
+  }
+
+  // Discord
+  const discordWebhook = settings['discord_webhook'];
+  if (discordWebhook) {
+    try {
+      await axios.post(discordWebhook, {
+        content: message.replace(/\*/g, '**')
+      });
+      console.log(`[Background Early Exit] Discord alert dispatched for ${symbol}`);
+    } catch (e) {
+      console.error(`[Background Early Exit] Discord dispatch error for ${symbol}:`, e.message);
+    }
+  }
+
+  // WhatsApp
+  const waPhone = settings['whatsapp_phone'];
+  const waApiKey = settings['whatsapp_apikey'];
+  if (waPhone && waApiKey) {
+    try {
+      const cleanPhone = waPhone.replace(/[^0-9]/g, '');
+      const waText = encodeURIComponent(message.replace(/\*/g, ''));
+      const waUrl = `https://api.callmebot.com/whatsapp.php?phone=${cleanPhone}&text=${waText}&apikey=${waApiKey}`;
+      await axios.get(waUrl);
+      console.log(`[Background Early Exit] WhatsApp alert dispatched for ${symbol}`);
+    } catch (e) {
+      console.error(`[Background Early Exit] WhatsApp dispatch error for ${symbol}:`, e.message);
+    }
+  }
+}
+
+async function sendTrailingSlNotifications(symbol, activeSignal, newStoploss, settings) {
+  const tgToken = settings['telegram_token'];
+  const tgChatId = settings['telegram_chat_id'];
+  if (!tgToken || !tgChatId) return;
+
+  const tradeIdStr = `CLAW-${symbol}-${activeSignal.id}`;
+  const oldStoploss = activeSignal.stoploss_price;
+
+  const message = `📈 *[Trailing Stoploss Alert] Stoploss Trailed* 📈\n\n` +
+    `*Trade ID*: \`${tradeIdStr}\`\n` +
+    `*Symbol*: ${symbol}\n` +
+    `*Action*: ${activeSignal.type === 'CALL' ? 'BUY CALL / BULLISH' : 'BUY PUT / BEARISH'}\n\n` +
+    `📊 *Stoploss Details*:\n` +
+    `  • Entry Price: ${activeSignal.entry_price.toFixed(2)}\n` +
+    `  • Old Stoploss: ${oldStoploss ? oldStoploss.toFixed(2) : 'N/A'}\n` +
+    `  • *New Stoploss*: *${newStoploss.toFixed(2)}*\n\n` +
+    `🤖 - Powered by OpenClaw AI Engine.`;
+
+  try {
+    const url = `https://api.telegram.org/bot${tgToken}/sendMessage`;
+    await axios.post(url, {
+      chat_id: tgChatId,
+      text: message,
+      parse_mode: 'Markdown'
+    });
+    console.log(`[Background Trailing SL] Telegram alert dispatched for ${symbol}`);
+  } catch (e) {
+    console.error(`[Background Trailing SL] Telegram dispatch error for ${symbol}:`, e.message);
+  }
+
+  // Discord
+  const discordWebhook = settings['discord_webhook'];
+  if (discordWebhook) {
+    try {
+      await axios.post(discordWebhook, {
+        content: message.replace(/\*/g, '**')
+      });
+      console.log(`[Background Trailing SL] Discord alert dispatched for ${symbol}`);
+    } catch (e) {
+      console.error(`[Background Trailing SL] Discord dispatch error for ${symbol}:`, e.message);
+    }
+  }
+
+  // WhatsApp
+  const waPhone = settings['whatsapp_phone'];
+  const waApiKey = settings['whatsapp_apikey'];
+  if (waPhone && waApiKey) {
+    try {
+      const cleanPhone = waPhone.replace(/[^0-9]/g, '');
+      const waText = encodeURIComponent(message.replace(/\*/g, ''));
+      const waUrl = `https://api.callmebot.com/whatsapp.php?phone=${cleanPhone}&text=${waText}&apikey=${waApiKey}`;
+      await axios.get(waUrl);
+      console.log(`[Background Trailing SL] WhatsApp alert dispatched for ${symbol}`);
+    } catch (e) {
+      console.error(`[Background Trailing SL] WhatsApp dispatch error for ${symbol}:`, e.message);
+    }
+  }
 }
 
 // Scan alert interval is triggered inside syncMarketData()

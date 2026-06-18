@@ -66,7 +66,7 @@ const processDhanQueue = async () => {
 };
 
 // Helper to call Gemini API with retry, exponential backoff, and descriptive error parsing
-async function callGeminiWithRetry(url, payload, maxRetries = 3, initialDelay = 1500) {
+async function callGeminiWithRetry(url, payload, maxRetries = 5, initialDelay = 1500) {
   let delay = initialDelay;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -79,9 +79,25 @@ async function callGeminiWithRetry(url, payload, maxRetries = 3, initialDelay = 
       const details = error.response?.data?.error?.message || error.response?.data?.message || error.message;
       
       if ((isRateLimit || isServerErr) && attempt < maxRetries) {
-        console.warn(`[Gemini Retry] Attempt ${attempt} failed: ${details}. Retrying in ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        delay *= 2.5; // Exponential backoff (1.5s, 3.75s, 9.375s)
+        let waitTime = delay;
+        let isExtracted = false;
+
+        if (isRateLimit && typeof details === 'string') {
+          const match = details.match(/Please retry in ([\d\.]+)s/i);
+          if (match) {
+            const retrySeconds = parseFloat(match[1]);
+            waitTime = Math.ceil(retrySeconds * 1000) + 1500; // add 1.5s buffer
+            isExtracted = true;
+            console.warn(`[Gemini Retry] Rate limit hit. Extracted retry time from error: ${retrySeconds}s. Waiting ${waitTime}ms before retry attempt ${attempt + 1}...`);
+          }
+        }
+
+        if (!isExtracted) {
+          console.warn(`[Gemini Retry] Attempt ${attempt} failed: ${details}. Retrying in ${waitTime}ms...`);
+          delay *= 2.5; // Exponential backoff
+        }
+
+        await new Promise(resolve => setTimeout(resolve, waitTime));
       } else {
         // Enforce a more descriptive error message to be captured by the UI log
         let errorMessage = details;
@@ -1390,7 +1406,8 @@ IMPORTANT INSTRUCTIONS for the tone and format:
 - Write the response in friendly Hinglish (Hindi + English mix, written in English script like 'Market abhi sideways chal raha hai').
 - Do NOT use Hindi script (like नमस्ते or बाज़ार).
 - Do NOT use markdown formatting like ###, **, or *. Just use simple plain text with line breaks for spacing.
-- Explain it in a simple way, like an expert friend giving advice.`;
+- Explain it in a simple way, like an expert friend giving advice.
+- STRICT LENGTH LIMIT: Make the entire advice extremely short and direct. The total response MUST NOT exceed 60-80 words. Avoid greetings, introductory text, filler words, or long paragraphs. Just give direct, short bulleted points.`;
 
     // Call Gemini API (using the user-configured model, defaulting to gemini-2.5-flash)
     const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
@@ -2603,21 +2620,21 @@ You must return a raw JSON response (without any markdown tags or backticks) in 
   "trailingStoploss": "<trailing stoploss rule, e.g., 'Trail to Cost when Target 1 is hit, then trail by 10 points' or null if WAIT>" | null,
   "expectedHoldTime": "<holding time estimation, e.g., '10 - 15 minutes'>" | null,
   "agentThoughts": {
-    "optionChainAgent": "<Hinglish summary of Option Chain, ATM IV, and Short Covering/Long Unwinding details>",
-    "chartAgent": "<Hinglish summary of 1H Trend alignment and chart indicators>",
-    "newsAgent": "<Hinglish summary of financial headlines sentiment>",
-    "riskOrchestrator": "<Hinglish summary of target, stoploss, and trailing stoploss settings>"
+    "optionChainAgent": "<Ultra-short Hinglish status, max 7 words. Example: 'PCR neutral, call writing heavy.'>",
+    "chartAgent": "<Ultra-short Hinglish status, max 7 words. Example: 'RSI oversold, support active.'>",
+    "newsAgent": "<Ultra-short Hinglish status, max 7 words. Example: 'Global news neutral.'>",
+    "riskOrchestrator": "<Ultra-short Hinglish status, max 7 words. Example: 'Strict SL set near support.'>"
   },
   "reasoning": [
-    "<Bullet point 1 in Hinglish explaining trade reason>",
-    "<Bullet point 2 in Hinglish explaining trade reason>",
-    "<Bullet point 3 in Hinglish explaining trade reason>"
+    "<Single short sentence in Hinglish explaining key trade reason, max 10 words. Must provide EXACTLY 1 bullet point here. Example: 'EMA crossover and high option support.'>"
   ],
-  "summary": "<General Hinglish summary for the user>"
+  "summary": "<Single short sentence Hinglish summary, max 12 words. Example: 'CALL setup above EMA9, keep strict SL.'>"
 }
 
 INSTRUCTIONS FOR WRITING:
-- Write the agent thoughts, reasoning, and summary in friendly Hinglish (using English alphabet, e.g. 'Market strong bullish trend me hai').
+- Write the agent thoughts, reasoning, and summary as ultra-short, concise sentences or phrases in friendly Hinglish (using English alphabet, e.g. 'Market strong bullish trend me hai').
+- STRICT LIMITS: agentThoughts fields must be max 7 words each. The reasoning array must contain EXACTLY 1 bullet point of max 10 words. The summary field must be max 12 words.
+- Do NOT write long paragraphs, greetings, or descriptions. Be extremely brief to conserve tokens.
 - Do NOT use Hindi script (like नमस्ते or बाज़ार).
 - Ensure all numbers (target1, target2, stoploss, optionPremiumLtp, optionTarget1, optionTarget2, optionStoploss) are valid numbers.
 - Do NOT wrap in backticks or code blocks. Just output the clean JSON object.`;

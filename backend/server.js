@@ -2907,11 +2907,12 @@ You must weight their importance according to the weights assigned by the user:
 - The 1-Hour chart represents the major trend anchor, the 15-minute chart represents the mid-term trend bias, and the 5-minute/3-minute chart represents the execution trigger.
 - When generating targets and stoplosses, keep them optimized for a 10 - 60 minute holding duration. Avoid setting massive targets (like 150+ points for Nifty) that require days to hit. Instead, focus on capture-and-exit: Target 1 should be a quick intraday swing target reachable within the next few candles, and Stoploss should protect the scalp.
 
-*OPTION TRADING LEVEL SELECTION & HOLDS:*
-- If you decide to issue a "CALL" alert:
-  * Select either the suggested ATM or ITM CALL Option contract (ATM: "${atmCallName}", ITM: "${itmCallName}"). Set \`"suggestedOptionContract"\` to its contract name and \`"optionPremiumLtp"\` to its LTP.
-  * Estimate option target premiums (\`"optionTarget1"\`, \`"optionTarget2"\`) and option stoploss (\`"optionStoploss"\`). Use delta-based scaling: option target/stoploss change should be roughly \`~0.50 * index change\` for ATM and \`~0.60 * index change\` for ITM (e.g., if target1 is index spot + 40 points, option target1 = option LTP + 0.5 * 40 = option LTP + 20).
-- If you decide to issue a "PUT" alert, do the same using the Put option contracts (ATM: "${atmPutName}", ITM: "${itmPutName}").
+*OPTION TRADING LEVEL SELECTION & HOLDS (DYNAMIC STRIKE RULE):*
+- Check the "ATM Implied Volatility" value below. If you decide to issue an alert, choose the contract according to these rules:
+  * If ATM IV is low (< 12%), you MUST select the **ATM** option contract (ATM CE: "${atmCallName}" for CALL, ATM PE: "${atmPutName}" for PUT) to optimize ROI on cheaper premium.
+  * If ATM IV is medium/high (>= 12%), you MUST select the **ITM** option contract (ITM CE: "${itmCallName}" for CALL, ITM PE: "${itmPutName}" for PUT) to shield against time decay (theta) and vega crash.
+- Set \`"suggestedOptionContract"\` to the selected contract name and \`"optionPremiumLtp"\` to its LTP.
+- Estimate option target premiums (\`"optionTarget1"\`, \`"optionTarget2"\`) and option stoploss (\`"optionStoploss"\`). Use delta-based scaling: option target/stoploss change should be roughly \`~0.50 * index change\` for ATM and \`~0.60 * index change\` for ITM (e.g., if target1 is index spot + 40 points, option target1 = option LTP + 0.5 * 40 = option LTP + 20).
 - If you issue "WAIT", set \`"suggestedOptionContract"\`, \`"optionPremiumLtp"\`, \`"optionTarget1"\`, \`"optionTarget2"\`, and \`"optionStoploss"\` to null.
 - Set \`"expectedHoldTime"\` to a clear estimated holding duration string (e.g. \`"5 - 15 minutes"\` for micro scalping profiles, \`"15 - 30 minutes"\` for standard scalping, \`"1 - 2 hours"\` for short-term trends). Base this on indicators strength, trend support, and the active profile: "${profile}".
 
@@ -3407,7 +3408,7 @@ async function sendTradeClosureNotification(row, newStatus, exitSpot) {
   const isTargetHit = row.target_price && (row.type === 'CALL' ? exitSpot >= row.target_price : exitSpot <= row.target_price);
   const statusLabel = newStatus === 'SUCCESS' 
     ? (isTargetHit ? '✅ SUCCESS (Target Hit)' : '✅ SUCCESS (Trailed SL Hit)') 
-    : '❌ FAILED (Stoploss Hit)';
+    : (newStatus === 'EXPIRED' ? 'ℹ️ EXPIRED (Time/Theta Exit)' : '❌ FAILED (Stoploss Hit)');
 
   const message = `🔔 *OpenClaw Trade Closure Alert* 🔔\n\n` +
     `*Trade ID*: \`${tradeIdStr}\`\n` +
@@ -3549,60 +3550,157 @@ const updatePendingSignals = () => {
               let newStatus = 'PENDING';
               let maxSpotSeen = row.max_spot_seen || row.entry_price;
               let maxSpotChanged = false;
-  
-              // Dynamic Target 1 Trailing SL to Entry (Cost)
               let currentStoploss = row.stoploss_price;
-              if (row.type === 'CALL') {
-                const target1 = row.entry_price + (row.target_price - row.entry_price) / 2;
-                if (currentSpot >= target1 && currentStoploss < row.entry_price) {
-                  currentStoploss = row.entry_price;
-                  row.stoploss_price = row.entry_price; // update memory row
-                  db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [row.entry_price, row.id], (updErr) => {
-                    if (!updErr) {
-                      console.log(`[Auto-Trail] Trailed stoploss to break-even (${row.entry_price.toFixed(2)}) for CLAW-${row.symbol}-${row.id} CALL.`);
-                      sendTrailingSlNotifications(row.symbol, row, row.entry_price, settings);
-                    }
-                  });
-                }
-              } else if (row.type === 'PUT') {
-                const target1 = row.entry_price - (row.entry_price - row.target_price) / 2;
-                if (currentSpot <= target1 && currentStoploss > row.entry_price) {
-                  currentStoploss = row.entry_price;
-                  row.stoploss_price = row.entry_price; // update memory row
-                  db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [row.entry_price, row.id], (updErr) => {
-                    if (!updErr) {
-                      console.log(`[Auto-Trail] Trailed stoploss to break-even (${row.entry_price.toFixed(2)}) for CLAW-${row.symbol}-${row.id} PUT.`);
-                      sendTrailingSlNotifications(row.symbol, row, row.entry_price, settings);
-                    }
-                  });
-                }
+
+              // Check Expiry Day Sideways Time Exit (Wednesday/Thursday)
+              const now = new Date();
+              const indiaTimeStr = now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
+              const indiaDay = new Date(indiaTimeStr).getDay(); // 0 is Sunday, 3 is Wednesday, 4 is Thursday
+              const isExpiryDay = (indiaDay === 3 || indiaDay === 4);
+
+              const createdDate = new Date(row.created_at + ' Z'); // Parse UTC SQLite timestamp
+              const signalAgeMin = (now.getTime() - createdDate.getTime()) / 60000;
+              const pctDiff = Math.abs(currentSpot - row.entry_price) / row.entry_price;
+
+              if (row.source === 'OPENCLAW' && isExpiryDay && signalAgeMin > 20 && pctDiff <= 0.0007) {
+                newStatus = 'EXPIRED';
+                console.log(`[Theta-Exit] Sideways exit triggered after ${signalAgeMin.toFixed(1)} mins for CLAW-${row.symbol}-${row.id}. Price stayed near entry (${pctDiff.toFixed(4)}% diff).`);
               }
-  
-              if (row.type === 'CALL') {
-                if (currentSpot > maxSpotSeen) {
-                  maxSpotSeen = currentSpot;
-                  maxSpotChanged = true;
-                }
-  
-                if (row.target_price && currentSpot >= row.target_price) {
-                  newStatus = 'SUCCESS';
-                } else if (currentStoploss && currentSpot <= currentStoploss) {
-                  // If stoploss was trailed in profit or cost, mark it as SUCCESS
-                  const pnl = currentSpot - row.entry_price;
-                  newStatus = pnl >= 0 ? 'SUCCESS' : 'FAILED';
-                }
-              } else if (row.type === 'PUT') {
-                if (currentSpot < maxSpotSeen) {
-                  maxSpotSeen = currentSpot;
-                  maxSpotChanged = true;
-                }
-  
-                if (row.target_price && currentSpot <= row.target_price) {
-                  newStatus = 'SUCCESS';
-                } else if (currentStoploss && currentSpot >= currentStoploss) {
-                  // If stoploss was trailed in profit or cost, mark it as SUCCESS
-                  const pnl = row.entry_price - currentSpot;
-                  newStatus = pnl >= 0 ? 'SUCCESS' : 'FAILED';
+
+              const atr = latestAtrValues[row.symbol] || (row.symbol === 'NIFTY' ? 15 : row.symbol === 'BANKNIFTY' ? 40 : 15);
+              const targetDiff = Math.abs(row.target_price - row.entry_price);
+              const target1 = row.type === 'CALL' ? row.entry_price + targetDiff / 2 : row.entry_price - targetDiff / 2;
+              const target1_5 = row.type === 'CALL' ? row.entry_price + 0.75 * targetDiff : row.entry_price - 0.75 * targetDiff;
+
+              if (newStatus === 'PENDING') {
+                if (row.type === 'CALL') {
+                  if (currentSpot > maxSpotSeen) {
+                    maxSpotSeen = currentSpot;
+                    maxSpotChanged = true;
+                  }
+
+                  // 1. Profit riding beyond Target 2 for OPENCLAW
+                  if (row.source === 'OPENCLAW' && maxSpotSeen >= row.target_price) {
+                    const rideStoploss = Math.max(row.target_price, maxSpotSeen - 1.2 * atr);
+                    if (currentStoploss < rideStoploss) {
+                      currentStoploss = rideStoploss;
+                      row.stoploss_price = rideStoploss; // update memory row
+                      db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [rideStoploss, row.id], (updErr) => {
+                        if (!updErr) {
+                          console.log(`[Profit-Ride] Trailed stoploss to ${rideStoploss.toFixed(2)} beyond Target 2 for CLAW-${row.symbol}-${row.id} CALL.`);
+                          sendTrailingSlNotifications(row.symbol, row, rideStoploss, settings);
+                        }
+                      });
+                    }
+
+                    if (currentSpot <= currentStoploss) {
+                      newStatus = 'SUCCESS';
+                    }
+                  } else {
+                    // 2. Trailing Stoploss logic before reaching Target 2
+                    // Target 1 Trail to Entry
+                    if (currentSpot >= target1 && currentStoploss < row.entry_price) {
+                      currentStoploss = row.entry_price;
+                      row.stoploss_price = row.entry_price; // update memory row
+                      db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [row.entry_price, row.id], (updErr) => {
+                        if (!updErr) {
+                          console.log(`[Auto-Trail] Trailed stoploss to break-even (${row.entry_price.toFixed(2)}) for CLAW-${row.symbol}-${row.id} CALL.`);
+                          sendTrailingSlNotifications(row.symbol, row, row.entry_price, settings);
+                        }
+                      });
+                    }
+                    // Target 1.5 Trail to Target 1 (50% profit lock)
+                    else if (currentSpot >= target1_5 && currentStoploss < target1) {
+                      currentStoploss = target1;
+                      row.stoploss_price = target1; // update memory row
+                      db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [target1, row.id], (updErr) => {
+                        if (!updErr) {
+                          console.log(`[Auto-Trail-1.5] Locked 50% profit: Trailed stoploss to Target 1 (${target1.toFixed(2)}) for CLAW-${row.symbol}-${row.id} CALL.`);
+                          sendTrailingSlNotifications(row.symbol, row, target1, settings);
+                        }
+                      });
+                    }
+
+                    // 3. Regular Exits (Target 2 or standard SL)
+                    if (row.target_price && currentSpot >= row.target_price) {
+                      if (row.source === 'OPENCLAW') {
+                        // Start riding profit: Lock stoploss to Target 2 instantly
+                        currentStoploss = row.target_price;
+                        row.stoploss_price = row.target_price;
+                        db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [row.target_price, row.id]);
+                        console.log(`[Profit-Ride] Target 2 reached. Stoploss locked at Target 2 (${row.target_price.toFixed(2)}) for CLAW-${row.symbol}-${row.id} CALL. Riding now.`);
+                      } else {
+                        newStatus = 'SUCCESS';
+                      }
+                    } else if (currentStoploss && currentSpot <= currentStoploss) {
+                      const pnl = currentSpot - row.entry_price;
+                      newStatus = pnl >= 0 ? 'SUCCESS' : 'FAILED';
+                    }
+                  }
+                } else if (row.type === 'PUT') {
+                  if (currentSpot < maxSpotSeen) {
+                    maxSpotSeen = currentSpot;
+                    maxSpotChanged = true;
+                  }
+
+                  // 1. Profit riding beyond Target 2 for OPENCLAW
+                  if (row.source === 'OPENCLAW' && maxSpotSeen <= row.target_price) {
+                    const rideStoploss = Math.min(row.target_price, maxSpotSeen + 1.2 * atr);
+                    if (currentStoploss > rideStoploss) {
+                      currentStoploss = rideStoploss;
+                      row.stoploss_price = rideStoploss; // update memory row
+                      db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [rideStoploss, row.id], (updErr) => {
+                        if (!updErr) {
+                          console.log(`[Profit-Ride] Trailed stoploss to ${rideStoploss.toFixed(2)} beyond Target 2 for CLAW-${row.symbol}-${row.id} PUT.`);
+                          sendTrailingSlNotifications(row.symbol, row, rideStoploss, settings);
+                        }
+                      });
+                    }
+
+                    if (currentSpot >= currentStoploss) {
+                      newStatus = 'SUCCESS';
+                    }
+                  } else {
+                    // 2. Trailing Stoploss logic before reaching Target 2
+                    // Target 1 Trail to Entry
+                    if (currentSpot <= target1 && currentStoploss > row.entry_price) {
+                      currentStoploss = row.entry_price;
+                      row.stoploss_price = row.entry_price; // update memory row
+                      db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [row.entry_price, row.id], (updErr) => {
+                        if (!updErr) {
+                          console.log(`[Auto-Trail] Trailed stoploss to break-even (${row.entry_price.toFixed(2)}) for CLAW-${row.symbol}-${row.id} PUT.`);
+                          sendTrailingSlNotifications(row.symbol, row, row.entry_price, settings);
+                        }
+                      });
+                    }
+                    // Target 1.5 Trail to Target 1 (50% profit lock)
+                    else if (currentSpot <= target1_5 && currentStoploss > target1) {
+                      currentStoploss = target1;
+                      row.stoploss_price = target1; // update memory row
+                      db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [target1, row.id], (updErr) => {
+                        if (!updErr) {
+                          console.log(`[Auto-Trail-1.5] Locked 50% profit: Trailed stoploss to Target 1 (${target1.toFixed(2)}) for CLAW-${row.symbol}-${row.id} PUT.`);
+                          sendTrailingSlNotifications(row.symbol, row, target1, settings);
+                        }
+                      });
+                    }
+
+                    // 3. Regular Exits (Target 2 or standard SL)
+                    if (row.target_price && currentSpot <= row.target_price) {
+                      if (row.source === 'OPENCLAW') {
+                        // Start riding profit: Lock stoploss to Target 2 instantly
+                        currentStoploss = row.target_price;
+                        row.stoploss_price = row.target_price;
+                        db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [row.target_price, row.id]);
+                        console.log(`[Profit-Ride] Target 2 reached. Stoploss locked at Target 2 (${row.target_price.toFixed(2)}) for CLAW-${row.symbol}-${row.id} PUT. Riding now.`);
+                      } else {
+                        newStatus = 'SUCCESS';
+                      }
+                    } else if (currentStoploss && currentSpot >= currentStoploss) {
+                      const pnl = row.entry_price - currentSpot;
+                      newStatus = pnl >= 0 ? 'SUCCESS' : 'FAILED';
+                    }
+                  }
                 }
               }
   

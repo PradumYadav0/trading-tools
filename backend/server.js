@@ -1759,6 +1759,25 @@ function calculateAtm3Vpcr(strikes, spot) {
   return callVol3 > 0 ? parseFloat((putVol3 / callVol3).toFixed(2)) : 0;
 }
 
+// Detects the most recent Swing High (structural resistance) and Swing Low (structural support)
+// from the last N candles to prevent entries directly into a key level.
+function detectSwingHighLow(candles, lookback = 15) {
+  if (!candles || candles.length < 3) return { swingHigh: null, swingLow: null };
+  const recent = candles.slice(-lookback);
+  let swingHigh = -Infinity;
+  let swingLow = Infinity;
+  recent.forEach(c => {
+    const h = c.high || c.close;
+    const l = c.low || c.close;
+    if (h > swingHigh) swingHigh = h;
+    if (l < swingLow) swingLow = l;
+  });
+  return {
+    swingHigh: swingHigh !== -Infinity ? parseFloat(swingHigh.toFixed(2)) : null,
+    swingLow: swingLow !== Infinity ? parseFloat(swingLow.toFixed(2)) : null
+  };
+}
+
 function calculateDailyVWAP(candles, spotPrice) {
   if (!candles || candles.length === 0) return spotPrice;
   const todayDateStr = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata' });
@@ -1810,7 +1829,9 @@ function sanitizeOpenClawResult(parsed, spotPrice, atr, symbol, atrMultiplier, i
     vPcrDirection,
     dailyVwap,
     isShortTermBullish,
-    isShortTermBearish
+    isShortTermBearish,
+    swingHigh,
+    swingLow
   } = indicators;
 
   const spotPriceNum = parseFloat(spotPrice);
@@ -1827,7 +1848,16 @@ function sanitizeOpenClawResult(parsed, spotPrice, atr, symbol, atrMultiplier, i
       clearOptionDetails(parsed);
       return parsed;
     }
-    // 2. Enforce Multi-Timeframe Trend Confluence (1H, 15M, 5M)
+    // 2. Swing High Filter - Block CALL if price is trapped below fresh chart resistance
+    if (swingHigh && spotPriceNum < swingHigh && spotPriceNum >= swingHigh * (1 - 0.0012)) {
+      console.log(`[OpenClaw Filter] Blocked CALL on ${symbol} - Spot (${spotPriceNum}) is within 0.12% below Swing High resistance (${swingHigh}). Awaiting breakout.`);
+      parsed.action = 'WAIT';
+      parsed.strategyUsed = 'SIT_OUT';
+      parsed.summary = `[SWING HIGH FILTER] CALL blocked. Spot price (${spotPriceNum}) is too close to recent Swing High resistance (${swingHigh}). Buying into resistance is low probability. Wait for breakout above ${swingHigh}.`;
+      clearOptionDetails(parsed);
+      return parsed;
+    }
+    // 3. Enforce Multi-Timeframe Trend Confluence (1H, 15M, 5M)
     if (isTrendFollowing && (hourlyTrend === 'BEARISH' || majorTrend === 'BEARISH' || !isShortTermBullish)) {
       const stTrend = isShortTermBullish ? 'BULLISH' : 'BEARISH/NEUTRAL';
       console.log(`[OpenClaw Filter] Blocked CALL on ${symbol} due to trend misalignment (1H: ${hourlyTrend}, 15M: ${majorTrend}, 5M: ${stTrend})`);
@@ -1847,7 +1877,16 @@ function sanitizeOpenClawResult(parsed, spotPrice, atr, symbol, atrMultiplier, i
       clearOptionDetails(parsed);
       return parsed;
     }
-    // 2. Enforce Multi-Timeframe Trend Confluence (1H, 15M, 5M)
+    // 2. Swing Low Filter - Block PUT if price is sitting directly on fresh chart support
+    if (swingLow && spotPriceNum > swingLow && spotPriceNum <= swingLow * (1 + 0.0012)) {
+      console.log(`[OpenClaw Filter] Blocked PUT on ${symbol} - Spot (${spotPriceNum}) is within 0.12% above Swing Low support (${swingLow}). Awaiting breakdown.`);
+      parsed.action = 'WAIT';
+      parsed.strategyUsed = 'SIT_OUT';
+      parsed.summary = `[SWING LOW FILTER] PUT blocked. Spot price (${spotPriceNum}) is too close to recent Swing Low support (${swingLow}). Selling into support is low probability. Wait for breakdown below ${swingLow}.`;
+      clearOptionDetails(parsed);
+      return parsed;
+    }
+    // 3. Enforce Multi-Timeframe Trend Confluence (1H, 15M, 5M)
     if (isTrendFollowing && (hourlyTrend === 'BULLISH' || majorTrend === 'BULLISH' || !isShortTermBearish)) {
       const stTrend = isShortTermBearish ? 'BEARISH' : 'BULLISH/NEUTRAL';
       console.log(`[OpenClaw Filter] Blocked PUT on ${symbol} due to trend misalignment (1H: ${hourlyTrend}, 15M: ${majorTrend}, 5M: ${stTrend})`);
@@ -2345,6 +2384,9 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
 
   const isShortTermBullish = lastEma9 > lastEma21 && lastClose > lastEma21;
   const isShortTermBearish = lastEma9 < lastEma21 && lastClose < lastEma21;
+
+  // Detect Swing High (Resistance) and Swing Low (Support) from the last 15 candles
+  const { swingHigh, swingLow } = detectSwingHighLow(chartCandles, 15);
 
   // Get last 15 candles for Price Action analysis by Gemini
   const last15Candles = [];
@@ -2950,6 +2992,8 @@ ${last15CandlesStr}
   * Volume Surge (Latest candle vol vs 10-period Avg Vol): ${isVolumeSpiked ? 'YES (Volume spike detected)' : 'NO (Normal volume)'} (Latest Vol: ${latestVolume}, Avg Vol: ${averageVolume})
   * PCR Velocity (OI Change direction): ${pcrVelocity}
   * Market Regime (last 10 candles): ${marketRegime} (Choppiness Score: ${choppinessScore}/100 — Higher = More Choppy/Sideways)
+  * Chart Swing High (Structural Resistance, last 15 candles): ${swingHigh !== null ? swingHigh : 'N/A'} — Do NOT generate CALL if price is within 0.12% below this level without a confirmed breakout.
+  * Chart Swing Low (Structural Support, last 15 candles): ${swingLow !== null ? swingLow : 'N/A'} — Do NOT generate PUT if price is within 0.12% above this level without a confirmed breakdown.
 
 - 15-Minute Institutional Smart Money OI Activity:
   * Smart Money Sentiment (15m): ${smartMoneySentiment}
@@ -3078,7 +3122,9 @@ INSTRUCTIONS FOR WRITING:
     vPcrDirection,
     dailyVwap,
     isShortTermBullish,
-    isShortTermBearish
+    isShortTermBearish,
+    swingHigh,
+    swingLow
   });
 
   // Apply Strict Trend Filter and Unwinding safeguards on the parsed result
@@ -3274,6 +3320,8 @@ INSTRUCTIONS FOR WRITING:
       atm3Vpcr,
       isVPcrSpiked,
       vPcrDirection,
+      swingHigh,
+      swingLow,
       activeSignal
     }
   };
@@ -4422,6 +4470,8 @@ async function sendOpenClawNotifications(symbol, actionData, settings, indicator
     `*ATM +/- 5 PCR*: ${indicators.atm3Pcr || 'N/A'}\n` +
     `*ATM +/- 5 Vol PCR*: ${indicators.atm3Vpcr || 'N/A'}\n` +
     `*OI Divergence*: ${oiDivergenceStatus}\n` +
+    `*Swing High (Resistance)*: ${indicators.swingHigh || 'N/A'}\n` +
+    `*Swing Low (Support)*: ${indicators.swingLow || 'N/A'}\n` +
     `*Buy Range*: ${buyRange}\n` +
     `*Target 1*: ${target1}\n` +
     `*Target 2*: ${target2}\n` +
@@ -4437,12 +4487,24 @@ async function sendOpenClawNotifications(symbol, actionData, settings, indicator
   if (tgToken && tgChatId) {
     try {
       const url = `https://api.telegram.org/bot${tgToken}/sendMessage`;
-      await axios.post(url, {
+      const tgPayload = {
         chat_id: tgChatId,
         text: messageContent,
         parse_mode: 'Markdown'
-      });
-      console.log(`[Background Alert] Telegram alert dispatched for ${symbol}`);
+      };
+      // Add inline action buttons only if we have a real signal DB ID
+      if (signalId) {
+        tgPayload.reply_markup = {
+          inline_keyboard: [
+            [
+              { text: '⛔ Exit Trade NOW', callback_data: `exit_${signalId}` },
+              { text: '🔒 Trail SL to Cost', callback_data: `trail_${signalId}` }
+            ]
+          ]
+        };
+      }
+      await axios.post(url, tgPayload);
+      console.log(`[Background Alert] Telegram alert dispatched for ${symbol}${signalId ? ' with inline buttons (ID: ' + signalId + ')' : ''}`);
     } catch (e) {
       console.error(`[Background Alert] Telegram dispatch error for ${symbol}:`, e.message);
     }
@@ -5349,7 +5411,74 @@ async function startTelegramBotListener() {
           const updates = response.data.result;
           for (const update of updates) {
             lastTelegramUpdateId = update.update_id;
-            
+
+            // --- Handle Inline Button Callback Queries (Exit Trade / Trail SL) ---
+            const callbackQuery = update.callback_query;
+            if (callbackQuery && String(callbackQuery.message?.chat?.id) === String(currentTelegramChatId)) {
+              const callbackData = callbackQuery.data || '';
+              const callbackId = callbackQuery.id;
+
+              // Answer callback immediately to dismiss the loading spinner on the button
+              const answerUrl = `https://api.telegram.org/bot${currentTelegramToken}/answerCallbackQuery`;
+              
+              if (callbackData.startsWith('exit_')) {
+                const signalId = parseInt(callbackData.replace('exit_', ''));
+                try {
+                  const currentSpot = await new Promise((resolve) => {
+                    db.get(`SELECT symbol FROM ai_signals WHERE id = ? AND status = 'PENDING'`, [signalId], (err, row) => {
+                      if (err || !row) return resolve(null);
+                      resolve({ symbol: row.symbol, spot: latestSpotPrices[row.symbol] || 0 });
+                    });
+                  });
+
+                  if (currentSpot && currentSpot.spot > 0) {
+                    await closeActiveSignalEarly(signalId, currentSpot.spot, 'CLOSED');
+                    await axios.post(answerUrl, { callback_query_id: callbackId, text: '✅ Trade Exited!', show_alert: false });
+                    await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                      chat_id: currentTelegramChatId,
+                      text: `⛔ *Trade CLAW-${signalId} Manually Exited*\n\nExit Spot Price: *${currentSpot.spot}*\n\n🤖 Powered by OpenClaw AI.`,
+                      parse_mode: 'Markdown'
+                    });
+                    console.log(`[Telegram Bot] Manually exited trade ID ${signalId} via inline button.`);
+                  } else {
+                    await axios.post(answerUrl, { callback_query_id: callbackId, text: '⚠️ Trade not found or already closed.', show_alert: true });
+                  }
+                } catch (err) {
+                  console.error(`[Telegram Bot] Error handling exit callback for signal ${signalId}:`, err.message);
+                  await axios.post(answerUrl, { callback_query_id: callbackId, text: '❌ Error processing exit.', show_alert: true });
+                }
+
+              } else if (callbackData.startsWith('trail_')) {
+                const signalId = parseInt(callbackData.replace('trail_', ''));
+                try {
+                  const signal = await new Promise((resolve) => {
+                    db.get(`SELECT * FROM ai_signals WHERE id = ? AND status = 'PENDING'`, [signalId], (err, row) => {
+                      resolve(err || !row ? null : row);
+                    });
+                  });
+
+                  if (signal) {
+                    await updateActiveSignalStoploss(signalId, signal.entry_price);
+                    const sysSettings = await getSystemSettings();
+                    await sendTrailingSlNotifications(signal.symbol, signal, signal.entry_price, sysSettings);
+                    await axios.post(answerUrl, { callback_query_id: callbackId, text: '🔒 SL Trailed to Cost!', show_alert: false });
+                    await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
+                      chat_id: currentTelegramChatId,
+                      text: `🔒 *Trade CLAW-${signalId} Stoploss Trailed to Cost (Break-Even)*\n\nNew Stoploss: *${signal.entry_price}* (Entry Price)\n\nThis trade is now 100% Risk-Free!\n\n🤖 Powered by OpenClaw AI.`,
+                      parse_mode: 'Markdown'
+                    });
+                    console.log(`[Telegram Bot] Trailed SL to cost for trade ID ${signalId} via inline button.`);
+                  } else {
+                    await axios.post(answerUrl, { callback_query_id: callbackId, text: '⚠️ Trade not found or already closed.', show_alert: true });
+                  }
+                } catch (err) {
+                  console.error(`[Telegram Bot] Error handling trail callback for signal ${signalId}:`, err.message);
+                  await axios.post(answerUrl, { callback_query_id: callbackId, text: '❌ Error processing trail.', show_alert: true });
+                }
+              }
+              continue; // callback handled, skip message processing below
+            }
+
             const message = update.message;
             if (message && message.text && String(message.chat.id) === String(currentTelegramChatId)) {
               const text = message.text.trim();

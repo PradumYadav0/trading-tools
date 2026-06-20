@@ -5422,21 +5422,26 @@ async function startTelegramBotListener() {
               const answerUrl = `https://api.telegram.org/bot${currentTelegramToken}/answerCallbackQuery`;
               
               if (callbackData.startsWith('exit_')) {
-                const signalId = parseInt(callbackData.replace('exit_', ''));
+                const signalId = parseInt(callbackData.replace('exit_', ''), 10);
+                if (isNaN(signalId)) {
+                  await axios.post(answerUrl, { callback_query_id: callbackId, text: '❌ Invalid trade ID.', show_alert: true });
+                } else {
                 try {
-                  const currentSpot = await new Promise((resolve) => {
-                    db.get(`SELECT symbol FROM ai_signals WHERE id = ? AND status = 'PENDING'`, [signalId], (err, row) => {
+                  const currentSpotData = await new Promise((resolve) => {
+                    db.get(`SELECT symbol, entry_price FROM ai_signals WHERE id = ? AND status = 'PENDING'`, [signalId], (err, row) => {
                       if (err || !row) return resolve(null);
-                      resolve({ symbol: row.symbol, spot: latestSpotPrices[row.symbol] || 0 });
+                      // Use live spot if available, else fallback to entry_price for the exit record
+                      const liveSpot = latestSpotPrices[row.symbol];
+                      resolve({ symbol: row.symbol, spot: liveSpot > 0 ? liveSpot : (row.entry_price || 0) });
                     });
                   });
 
-                  if (currentSpot && currentSpot.spot > 0) {
-                    await closeActiveSignalEarly(signalId, currentSpot.spot, 'CLOSED');
+                  if (currentSpotData) {
+                    await closeActiveSignalEarly(signalId, currentSpotData.spot, 'CLOSED');
                     await axios.post(answerUrl, { callback_query_id: callbackId, text: '✅ Trade Exited!', show_alert: false });
                     await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
                       chat_id: currentTelegramChatId,
-                      text: `⛔ *Trade CLAW-${signalId} Manually Exited*\n\nExit Spot Price: *${currentSpot.spot}*\n\n🤖 Powered by OpenClaw AI.`,
+                      text: `⛔ *Trade CLAW-${signalId} Manually Exited*\n\nExit Spot Price: *${currentSpotData.spot}*\n\n🤖 Powered by OpenClaw AI.`,
                       parse_mode: 'Markdown'
                     });
                     console.log(`[Telegram Bot] Manually exited trade ID ${signalId} via inline button.`);
@@ -5447,9 +5452,13 @@ async function startTelegramBotListener() {
                   console.error(`[Telegram Bot] Error handling exit callback for signal ${signalId}:`, err.message);
                   await axios.post(answerUrl, { callback_query_id: callbackId, text: '❌ Error processing exit.', show_alert: true });
                 }
+                }
 
               } else if (callbackData.startsWith('trail_')) {
-                const signalId = parseInt(callbackData.replace('trail_', ''));
+                const signalId = parseInt(callbackData.replace('trail_', ''), 10);
+                if (isNaN(signalId)) {
+                  await axios.post(answerUrl, { callback_query_id: callbackId, text: '❌ Invalid trade ID.', show_alert: true });
+                } else {
                 try {
                   const signal = await new Promise((resolve) => {
                     db.get(`SELECT * FROM ai_signals WHERE id = ? AND status = 'PENDING'`, [signalId], (err, row) => {
@@ -5457,23 +5466,25 @@ async function startTelegramBotListener() {
                     });
                   });
 
-                  if (signal) {
-                    await updateActiveSignalStoploss(signalId, signal.entry_price);
+                  if (signal && signal.entry_price) {
+                    const entryPrice = parseFloat(signal.entry_price);
+                    await updateActiveSignalStoploss(signalId, entryPrice);
                     const sysSettings = await getSystemSettings();
-                    await sendTrailingSlNotifications(signal.symbol, signal, signal.entry_price, sysSettings);
+                    await sendTrailingSlNotifications(signal.symbol, signal, entryPrice, sysSettings);
                     await axios.post(answerUrl, { callback_query_id: callbackId, text: '🔒 SL Trailed to Cost!', show_alert: false });
                     await axios.post(`https://api.telegram.org/bot${currentTelegramToken}/sendMessage`, {
                       chat_id: currentTelegramChatId,
-                      text: `🔒 *Trade CLAW-${signalId} Stoploss Trailed to Cost (Break-Even)*\n\nNew Stoploss: *${signal.entry_price}* (Entry Price)\n\nThis trade is now 100% Risk-Free!\n\n🤖 Powered by OpenClaw AI.`,
+                      text: `🔒 *Trade CLAW-${signalId} Stoploss Trailed to Cost (Break-Even)*\n\nNew Stoploss: *${entryPrice.toFixed(2)}* (Entry Price)\n\nThis trade is now 100% Risk-Free!\n\n🤖 Powered by OpenClaw AI.`,
                       parse_mode: 'Markdown'
                     });
                     console.log(`[Telegram Bot] Trailed SL to cost for trade ID ${signalId} via inline button.`);
                   } else {
-                    await axios.post(answerUrl, { callback_query_id: callbackId, text: '⚠️ Trade not found or already closed.', show_alert: true });
+                    await axios.post(answerUrl, { callback_query_id: callbackId, text: '⚠️ Trade not found, already closed, or entry price missing.', show_alert: true });
                   }
                 } catch (err) {
                   console.error(`[Telegram Bot] Error handling trail callback for signal ${signalId}:`, err.message);
                   await axios.post(answerUrl, { callback_query_id: callbackId, text: '❌ Error processing trail.', show_alert: true });
+                }
                 }
               }
               continue; // callback handled, skip message processing below

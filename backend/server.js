@@ -3568,9 +3568,9 @@ const updatePendingSignals = () => {
               }
 
               const atr = latestAtrValues[row.symbol] || (row.symbol === 'NIFTY' ? 15 : row.symbol === 'BANKNIFTY' ? 40 : 15);
-              const targetDiff = Math.abs(row.target_price - row.entry_price);
-              const target1 = row.type === 'CALL' ? row.entry_price + targetDiff / 2 : row.entry_price - targetDiff / 2;
-              const target1_5 = row.type === 'CALL' ? row.entry_price + 0.75 * targetDiff : row.entry_price - 0.75 * targetDiff;
+              const targetDiff = (row.target_price && row.entry_price) ? Math.abs(row.target_price - row.entry_price) : 0;
+              const target1 = targetDiff > 0 ? (row.type === 'CALL' ? row.entry_price + targetDiff / 2 : row.entry_price - targetDiff / 2) : 0;
+              const target1_5 = targetDiff > 0 ? (row.type === 'CALL' ? row.entry_price + 0.75 * targetDiff : row.entry_price - 0.75 * targetDiff) : 0;
 
               if (newStatus === 'PENDING') {
                 if (row.type === 'CALL') {
@@ -3580,7 +3580,7 @@ const updatePendingSignals = () => {
                   }
 
                   // 1. Profit riding beyond Target 2 for OPENCLAW
-                  if (row.source === 'OPENCLAW' && maxSpotSeen >= row.target_price) {
+                  if (row.source === 'OPENCLAW' && row.target_price && maxSpotSeen >= row.target_price) {
                     const rideStoploss = Math.max(row.target_price, maxSpotSeen - 1.2 * atr);
                     if (currentStoploss < rideStoploss) {
                       currentStoploss = rideStoploss;
@@ -3599,7 +3599,7 @@ const updatePendingSignals = () => {
                   } else {
                     // 2. Trailing Stoploss logic before reaching Target 2
                     // Target 1 Trail to Entry
-                    if (currentSpot >= target1 && currentStoploss < row.entry_price) {
+                    if (targetDiff > 0 && currentSpot >= target1 && currentStoploss < row.entry_price) {
                       currentStoploss = row.entry_price;
                       row.stoploss_price = row.entry_price; // update memory row
                       db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [row.entry_price, row.id], (updErr) => {
@@ -3610,7 +3610,7 @@ const updatePendingSignals = () => {
                       });
                     }
                     // Target 1.5 Trail to Target 1 (50% profit lock)
-                    else if (currentSpot >= target1_5 && currentStoploss < target1) {
+                    else if (targetDiff > 0 && currentSpot >= target1_5 && currentStoploss < target1) {
                       currentStoploss = target1;
                       row.stoploss_price = target1; // update memory row
                       db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [target1, row.id], (updErr) => {
@@ -3644,7 +3644,7 @@ const updatePendingSignals = () => {
                   }
 
                   // 1. Profit riding beyond Target 2 for OPENCLAW
-                  if (row.source === 'OPENCLAW' && maxSpotSeen <= row.target_price) {
+                  if (row.source === 'OPENCLAW' && row.target_price && maxSpotSeen <= row.target_price) {
                     const rideStoploss = Math.min(row.target_price, maxSpotSeen + 1.2 * atr);
                     if (currentStoploss > rideStoploss) {
                       currentStoploss = rideStoploss;
@@ -3663,7 +3663,7 @@ const updatePendingSignals = () => {
                   } else {
                     // 2. Trailing Stoploss logic before reaching Target 2
                     // Target 1 Trail to Entry
-                    if (currentSpot <= target1 && currentStoploss > row.entry_price) {
+                    if (targetDiff > 0 && currentSpot <= target1 && currentStoploss > row.entry_price) {
                       currentStoploss = row.entry_price;
                       row.stoploss_price = row.entry_price; // update memory row
                       db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [row.entry_price, row.id], (updErr) => {
@@ -3674,7 +3674,7 @@ const updatePendingSignals = () => {
                       });
                     }
                     // Target 1.5 Trail to Target 1 (50% profit lock)
-                    else if (currentSpot <= target1_5 && currentStoploss > target1) {
+                    else if (targetDiff > 0 && currentSpot <= target1_5 && currentStoploss > target1) {
                       currentStoploss = target1;
                       row.stoploss_price = target1; // update memory row
                       db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [target1, row.id], (updErr) => {

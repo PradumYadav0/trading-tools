@@ -710,8 +710,6 @@ const OpenClawAi = () => {
           >
             <option value="NIFTY">NIFTY</option>
             <option value="BANKNIFTY">BANKNIFTY</option>
-            <option value="FINNIFTY">FINNIFTY</option>
-            <option value="MIDCPNIFTY">MIDCPNIFTY</option>
           </select>
 
           <button
@@ -1367,6 +1365,160 @@ const OpenClawAi = () => {
             </div>
           </div>
 
+          {/* Trap Detector & Volume PCR Widget */}
+          {terminalStep === 'done' && indicatorData && (
+            <div 
+              className={`glass-panel ${
+                indicatorData.oiDivergenceStatus === 'BULL_TRAP_WARNING' || indicatorData.oiDivergenceStatus === 'BEAR_TRAP_WARNING' 
+                  ? 'pulse-trap-red' 
+                  : ''
+              }`}
+              style={{ 
+                padding: '1.25rem', 
+                marginTop: '1.5rem', 
+                borderRadius: '12px',
+                border: indicatorData.oiDivergenceStatus === 'BULL_TRAP_WARNING' || indicatorData.oiDivergenceStatus === 'BEAR_TRAP_WARNING'
+                  ? '1.5px solid rgba(239, 68, 68, 0.5)'
+                  : '1px solid var(--border-color)',
+                background: 'rgba(22, 27, 34, 0.55)',
+                transition: 'all 0.3s ease'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Activity size={18} style={{ color: 'var(--accent-primary)' }} />
+                  <h3 style={{ fontSize: '0.95rem', margin: 0, fontWeight: '700', letterSpacing: '0.3px' }}>Trap Detector & Volume PCR Status</h3>
+                </div>
+                {indicatorData.isVPcrSpiked && (
+                  <span style={{ 
+                    fontSize: '0.68rem', 
+                    fontWeight: '800', 
+                    background: 'rgba(234, 179, 8, 0.15)', 
+                    color: '#eab308', 
+                    padding: '0.15rem 0.5rem', 
+                    borderRadius: '4px',
+                    border: '1px solid rgba(234, 179, 8, 0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.25rem',
+                    animation: 'blinkText 1.5s infinite'
+                  }}>
+                    ⚡ Momentum Spike
+                  </span>
+                )}
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                
+                {/* Trap Detector Status */}
+                <div style={{ 
+                  background: 'rgba(255,255,255,0.02)', 
+                  border: '1px solid rgba(255,255,255,0.04)',
+                  padding: '0.75rem', 
+                  borderRadius: '8px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between'
+                }}>
+                  <div>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem', fontWeight: 'bold' }}>TRAP DETECTOR</span>
+                    {(() => {
+                      if (indicatorData.oiDivergenceStatus === 'BULL_TRAP_WARNING') {
+                        return (
+                          <div>
+                            <span style={{ fontSize: '0.85rem', fontWeight: '800', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                              🚨 BULL TRAP WARNING
+                            </span>
+                            <p style={{ fontSize: '0.72rem', color: 'rgba(248,250,252,0.85)', marginTop: '0.35rem', lineHeight: '1.4' }}>
+                              Price is rising but smart money is writing CALLs aggressively. CALLs are highly risky!
+                            </p>
+                          </div>
+                        );
+                      } else if (indicatorData.oiDivergenceStatus === 'BEAR_TRAP_WARNING') {
+                        return (
+                          <div>
+                            <span style={{ fontSize: '0.85rem', fontWeight: '800', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                              🚨 BEAR TRAP WARNING
+                            </span>
+                            <p style={{ fontSize: '0.72rem', color: 'rgba(248,250,252,0.85)', marginTop: '0.35rem', lineHeight: '1.4' }}>
+                              Price is falling but smart money is writing PUTs aggressively. PUTs are highly risky!
+                            </p>
+                          </div>
+                        );
+                      } else {
+                        return (
+                          <div>
+                            <span style={{ fontSize: '0.85rem', fontWeight: '800', color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                              ✅ NO TRAP DETECTED
+                            </span>
+                            <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.35rem', lineHeight: '1.4' }}>
+                              Price and Option Chain OI are aligned. No smart money trap divergence.
+                            </p>
+                          </div>
+                        );
+                      }
+                    })()}
+                  </div>
+                </div>
+
+                {/* Volume PCR Status */}
+                <div style={{ 
+                  background: 'rgba(255,255,255,0.02)', 
+                  border: '1px solid rgba(255,255,255,0.04)',
+                  padding: '0.75rem', 
+                  borderRadius: '8px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem', fontWeight: 'bold' }}>ATM ±3 VOLUME PCR</span>
+                      <span style={{ fontSize: '1.4rem', fontWeight: '800', color: '#fff' }}>
+                        {indicatorData.atm3Vpcr ? indicatorData.atm3Vpcr.toFixed(2) : '0.00'}
+                      </span>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem', fontWeight: 'bold' }}>1M VELOCITY</span>
+                      {(() => {
+                        const dir = indicatorData.vPcrDirection || 'NEUTRAL';
+                        if (dir === 'UP') {
+                          return (
+                            <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#10b981', background: 'rgba(16,185,129,0.1)', padding: '0.15rem 0.4rem', borderRadius: '4px', display: 'inline-block' }}>
+                              ↑ RISING
+                            </span>
+                          );
+                        } else if (dir === 'DOWN') {
+                          return (
+                            <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '0.15rem 0.4rem', borderRadius: '4px', display: 'inline-block' }}>
+                              ↓ FALLING
+                            </span>
+                          );
+                        } else {
+                          return (
+                            <span style={{ fontSize: '0.7rem', fontWeight: '800', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.05)', padding: '0.15rem 0.4rem', borderRadius: '4px', display: 'inline-block' }}>
+                              → STABLE
+                            </span>
+                          );
+                        }
+                      })()}
+                    </div>
+                  </div>
+                  <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', color: 'var(--text-secondary)', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.4rem' }}>
+                    {indicatorData.isVPcrSpiked ? (
+                      <span style={{ color: '#eab308', fontWeight: '600' }}>
+                        ⚠️ Institutional volume change &gt; 20% detected!
+                      </span>
+                    ) : (
+                      <span>Volume PCR change is stable (&lt; 20% / 1m).</span>
+                    )}
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          )}
+
           {/* Trade Recommendation Card */}
           {terminalStep === 'done' && analysisResult && (
             <div className="trade-card" style={{ 
@@ -2008,8 +2160,6 @@ const OpenClawAi = () => {
                   <option value="all">🔍 All Symbols</option>
                   <option value="NIFTY">🔍 NIFTY</option>
                   <option value="BANKNIFTY">🔍 BANKNIFTY</option>
-                  <option value="FINNIFTY">🔍 FINNIFTY</option>
-                  <option value="MIDCPNIFTY">🔍 MIDCPNIFTY</option>
                 </select>
 
                 <select
@@ -2281,6 +2431,14 @@ const OpenClawAi = () => {
       })()}
 
       <style>{`
+        @keyframes pulse-red-border {
+          0% { border-color: rgba(239, 68, 68, 0.4); box-shadow: 0 0 5px rgba(239, 68, 68, 0.1); }
+          50% { border-color: rgba(239, 68, 68, 0.85); box-shadow: 0 0 15px rgba(239, 68, 68, 0.35); }
+          100% { border-color: rgba(239, 68, 68, 0.4); box-shadow: 0 0 5px rgba(239, 68, 68, 0.1); }
+        }
+        .pulse-trap-red {
+          animation: pulse-red-border 2s infinite;
+        }
         .signals-table-container::-webkit-scrollbar {
           width: 6px;
           height: 6px;

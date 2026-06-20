@@ -1728,6 +1728,284 @@ async function fetchRecentFinancialNews() {
   }
 }
 
+function clearOptionDetails(parsed) {
+  parsed.suggestedOptionContract = null;
+  parsed.optionPremiumLtp = null;
+  parsed.optionTarget1 = null;
+  parsed.optionTarget2 = null;
+  parsed.optionStoploss = null;
+  parsed.trailingStoploss = null;
+}
+
+function calculateAtm3Vpcr(strikes, spot) {
+  if (!strikes || strikes.length === 0 || !spot || spot <= 0) return 0;
+  const atmObj = strikes.reduce((prev, curr) => 
+    Math.abs(curr.strike - spot) < Math.abs(prev.strike - spot) ? curr : prev
+  );
+  const atmIndex = strikes.findIndex(s => s.strike === atmObj.strike);
+  if (atmIndex === -1) return 0;
+
+  let callVol3 = 0;
+  let putVol3 = 0;
+
+  const startIdx = Math.max(0, atmIndex - 3);
+  const endIdx = Math.min(strikes.length - 1, atmIndex + 3);
+
+  for (let i = startIdx; i <= endIdx; i++) {
+    callVol3 += strikes[i].callVolume || 0;
+    putVol3 += strikes[i].putVolume || 0;
+  }
+
+  return callVol3 > 0 ? parseFloat((putVol3 / callVol3).toFixed(2)) : 0;
+}
+
+function sanitizeOpenClawResult(parsed, spotPrice, atr, symbol, atrMultiplier, indicators) {
+  if (parsed.action !== 'CALL' && parsed.action !== 'PUT') {
+    return parsed;
+  }
+
+  const {
+    hourlyTrend,
+    majorTrend,
+    lastRsi,
+    isVolumeSpiked,
+    resistanceStrike,
+    supportStrike,
+    shortCoveringDetected,
+    longUnwindingDetected,
+    itmStrikeCall,
+    itmStrikePut,
+    pcr,
+    pcrVelocity,
+    isVPcrSpiked,
+    vPcrDirection
+  } = indicators;
+
+  // --- LAYER 1: Multi-Timeframe Trend Alignment (Anchor Filter) ---
+  if (parsed.strategyUsed === 'TREND_FOLLOWING') {
+    if (parsed.action === 'CALL' && (hourlyTrend === 'BEARISH' || majorTrend === 'BEARISH')) {
+      console.log(`[OpenClaw Filter] Blocked CALL signal on ${symbol} due to trend misalignment (1H: ${hourlyTrend}, 15m: ${majorTrend})`);
+      parsed.action = 'WAIT';
+      parsed.strategyUsed = 'SIT_OUT';
+      parsed.summary = `[TREND FILTER BLOCK] CALL signal blocked because higher timeframe trends are BEARISH. Trend alignment required.`;
+      clearOptionDetails(parsed);
+      return parsed;
+    }
+    if (parsed.action === 'PUT' && (hourlyTrend === 'BULLISH' || majorTrend === 'BULLISH')) {
+      console.log(`[OpenClaw Filter] Blocked PUT signal on ${symbol} due to trend misalignment (1H: ${hourlyTrend}, 15m: ${majorTrend})`);
+      parsed.action = 'WAIT';
+      parsed.strategyUsed = 'SIT_OUT';
+      parsed.summary = `[TREND FILTER BLOCK] PUT signal blocked because higher timeframe trends are BULLISH. Trend alignment required.`;
+      clearOptionDetails(parsed);
+      return parsed;
+    }
+  }
+
+  // --- LAYER 2: Support & Resistance Proximity Block ---
+  const spotPriceNum = parseFloat(spotPrice);
+  if (parsed.action === 'CALL' && resistanceStrike) {
+    const resStrikeNum = parseFloat(resistanceStrike);
+    const distPercent = (resStrikeNum - spotPriceNum) / spotPriceNum;
+    if (spotPriceNum <= resStrikeNum && distPercent <= 0.0015 && !shortCoveringDetected) {
+      console.log(`[OpenClaw Filter] Blocked CALL on ${symbol} due to Resistance Proximity (${resStrikeNum}, Spot: ${spotPriceNum})`);
+      parsed.action = 'WAIT';
+      parsed.strategyUsed = 'SIT_OUT';
+      parsed.summary = `[RESISTANCE BLOCK] CALL blocked. Price is too close to major resistance strike (${resStrikeNum}). Waiting for a confirmed breakout.`;
+      clearOptionDetails(parsed);
+      return parsed;
+    }
+  }
+  if (parsed.action === 'PUT' && supportStrike) {
+    const supStrikeNum = parseFloat(supportStrike);
+    const distPercent = (spotPriceNum - supStrikeNum) / spotPriceNum;
+    if (spotPriceNum >= supStrikeNum && distPercent <= 0.0015 && !longUnwindingDetected) {
+      console.log(`[OpenClaw Filter] Blocked PUT on ${symbol} due to Support Proximity (${supStrikeNum}, Spot: ${spotPriceNum})`);
+      parsed.action = 'WAIT';
+      parsed.strategyUsed = 'SIT_OUT';
+      parsed.summary = `[SUPPORT BLOCK] PUT blocked. Price is too close to major support strike (${supStrikeNum}). Waiting for a confirmed breakdown.`;
+      clearOptionDetails(parsed);
+      return parsed;
+    }
+  }
+
+  // --- LAYER 3: RSI Overbought/Oversold Filter ---
+  const rsiVal = parseFloat(lastRsi);
+  if (parsed.action === 'CALL' && rsiVal > 70) {
+    console.log(`[OpenClaw Filter] Blocked CALL on ${symbol} due to Overbought RSI (${rsiVal})`);
+    parsed.action = 'WAIT';
+    parsed.strategyUsed = 'SIT_OUT';
+    parsed.summary = `[RSI OVERBOUGHT BLOCK] CALL blocked. RSI is extremely overbought (${rsiVal.toFixed(1)}). Buying here is very high risk.`;
+    clearOptionDetails(parsed);
+    return parsed;
+  }
+  if (parsed.action === 'PUT' && rsiVal < 30) {
+    console.log(`[OpenClaw Filter] Blocked PUT on ${symbol} due to Oversold RSI (${rsiVal})`);
+    parsed.action = 'WAIT';
+    parsed.strategyUsed = 'SIT_OUT';
+    parsed.summary = `[RSI OVERSOLD BLOCK] PUT blocked. RSI is extremely oversold (${rsiVal.toFixed(1)}). Selling here is very high risk.`;
+    clearOptionDetails(parsed);
+    return parsed;
+  }
+
+  // --- LAYER 4: Volume Surge Validation (Breakout Confirm) ---
+  if (parsed.strategyUsed === 'TREND_FOLLOWING' && !isVolumeSpiked) {
+    console.log(`[OpenClaw Filter] Blocked Trend breakout on ${symbol} due to Normal Volume (No Spike)`);
+    parsed.action = 'WAIT';
+    parsed.strategyUsed = 'SIT_OUT';
+    parsed.summary = `[VOLUME FILTER BLOCK] Trend entry blocked because volume is dry. Waiting for institutional volume surge to confirm direction.`;
+    clearOptionDetails(parsed);
+    return parsed;
+  }
+
+  // --- LAYER 5: Multi-Agent Consensus Voting ---
+  let optionAgentVote = 'NEUTRAL';
+  if (pcr > 1.15 || (pcrVelocity && pcrVelocity.includes('RISING'))) {
+    optionAgentVote = 'BULLISH';
+  } else if (pcr < 0.85 || (pcrVelocity && pcrVelocity.includes('FALLING'))) {
+    optionAgentVote = 'BEARISH';
+  }
+
+  // Volume PCR Velocity confirm
+  if (isVPcrSpiked) {
+    if (vPcrDirection === 'UP') optionAgentVote = 'BULLISH';
+    else if (vPcrDirection === 'DOWN') optionAgentVote = 'BEARISH';
+  }
+
+  let chartAgentVote = 'NEUTRAL';
+  if (hourlyTrend === 'BULLISH' && rsiVal > 48) {
+    chartAgentVote = 'BULLISH';
+  } else if (hourlyTrend === 'BEARISH' && rsiVal < 52) {
+    chartAgentVote = 'BEARISH';
+  }
+
+  let trendAgentVote = 'NEUTRAL';
+  if (majorTrend === 'BULLISH') {
+    trendAgentVote = 'BULLISH';
+  } else if (majorTrend === 'BEARISH') {
+    trendAgentVote = 'BEARISH';
+  }
+
+  if (parsed.action === 'CALL') {
+    let bullishVotes = 0;
+    if (optionAgentVote === 'BULLISH') bullishVotes++;
+    if (chartAgentVote === 'BULLISH') bullishVotes++;
+    if (trendAgentVote === 'BULLISH') bullishVotes++;
+
+    let bearishVotes = 0;
+    if (optionAgentVote === 'BEARISH') bearishVotes++;
+    if (chartAgentVote === 'BEARISH') bearishVotes++;
+    if (trendAgentVote === 'BEARISH') bearishVotes++;
+
+    if (bullishVotes < 2 || bearishVotes > 0) {
+      console.log(`[OpenClaw Filter] Blocked CALL on ${symbol} due to voting disagreement (Option: ${optionAgentVote}, Chart: ${chartAgentVote}, Trend: ${trendAgentVote})`);
+      parsed.action = 'WAIT';
+      parsed.strategyUsed = 'SIT_OUT';
+      parsed.summary = `[CONSENSUS BLOCKED] CALL blocked. Disagreement between agents (Option: ${optionAgentVote}, Chart: ${chartAgentVote}, Trend: ${trendAgentVote}).`;
+      clearOptionDetails(parsed);
+      return parsed;
+    }
+  } else if (parsed.action === 'PUT') {
+    let bearishVotes = 0;
+    if (optionAgentVote === 'BEARISH') bearishVotes++;
+    if (chartAgentVote === 'BEARISH') bearishVotes++;
+    if (trendAgentVote === 'BEARISH') bearishVotes++;
+
+    let bullishVotes = 0;
+    if (optionAgentVote === 'BULLISH') bullishVotes++;
+    if (chartAgentVote === 'BULLISH') bullishVotes++;
+    if (trendAgentVote === 'BULLISH') bullishVotes++;
+
+    if (bearishVotes < 2 || bullishVotes > 0) {
+      console.log(`[OpenClaw Filter] Blocked PUT on ${symbol} due to voting disagreement (Option: ${optionAgentVote}, Chart: ${chartAgentVote}, Trend: ${trendAgentVote})`);
+      parsed.action = 'WAIT';
+      parsed.strategyUsed = 'SIT_OUT';
+      parsed.summary = `[CONSENSUS BLOCKED] PUT blocked. Disagreement between agents (Option: ${optionAgentVote}, Chart: ${chartAgentVote}, Trend: ${trendAgentVote}).`;
+      clearOptionDetails(parsed);
+      return parsed;
+    }
+  }
+
+  // --- Math Level Validation and Adjustments (Ensuring targets & stoplosses are in correct direction) ---
+  const actualAtr = atr || 15;
+  const mult = atrMultiplier || 1.5;
+  
+  let minSl = 25;
+  let minTgt1 = 30;
+  let minTgt2 = 60;
+
+  if (symbol === 'BANKNIFTY') {
+    minSl = 75;
+    minTgt1 = 100;
+    minTgt2 = 200;
+  }
+
+  const calculatedSlOffset = Math.max(minSl, mult * actualAtr);
+  const calculatedTgt1Offset = Math.max(minTgt1, mult * actualAtr);
+  const calculatedTgt2Offset = Math.max(minTgt2, 2 * calculatedTgt1Offset);
+
+  if (parsed.action === 'CALL') {
+    const maxAllowedSl = spotPriceNum - calculatedSlOffset;
+    if (typeof parsed.stoploss !== 'number' || parsed.stoploss >= spotPriceNum || parsed.stoploss > maxAllowedSl) {
+      parsed.stoploss = parseFloat(maxAllowedSl.toFixed(2));
+    }
+
+    const minAllowedTgt1 = spotPriceNum + calculatedTgt1Offset;
+    if (typeof parsed.target1 !== 'number' || parsed.target1 <= spotPriceNum || parsed.target1 < minAllowedTgt1) {
+      parsed.target1 = parseFloat(minAllowedTgt1.toFixed(2));
+    }
+
+    const minAllowedTgt2 = Math.max(parsed.target1 + 10, spotPriceNum + calculatedTgt2Offset);
+    if (typeof parsed.target2 !== 'number' || parsed.target2 <= parsed.target1 || parsed.target2 < minAllowedTgt2) {
+      parsed.target2 = parseFloat(minAllowedTgt2.toFixed(2));
+    }
+  } else if (parsed.action === 'PUT') {
+    const minAllowedSl = spotPriceNum + calculatedSlOffset;
+    if (typeof parsed.stoploss !== 'number' || parsed.stoploss <= spotPriceNum || parsed.stoploss < minAllowedSl) {
+      parsed.stoploss = parseFloat(minAllowedSl.toFixed(2));
+    }
+
+    const maxAllowedTgt1 = spotPriceNum - calculatedTgt1Offset;
+    if (typeof parsed.target1 !== 'number' || parsed.target1 >= spotPriceNum || parsed.target1 > maxAllowedTgt1) {
+      parsed.target1 = parseFloat(maxAllowedTgt1.toFixed(2));
+    }
+
+    const maxAllowedTgt2 = Math.min(parsed.target1 - 10, spotPriceNum - calculatedTgt2Offset);
+    if (typeof parsed.target2 !== 'number' || parsed.target2 >= parsed.target1 || parsed.target2 > maxAllowedTgt2) {
+      parsed.target2 = parseFloat(maxAllowedTgt2.toFixed(2));
+    }
+  }
+
+  // --- Option Level Sanitization ---
+  if (parsed.suggestedOptionContract && typeof parsed.optionPremiumLtp === 'number' && parsed.optionPremiumLtp > 0) {
+    const optionLtp = parseFloat(parsed.optionPremiumLtp);
+    const contractLower = parsed.suggestedOptionContract.toLowerCase();
+    const isItm = contractLower.includes('itm') || 
+                  (parsed.action === 'CALL' && itmStrikeCall && parsed.suggestedOptionContract.includes(String(itmStrikeCall))) ||
+                  (parsed.action === 'PUT' && itmStrikePut && parsed.suggestedOptionContract.includes(String(itmStrikePut)));
+    const delta = isItm ? 0.6 : 0.5;
+
+    const idxTgtDelta = Math.abs(parsed.target1 - spotPriceNum);
+    const idxSlDelta = Math.abs(spotPriceNum - parsed.stoploss);
+
+    const minOptTgt1 = optionLtp + delta * idxTgtDelta;
+    if (typeof parsed.optionTarget1 !== 'number' || parsed.optionTarget1 <= optionLtp) {
+      parsed.optionTarget1 = parseFloat(minOptTgt1.toFixed(2));
+    }
+
+    const minOptTgt2 = optionLtp + delta * Math.abs(parsed.target2 - spotPriceNum);
+    if (typeof parsed.optionTarget2 !== 'number' || parsed.optionTarget2 <= parsed.optionTarget1) {
+      parsed.optionTarget2 = parseFloat(Math.max(parsed.optionTarget1 + 5, minOptTgt2).toFixed(2));
+    }
+
+    const maxOptSl = Math.max(1.0, optionLtp - delta * idxSlDelta);
+    if (typeof parsed.optionStoploss !== 'number' || parsed.optionStoploss >= optionLtp || parsed.optionStoploss <= 0) {
+      parsed.optionStoploss = parseFloat(maxOptSl.toFixed(2));
+    }
+  }
+
+  return parsed;
+}
+
 // Helper function for OpenClaw AI Multi-Agent Analysis
 // Helper function for OpenClaw AI Multi-Agent Analysis
 async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWeight: 40, chartWeight: 40, newsWeight: 20 }, profile = 'intraday_scalper', isBackground = false) {
@@ -2113,8 +2391,31 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
     });
   };
 
+  const getHistoricalOptionChain1m = () => {
+    return new Promise((resolve) => {
+      db.get(
+        `SELECT data FROM option_chain_history 
+         WHERE symbol = ? AND timestamp <= datetime('now', '-1 minute') 
+         ORDER BY timestamp DESC LIMIT 1`,
+        [symbolStr],
+        (err, row) => {
+          if (err || !row) {
+            resolve(null);
+          } else {
+            try {
+              resolve(JSON.parse(row.data));
+            } catch (e) {
+              resolve(null);
+            }
+          }
+        }
+      );
+    });
+  };
+
   const historicalPcrs = await getHistoricalPcrs();
   const oldStrikesArray = await getHistoricalOptionChain15m();
+  const oldStrikesArray1m = await getHistoricalOptionChain1m();
 
   let smartMoneyDetails = "Not enough historical data to calculate 15-minute institutional build-up.";
   let smartMoneySentiment = "NEUTRAL";
@@ -2327,6 +2628,8 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
 
   let shortCoveringDetected = false;
   let longUnwindingDetected = false;
+  let isVPcrSpiked = false;
+  let vPcrDirection = 'NEUTRAL';
   let nearbyStrikesOiData = [];
   let unwindingDetails = {
     callUnwindingStrikes: [],
@@ -2365,6 +2668,18 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
 
       atm3Pcr = callOi3 > 0 ? parseFloat((putOi3 / callOi3).toFixed(2)) : 0;
       atm3Vpcr = callVol3 > 0 ? parseFloat((putVol3 / callVol3).toFixed(2)) : 0;
+    }
+
+    // Volume PCR Velocity Trigger (ATM ±3 Strikes, 1-minute lookback)
+    if (oldStrikesArray1m && oldStrikesArray1m.length > 0) {
+      const oldAtm3Vpcr1m = calculateAtm3Vpcr(oldStrikesArray1m, spotPrice);
+      if (oldAtm3Vpcr1m > 0) {
+        const vPcrSpeed = (atm3Vpcr - oldAtm3Vpcr1m) / oldAtm3Vpcr1m;
+        if (Math.abs(vPcrSpeed) >= 0.20) {
+          isVPcrSpiked = true;
+          vPcrDirection = vPcrSpeed > 0 ? 'UP' : 'DOWN';
+        }
+      }
     }
     
     // Call ITM strike (1 strike below ATM)
@@ -2686,6 +3001,20 @@ INSTRUCTIONS FOR WRITING:
     }
   }
 
+  // 5-Layer Algorithmic Filtration and level correction
+  parsedResult = sanitizeOpenClawResult(parsedResult, spotPrice, atr, symbolStr, atrMultiplier, {
+    hourlyTrend,
+    majorTrend,
+    lastRsi,
+    isVolumeSpiked,
+    resistanceStrike: resistanceStrike ? resistanceStrike.strike : null,
+    supportStrike: supportStrike ? supportStrike.strike : null,
+    shortCoveringDetected,
+    longUnwindingDetected,
+    itmStrikeCall,
+    itmStrikePut
+  });
+
   // Apply Strict Trend Filter and Unwinding safeguards on the parsed result
   const isStrictTrendFilterEnabled = settings['strict_trend_filter'] !== 'false';
   
@@ -2850,6 +3179,8 @@ INSTRUCTIONS FOR WRITING:
       choppinessScore,
       atm3Pcr,
       atm3Vpcr,
+      isVPcrSpiked,
+      vPcrDirection,
       activeSignal
     }
   };
@@ -2981,11 +3312,16 @@ async function sendTradeClosureNotification(row, newStatus, exitSpot) {
     : (row.entry_price - exitSpot);
   const pnlSign = pnl >= 0 ? '+' : '';
   
+  const isTargetHit = row.target_price && (row.type === 'CALL' ? exitSpot >= row.target_price : exitSpot <= row.target_price);
+  const statusLabel = newStatus === 'SUCCESS' 
+    ? (isTargetHit ? '✅ SUCCESS (Target Hit)' : '✅ SUCCESS (Trailed SL Hit)') 
+    : '❌ FAILED (Stoploss Hit)';
+
   const message = `🔔 *OpenClaw Trade Closure Alert* 🔔\n\n` +
     `*Trade ID*: \`${tradeIdStr}\`\n` +
     `*Symbol*: ${row.symbol}\n` +
     `*Action*: ${row.type === 'CALL' ? 'BUY CALL / BULLISH' : 'BUY PUT / BEARISH'}\n` +
-    `*Status*: ${newStatus === 'SUCCESS' ? '✅ SUCCESS (Target Hit)' : '❌ FAILED (Stoploss Hit)'}\n\n` +
+    `*Status*: ${statusLabel}\n\n` +
     `📊 *Trade Details*:\n` +
     `  • Entry Price: ${row.entry_price.toFixed(2)}\n` +
     `  • Target Price: ${row.target_price ? row.target_price.toFixed(2) : 'N/A'}\n` +
@@ -3125,7 +3461,9 @@ const updatePendingSignals = () => {
               if (row.target_price && currentSpot >= row.target_price) {
                 newStatus = 'SUCCESS';
               } else if (row.stoploss_price && currentSpot <= row.stoploss_price) {
-                newStatus = 'FAILED';
+                // If stoploss was trailed in profit, mark it as SUCCESS
+                const pnl = currentSpot - row.entry_price;
+                newStatus = pnl >= 0 ? 'SUCCESS' : 'FAILED';
               }
             } else if (row.type === 'PUT') {
               if (currentSpot < maxSpotSeen) {
@@ -3136,7 +3474,9 @@ const updatePendingSignals = () => {
               if (row.target_price && currentSpot <= row.target_price) {
                 newStatus = 'SUCCESS';
               } else if (row.stoploss_price && currentSpot >= row.stoploss_price) {
-                newStatus = 'FAILED';
+                // If stoploss was trailed in profit, mark it as SUCCESS
+                const pnl = row.entry_price - currentSpot;
+                newStatus = pnl >= 0 ? 'SUCCESS' : 'FAILED';
               }
             }
 
@@ -3701,7 +4041,7 @@ async function triggerOpenClawBackgroundAlerts() {
     lastOpenClawAlertMinute = minute;
     logToBackground(`Scheduler starting auto-scan. Interval: ${interval}m, Min Conf: ${minConfidence}%, Weights: PCR=${pcrWeight}%, Chart=${chartWeight}%, News=${newsWeight}%`, 'info');
 
-    const symbols = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
+    const symbols = ['NIFTY', 'BANKNIFTY'];
 
     for (const symbol of symbols) {
       try {
@@ -4193,7 +4533,7 @@ const syncMarketData = async () => {
     isSyncing = false;
     return;
   }
-  const symbols = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
+  const symbols = ['NIFTY', 'BANKNIFTY'];
   console.log(`[Sync Worker] Starting unified market data sync...`);
   
   for (const symbol of symbols) {
@@ -4411,7 +4751,7 @@ const syncMarketData = async () => {
 
 // Background Signal Generator: Unified High-Accuracy Decoder
 async function runAllDecoders() {
-  const symbols = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
+  const symbols = ['NIFTY', 'BANKNIFTY'];
   
   for (const symbol of symbols) {
     try {

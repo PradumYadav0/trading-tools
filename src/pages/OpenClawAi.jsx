@@ -1473,7 +1473,7 @@ const OpenClawAi = () => {
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem', fontWeight: 'bold' }}>ATM ±3 VOLUME PCR</span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem', fontWeight: 'bold' }}>ATM ±5 VOLUME PCR</span>
                       <span style={{ fontSize: '1.4rem', fontWeight: '800', color: '#fff' }}>
                         {indicatorData.atm3Vpcr ? indicatorData.atm3Vpcr.toFixed(2) : '0.00'}
                       </span>

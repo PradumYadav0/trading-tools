@@ -1748,8 +1748,8 @@ function calculateAtm3Vpcr(strikes, spot) {
   let callVol3 = 0;
   let putVol3 = 0;
 
-  const startIdx = Math.max(0, atmIndex - 3);
-  const endIdx = Math.min(strikes.length - 1, atmIndex + 3);
+  const startIdx = Math.max(0, atmIndex - 5);
+  const endIdx = Math.min(strikes.length - 1, atmIndex + 5);
 
   for (let i = startIdx; i <= endIdx; i++) {
     callVol3 += strikes[i].callVolume || 0;
@@ -2649,15 +2649,15 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
 
     const atmIndex = strikesArray.findIndex(s => s.strike === atmStrike);
     
-    // Calculate ATM ±3 Strikes PCR & VPCR
+    // Calculate ATM ±5 Strikes PCR & VPCR (capturing rapid OTM flow changes)
     if (atmIndex !== -1) {
       let callOi3 = 0;
       let putOi3 = 0;
       let callVol3 = 0;
       let putVol3 = 0;
 
-      const startIdx = Math.max(0, atmIndex - 3);
-      const endIdx = Math.min(strikesArray.length - 1, atmIndex + 3);
+      const startIdx = Math.max(0, atmIndex - 5);
+      const endIdx = Math.min(strikesArray.length - 1, atmIndex + 5);
 
       for (let i = startIdx; i <= endIdx; i++) {
         callOi3 += strikesArray[i].callOi || 0;
@@ -2866,8 +2866,8 @@ Data for ${symbolStr}:
 - Current Spot Price: ${spotPrice}
 - Current PCR (Full Option Chain): ${pcr}
 - Current PCVR (Put-Call Volume Ratio - Full Chain): ${pcvr}
-- ATM ±3 Strikes PCR: ${atm3Pcr} (Highly sensitive Put/Call Open Interest ratio for FII/DII activity)
-- ATM ±3 Strikes Volume PCR: ${atm3Vpcr} (Put-Call Volume Ratio for immediate momentum confirmation)
+- ATM ±5 Strikes PCR: ${atm3Pcr} (Highly sensitive Put/Call Open Interest ratio for FII/DII activity)
+- ATM ±5 Strikes Volume PCR: ${atm3Vpcr} (Put-Call Volume Ratio for immediate momentum confirmation)
 - PCR values for last few minutes (newest to oldest): ${historicalPcrs.map(v => v.toFixed(2)).join(', ')}
 - Last 15 Candles (${primaryInterval}-minute interval):
 ${last15CandlesStr}
@@ -4194,8 +4194,8 @@ async function sendOpenClawNotifications(symbol, actionData, settings, indicator
     `*Confidence*: ${actionData.confidence}%\n` +
     `*1H Trend*: ${hourlyTrend}\n` +
     `*ATM IV*: ${averageIv ? averageIv.toFixed(1) + '%' : 'N/A'}\n` +
-    `*ATM +/- 3 PCR*: ${indicators.atm3Pcr || 'N/A'}\n` +
-    `*ATM +/- 3 Vol PCR*: ${indicators.atm3Vpcr || 'N/A'}\n` +
+    `*ATM +/- 5 PCR*: ${indicators.atm3Pcr || 'N/A'}\n` +
+    `*ATM +/- 5 Vol PCR*: ${indicators.atm3Vpcr || 'N/A'}\n` +
     `*OI Divergence*: ${oiDivergenceStatus}\n` +
     `*Buy Range*: ${buyRange}\n` +
     `*Target 1*: ${target1}\n` +

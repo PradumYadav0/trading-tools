@@ -360,8 +360,6 @@ const PaperTrading = () => {
               <select value={symbol} onChange={(e) => setSymbol(e.target.value)} style={{ width: '100%', background: '#1c2128', border: '1px solid var(--border-color)', color: 'white', padding: '0.5rem', borderRadius: '6px' }}>
                 <option value="NIFTY">NIFTY</option>
                 <option value="BANKNIFTY">BANKNIFTY</option>
-                <option value="FINNIFTY">FINNIFTY</option>
-                <option value="MIDCPNIFTY">MIDCPNIFTY</option>
               </select>
             </div>
 

@@ -6,15 +6,13 @@ import { isMarketOpen } from '../utils/market';
 const Dashboard = () => {
   const [indexData, setIndexData] = useState({
     'NIFTY': { name: 'NIFTY 50', spot: 0, pcr: 0, loading: true },
-    'BANKNIFTY': { name: 'BANK NIFTY', spot: 0, pcr: 0, loading: true },
-    'FINNIFTY': { name: 'FINNIFTY', spot: 0, pcr: 0, loading: true },
-    'MIDCPNIFTY': { name: 'MIDCPNIFTY', spot: 0, pcr: 0, loading: true }
+    'BANKNIFTY': { name: 'BANK NIFTY', spot: 0, pcr: 0, loading: true }
   });
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const fetchData = async () => {
     setIsRefreshing(true);
-    const symbols = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
+    const symbols = ['NIFTY', 'BANKNIFTY'];
     
     await Promise.all(symbols.map(async (symbol) => {
       try {

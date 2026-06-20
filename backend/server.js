@@ -1759,6 +1759,35 @@ function calculateAtm3Vpcr(strikes, spot) {
   return callVol3 > 0 ? parseFloat((putVol3 / callVol3).toFixed(2)) : 0;
 }
 
+function calculateDailyVWAP(candles, spotPrice) {
+  if (!candles || candles.length === 0) return spotPrice;
+  const todayDateStr = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata' });
+  let totalTypicalPriceVol = 0;
+  let totalVol = 0;
+  
+  candles.forEach(c => {
+    let candleDate;
+    if (typeof c.time === 'number') {
+      candleDate = new Date(parseDhanTimestamp(c.time) * 1000);
+    } else {
+      candleDate = new Date(c.time);
+    }
+    
+    const candleDateStr = candleDate.toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata' });
+    if (candleDateStr === todayDateStr) {
+      const typicalPrice = ((c.high || c.close) + (c.low || c.close) + c.close) / 3;
+      const vol = c.volume || 1;
+      totalTypicalPriceVol += typicalPrice * vol;
+      totalVol += vol;
+    }
+  });
+  
+  if (totalVol > 0) {
+    return parseFloat((totalTypicalPriceVol / totalVol).toFixed(2));
+  }
+  return spotPrice;
+}
+
 function sanitizeOpenClawResult(parsed, spotPrice, atr, symbol, atrMultiplier, indicators) {
   if (parsed.action !== 'CALL' && parsed.action !== 'PUT') {
     return parsed;
@@ -1778,31 +1807,59 @@ function sanitizeOpenClawResult(parsed, spotPrice, atr, symbol, atrMultiplier, i
     pcr,
     pcrVelocity,
     isVPcrSpiked,
-    vPcrDirection
+    vPcrDirection,
+    dailyVwap,
+    isShortTermBullish,
+    isShortTermBearish
   } = indicators;
 
-  // --- LAYER 1: Multi-Timeframe Trend Alignment (Anchor Filter) ---
-  if (parsed.strategyUsed === 'TREND_FOLLOWING') {
-    if (parsed.action === 'CALL' && (hourlyTrend === 'BEARISH' || majorTrend === 'BEARISH')) {
-      console.log(`[OpenClaw Filter] Blocked CALL signal on ${symbol} due to trend misalignment (1H: ${hourlyTrend}, 15m: ${majorTrend})`);
+  const spotPriceNum = parseFloat(spotPrice);
+  const isTrendFollowing = parsed.strategyUsed === 'TREND_FOLLOWING';
+
+  // --- LAYER 1: Multi-Timeframe Trend & VWAP Alignment (Confluence Filters) ---
+  if (parsed.action === 'CALL') {
+    // 1. Enforce daily VWAP check
+    if (dailyVwap && spotPriceNum <= dailyVwap) {
+      console.log(`[OpenClaw Filter] Blocked CALL on ${symbol} because Spot (${spotPriceNum}) is below daily VWAP (${dailyVwap})`);
       parsed.action = 'WAIT';
       parsed.strategyUsed = 'SIT_OUT';
-      parsed.summary = `[TREND FILTER BLOCK] CALL signal blocked because higher timeframe trends are BEARISH. Trend alignment required.`;
+      parsed.summary = `[VWAP FILTER BLOCK] CALL blocked. Price is trading below daily VWAP (${dailyVwap}). Bullish trades are low probability below VWAP.`;
       clearOptionDetails(parsed);
       return parsed;
     }
-    if (parsed.action === 'PUT' && (hourlyTrend === 'BULLISH' || majorTrend === 'BULLISH')) {
-      console.log(`[OpenClaw Filter] Blocked PUT signal on ${symbol} due to trend misalignment (1H: ${hourlyTrend}, 15m: ${majorTrend})`);
+    // 2. Enforce Multi-Timeframe Trend Confluence (1H, 15M, 5M)
+    if (isTrendFollowing && (hourlyTrend === 'BEARISH' || majorTrend === 'BEARISH' || !isShortTermBullish)) {
+      const stTrend = isShortTermBullish ? 'BULLISH' : 'BEARISH/NEUTRAL';
+      console.log(`[OpenClaw Filter] Blocked CALL on ${symbol} due to trend misalignment (1H: ${hourlyTrend}, 15M: ${majorTrend}, 5M: ${stTrend})`);
       parsed.action = 'WAIT';
       parsed.strategyUsed = 'SIT_OUT';
-      parsed.summary = `[TREND FILTER BLOCK] PUT signal blocked because higher timeframe trends are BULLISH. Trend alignment required.`;
+      parsed.summary = `[TREND CONFLUENCE BLOCK] CALL blocked. Hourly (1H: ${hourlyTrend}), 15-Minute (15M: ${majorTrend}), and 5-Minute trends must all align bullishly.`;
+      clearOptionDetails(parsed);
+      return parsed;
+    }
+  } else if (parsed.action === 'PUT') {
+    // 1. Enforce daily VWAP check
+    if (dailyVwap && spotPriceNum >= dailyVwap) {
+      console.log(`[OpenClaw Filter] Blocked PUT on ${symbol} because Spot (${spotPriceNum}) is above daily VWAP (${dailyVwap})`);
+      parsed.action = 'WAIT';
+      parsed.strategyUsed = 'SIT_OUT';
+      parsed.summary = `[VWAP FILTER BLOCK] PUT blocked. Price is trading above daily VWAP (${dailyVwap}). Bearish trades are low probability above VWAP.`;
+      clearOptionDetails(parsed);
+      return parsed;
+    }
+    // 2. Enforce Multi-Timeframe Trend Confluence (1H, 15M, 5M)
+    if (isTrendFollowing && (hourlyTrend === 'BULLISH' || majorTrend === 'BULLISH' || !isShortTermBearish)) {
+      const stTrend = isShortTermBearish ? 'BEARISH' : 'BULLISH/NEUTRAL';
+      console.log(`[OpenClaw Filter] Blocked PUT on ${symbol} due to trend misalignment (1H: ${hourlyTrend}, 15M: ${majorTrend}, 5M: ${stTrend})`);
+      parsed.action = 'WAIT';
+      parsed.strategyUsed = 'SIT_OUT';
+      parsed.summary = `[TREND CONFLUENCE BLOCK] PUT blocked. Hourly (1H: ${hourlyTrend}), 15-Minute (15M: ${majorTrend}), and 5-Minute trends must all align bearishly.`;
       clearOptionDetails(parsed);
       return parsed;
     }
   }
 
   // --- LAYER 2: Support & Resistance Proximity Block ---
-  const spotPriceNum = parseFloat(spotPrice);
   if (parsed.action === 'CALL' && resistanceStrike) {
     const resStrikeNum = parseFloat(resistanceStrike);
     const distPercent = (resStrikeNum - spotPriceNum) / spotPriceNum;
@@ -2249,6 +2306,7 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   const lastEma9 = ema9.length > 0 ? parseFloat(ema9[ema9.length - 1].toFixed(2)) : lastClose;
   const lastEma21 = ema21.length > 0 ? parseFloat(ema21[ema21.length - 1].toFixed(2)) : lastClose;
   const lastRsi = rsi.length > 0 ? parseFloat(rsi[rsi.length - 1].toFixed(2)) : 50;
+  const dailyVwap = calculateDailyVWAP(chartCandles, spotPrice);
 
   // Calculate Volume Surge (Latest volume vs 10-candle average volume)
   let isVolumeSpiked = false;
@@ -3012,7 +3070,14 @@ INSTRUCTIONS FOR WRITING:
     shortCoveringDetected,
     longUnwindingDetected,
     itmStrikeCall,
-    itmStrikePut
+    itmStrikePut,
+    pcr,
+    pcrVelocity,
+    isVPcrSpiked,
+    vPcrDirection,
+    dailyVwap,
+    isShortTermBullish,
+    isShortTermBearish
   });
 
   // Apply Strict Trend Filter and Unwinding safeguards on the parsed result
@@ -3039,8 +3104,9 @@ INSTRUCTIONS FOR WRITING:
 
     // Trend alignment check only applies to TREND_FOLLOWING strategy! Range Mean Reversion deliberately trades against/inside trends.
     if (parsedResult.strategyUsed === 'TREND_FOLLOWING') {
-      if (parsedResult.action === 'CALL' && hourlyTrend === 'BEARISH') {
-        console.log(`[OpenClaw Safeguard] Overriding CALL signal for ${symbolStr} because 1-Hour Trend is BEARISH.`);
+      if (parsedResult.action === 'CALL' && (hourlyTrend === 'BEARISH' || majorTrend === 'BEARISH' || !isShortTermBullish)) {
+        const stTrend = isShortTermBullish ? 'BULLISH' : 'BEARISH/NEUTRAL';
+        console.log(`[OpenClaw Safeguard] Overriding CALL signal for ${symbolStr} due to Trend Misalignment (1H: ${hourlyTrend}, 15M: ${majorTrend}, 5M: ${stTrend}).`);
         parsedResult.action = 'WAIT';
         parsedResult.strategyUsed = 'SIT_OUT';
         parsedResult.suggestedOptionContract = null;
@@ -3049,9 +3115,10 @@ INSTRUCTIONS FOR WRITING:
         parsedResult.optionTarget2 = null;
         parsedResult.optionStoploss = null;
         parsedResult.trailingStoploss = null;
-        parsedResult.summary = `[SAFEGUARD OVERRIDE] AI suggested CALL, but trend-filter blocked it because 1-Hour trend is BEARISH. Waiting for trend alignment.`;
-      } else if (parsedResult.action === 'PUT' && hourlyTrend === 'BULLISH') {
-        console.log(`[OpenClaw Safeguard] Overriding PUT signal for ${symbolStr} because 1-Hour Trend is BULLISH.`);
+        parsedResult.summary = `[SAFEGUARD OVERRIDE] CALL blocked. Hourly (1H: ${hourlyTrend}), 15-Minute (15M: ${majorTrend}), and 5-Minute trends must all align bullishly.`;
+      } else if (parsedResult.action === 'PUT' && (hourlyTrend === 'BULLISH' || majorTrend === 'BULLISH' || !isShortTermBearish)) {
+        const stTrend = isShortTermBearish ? 'BEARISH' : 'BULLISH/NEUTRAL';
+        console.log(`[OpenClaw Safeguard] Overriding PUT signal for ${symbolStr} due to Trend Misalignment (1H: ${hourlyTrend}, 15M: ${majorTrend}, 5M: ${stTrend}).`);
         parsedResult.action = 'WAIT';
         parsedResult.strategyUsed = 'SIT_OUT';
         parsedResult.suggestedOptionContract = null;
@@ -3060,8 +3127,33 @@ INSTRUCTIONS FOR WRITING:
         parsedResult.optionTarget2 = null;
         parsedResult.optionStoploss = null;
         parsedResult.trailingStoploss = null;
-        parsedResult.summary = `[SAFEGUARD OVERRIDE] AI suggested PUT, but trend-filter blocked it because 1-Hour trend is BULLISH. Waiting for trend alignment.`;
+        parsedResult.summary = `[SAFEGUARD OVERRIDE] PUT blocked. Hourly (1H: ${hourlyTrend}), 15-Minute (15M: ${majorTrend}), and 5-Minute trends must all align bearishly.`;
       }
+    }
+
+    // Daily VWAP Safeguards:
+    if (parsedResult.action === 'CALL' && dailyVwap && spotPrice <= dailyVwap) {
+      console.log(`[OpenClaw Safeguard] Overriding CALL signal for ${symbolStr} because price (${spotPrice}) is below VWAP (${dailyVwap}).`);
+      parsedResult.action = 'WAIT';
+      parsedResult.strategyUsed = 'SIT_OUT';
+      parsedResult.suggestedOptionContract = null;
+      parsedResult.optionPremiumLtp = null;
+      parsedResult.optionTarget1 = null;
+      parsedResult.optionTarget2 = null;
+      parsedResult.optionStoploss = null;
+      parsedResult.trailingStoploss = null;
+      parsedResult.summary = `[SAFEGUARD OVERRIDE] CALL blocked. Spot price is below daily VWAP (${dailyVwap}). Bullish trades are disabled below VWAP.`;
+    } else if (parsedResult.action === 'PUT' && dailyVwap && spotPrice >= dailyVwap) {
+      console.log(`[OpenClaw Safeguard] Overriding PUT signal for ${symbolStr} because price (${spotPrice}) is above VWAP (${dailyVwap}).`);
+      parsedResult.action = 'WAIT';
+      parsedResult.strategyUsed = 'SIT_OUT';
+      parsedResult.suggestedOptionContract = null;
+      parsedResult.optionPremiumLtp = null;
+      parsedResult.optionTarget1 = null;
+      parsedResult.optionTarget2 = null;
+      parsedResult.optionStoploss = null;
+      parsedResult.trailingStoploss = null;
+      parsedResult.summary = `[SAFEGUARD OVERRIDE] PUT blocked. Spot price is above daily VWAP (${dailyVwap}). Bearish trades are disabled above VWAP.`;
     }
 
     // Short Covering / Long Unwinding Safeguards:
@@ -3432,88 +3524,123 @@ const updatePendingSignals = () => {
           console.error('[Background] Error auto-expiring old signals:', expireErr.message);
         }
 
-        db.all(`SELECT * FROM ai_signals WHERE status = 'PENDING'`, [], (err, rows) => {
-          if (err) return reject(err);
-          
-          if (rows.length === 0) return resolve(0);
+        db.all(`SELECT key, value FROM system_settings`, [], (settingsErr, settingRows) => {
+          const settings = {};
+          if (!settingsErr && settingRows) {
+            settingRows.forEach(sr => settings[sr.key] = sr.value);
+          }
 
-          let pendingUpdates = rows.length;
-          let updatedCount = 0;
-
-          rows.forEach(row => {
-            const currentSpot = latestSpotPrices[row.symbol];
-            if (!currentSpot || currentSpot <= 0) {
-              pendingUpdates--;
-              if (pendingUpdates === 0) resolve(updatedCount);
-              return;
-            }
-
-            let newStatus = 'PENDING';
-            let maxSpotSeen = row.max_spot_seen || row.entry_price;
-            let maxSpotChanged = false;
-
-            if (row.type === 'CALL') {
-              if (currentSpot > maxSpotSeen) {
-                maxSpotSeen = currentSpot;
-                maxSpotChanged = true;
+          db.all(`SELECT * FROM ai_signals WHERE status = 'PENDING'`, [], (err, rows) => {
+            if (err) return reject(err);
+            
+            if (rows.length === 0) return resolve(0);
+  
+            let pendingUpdates = rows.length;
+            let updatedCount = 0;
+  
+            rows.forEach(row => {
+              const currentSpot = latestSpotPrices[row.symbol];
+              if (!currentSpot || currentSpot <= 0) {
+                pendingUpdates--;
+                if (pendingUpdates === 0) resolve(updatedCount);
+                return;
               }
-
-              if (row.target_price && currentSpot >= row.target_price) {
-                newStatus = 'SUCCESS';
-              } else if (row.stoploss_price && currentSpot <= row.stoploss_price) {
-                // If stoploss was trailed in profit, mark it as SUCCESS
-                const pnl = currentSpot - row.entry_price;
-                newStatus = pnl >= 0 ? 'SUCCESS' : 'FAILED';
+  
+              let newStatus = 'PENDING';
+              let maxSpotSeen = row.max_spot_seen || row.entry_price;
+              let maxSpotChanged = false;
+  
+              // Dynamic Target 1 Trailing SL to Entry (Cost)
+              let currentStoploss = row.stoploss_price;
+              if (row.type === 'CALL') {
+                const target1 = row.entry_price + (row.target_price - row.entry_price) / 2;
+                if (currentSpot >= target1 && currentStoploss < row.entry_price) {
+                  currentStoploss = row.entry_price;
+                  row.stoploss_price = row.entry_price; // update memory row
+                  db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [row.entry_price, row.id], (updErr) => {
+                    if (!updErr) {
+                      console.log(`[Auto-Trail] Trailed stoploss to break-even (${row.entry_price.toFixed(2)}) for CLAW-${row.symbol}-${row.id} CALL.`);
+                      sendTrailingSlNotifications(row.symbol, row, row.entry_price, settings);
+                    }
+                  });
+                }
+              } else if (row.type === 'PUT') {
+                const target1 = row.entry_price - (row.entry_price - row.target_price) / 2;
+                if (currentSpot <= target1 && currentStoploss > row.entry_price) {
+                  currentStoploss = row.entry_price;
+                  row.stoploss_price = row.entry_price; // update memory row
+                  db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [row.entry_price, row.id], (updErr) => {
+                    if (!updErr) {
+                      console.log(`[Auto-Trail] Trailed stoploss to break-even (${row.entry_price.toFixed(2)}) for CLAW-${row.symbol}-${row.id} PUT.`);
+                      sendTrailingSlNotifications(row.symbol, row, row.entry_price, settings);
+                    }
+                  });
+                }
               }
-            } else if (row.type === 'PUT') {
-              if (currentSpot < maxSpotSeen) {
-                maxSpotSeen = currentSpot;
-                maxSpotChanged = true;
+  
+              if (row.type === 'CALL') {
+                if (currentSpot > maxSpotSeen) {
+                  maxSpotSeen = currentSpot;
+                  maxSpotChanged = true;
+                }
+  
+                if (row.target_price && currentSpot >= row.target_price) {
+                  newStatus = 'SUCCESS';
+                } else if (currentStoploss && currentSpot <= currentStoploss) {
+                  // If stoploss was trailed in profit or cost, mark it as SUCCESS
+                  const pnl = currentSpot - row.entry_price;
+                  newStatus = pnl >= 0 ? 'SUCCESS' : 'FAILED';
+                }
+              } else if (row.type === 'PUT') {
+                if (currentSpot < maxSpotSeen) {
+                  maxSpotSeen = currentSpot;
+                  maxSpotChanged = true;
+                }
+  
+                if (row.target_price && currentSpot <= row.target_price) {
+                  newStatus = 'SUCCESS';
+                } else if (currentStoploss && currentSpot >= currentStoploss) {
+                  // If stoploss was trailed in profit or cost, mark it as SUCCESS
+                  const pnl = row.entry_price - currentSpot;
+                  newStatus = pnl >= 0 ? 'SUCCESS' : 'FAILED';
+                }
               }
-
-              if (row.target_price && currentSpot <= row.target_price) {
-                newStatus = 'SUCCESS';
-              } else if (row.stoploss_price && currentSpot >= row.stoploss_price) {
-                // If stoploss was trailed in profit, mark it as SUCCESS
-                const pnl = row.entry_price - currentSpot;
-                newStatus = pnl >= 0 ? 'SUCCESS' : 'FAILED';
-              }
-            }
-
-            if (newStatus !== 'PENDING' || maxSpotChanged) {
-              // Always filter by AND status = 'PENDING' to prevent double-firing
-              const query = newStatus !== 'PENDING'
-                ? `UPDATE ai_signals 
-                   SET status = ?, max_spot_seen = ?, exit_time = CURRENT_TIMESTAMP, exit_price = ?, updated_at = CURRENT_TIMESTAMP 
-                   WHERE id = ? AND status = 'PENDING'`
-                : `UPDATE ai_signals 
-                   SET status = ?, max_spot_seen = ?, updated_at = CURRENT_TIMESTAMP 
-                   WHERE id = ? AND status = 'PENDING'`;
-              const params = newStatus !== 'PENDING'
-                ? [newStatus, maxSpotSeen, currentSpot, row.id]
-                : [newStatus, maxSpotSeen, row.id];
-
-              db.run(
-                query, 
-                params, 
-                async function(err) {
-                  if (!err && this.changes > 0) {
-                    // Only fire closure alert if we actually updated the row (this.changes > 0 prevents double-fire)
-                    if (newStatus !== 'PENDING') {
-                      updatedCount++;
-                      if (row.source === 'OPENCLAW') {
-                        await sendTradeClosureNotification(row, newStatus, currentSpot);
+  
+              if (newStatus !== 'PENDING' || maxSpotChanged) {
+                // Always filter by AND status = 'PENDING' to prevent double-firing
+                const query = newStatus !== 'PENDING'
+                  ? `UPDATE ai_signals 
+                     SET status = ?, max_spot_seen = ?, exit_time = CURRENT_TIMESTAMP, exit_price = ?, updated_at = CURRENT_TIMESTAMP 
+                     WHERE id = ? AND status = 'PENDING'`
+                  : `UPDATE ai_signals 
+                     SET status = ?, max_spot_seen = ?, updated_at = CURRENT_TIMESTAMP 
+                     WHERE id = ? AND status = 'PENDING'`;
+                const params = newStatus !== 'PENDING'
+                  ? [newStatus, maxSpotSeen, currentSpot, row.id]
+                  : [newStatus, maxSpotSeen, row.id];
+  
+                db.run(
+                  query, 
+                  params, 
+                  async function(err) {
+                    if (!err && this.changes > 0) {
+                      // Only fire closure alert if we actually updated the row (this.changes > 0 prevents double-fire)
+                      if (newStatus !== 'PENDING') {
+                        updatedCount++;
+                        if (row.source === 'OPENCLAW') {
+                          await sendTradeClosureNotification(row, newStatus, currentSpot);
+                        }
                       }
                     }
+                    pendingUpdates--;
+                    if (pendingUpdates === 0) resolve(updatedCount);
                   }
-                  pendingUpdates--;
-                  if (pendingUpdates === 0) resolve(updatedCount);
-                }
-              );
-            } else {
-              pendingUpdates--;
-              if (pendingUpdates === 0) resolve(updatedCount);
-            }
+                );
+              } else {
+                pendingUpdates--;
+                if (pendingUpdates === 0) resolve(updatedCount);
+              }
+            });
           });
         });
       }
@@ -4258,7 +4385,7 @@ function saveOpenClawSignalToDb(symbol, actionData, spotPrice) {
     db.run(
       `INSERT INTO ai_signals (symbol, type, entry_price, target_price, stoploss_price, source, status) 
        VALUES (?, ?, ?, ?, ?, 'OPENCLAW', 'PENDING')`,
-      [symbol, signalType, spotPrice, actionData.target1, actionData.stoploss],
+      [symbol, signalType, spotPrice, actionData.target2, actionData.stoploss],
       function(err) {
         if (err) {
           console.error(`[Background Alert] Error logging signal for ${symbol} to DB:`, err.message);

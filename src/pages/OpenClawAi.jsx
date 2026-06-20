@@ -1680,14 +1680,21 @@ const OpenClawAi = () => {
                   borderRadius: '8px',
                   border: '1px solid rgba(255, 255, 255, 0.05)'
                 }}>
-                  <div style={{ flex: '1 1 120px' }}>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.15rem' }}>1H Trend Confirm</span>
+                  <div style={{ flex: '1 1 180px' }}>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.15rem' }}>Trend Confluence (1H/15M/5M)</span>
                     <span style={{ 
                       fontSize: '0.85rem', 
                       fontWeight: '700', 
-                      color: indicatorData.hourlyTrend === 'BULLISH' ? 'var(--bullish)' : indicatorData.hourlyTrend === 'BEARISH' ? 'var(--bearish)' : '#eab308' 
+                      color: indicatorData.trendConcurrence === 'STRONG_BULLISH' || indicatorData.trendConcurrence === 'MODERATE_BULLISH' ? 'var(--bullish)' : 
+                             indicatorData.trendConcurrence === 'STRONG_BEARISH' || indicatorData.trendConcurrence === 'MODERATE_BEARISH' ? 'var(--bearish)' : '#eab308' 
                     }}>
-                      {indicatorData.hourlyTrend || 'NEUTRAL'}
+                      {indicatorData.trendConcurrence ? indicatorData.trendConcurrence.replace(/_/g, ' ') : 'MISALIGNED'}
+                    </span>
+                  </div>
+                  <div style={{ flex: '1 1 120px' }}>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.15rem' }}>Daily VWAP</span>
+                    <span style={{ fontSize: '0.85rem', fontWeight: '700', color: '#38bdf8' }}>
+                      {indicatorData.dailyVwap ? indicatorData.dailyVwap.toFixed(2) : 'N/A'}
                     </span>
                   </div>
                   <div style={{ flex: '1 1 120px' }}>

@@ -3673,7 +3673,12 @@ async function sendTradeClosureNotification(row, newStatus, exitSpot) {
     ? (isTargetHit ? '✅ SUCCESS (Target Hit)' : '✅ SUCCESS (Trailed SL Hit)') 
     : (newStatus === 'EXPIRED' ? 'ℹ️ EXPIRED (Time/Theta Exit)' : '❌ FAILED (Stoploss Hit)');
 
-  const message = `🔔 *OpenClaw Trade Closure Alert* 🔔\n\n` +
+  const isSMC = settings['smc_sniper_mode'] === 'true';
+  const alertHeader = isSMC
+    ? `🔔 *OpenClaw SMC Sniper Trade Closure Alert* 🔔`
+    : `🔔 *OpenClaw Trade Closure Alert* 🔔`;
+
+  const message = `${alertHeader}\n\n` +
     `*Trade ID*: \`${tradeIdStr}\`\n` +
     `*Symbol*: ${row.symbol}\n` +
     `*Action*: ${row.type === 'CALL' ? 'BUY CALL / BULLISH' : 'BUY PUT / BEARISH'}\n` +
@@ -4677,7 +4682,12 @@ async function sendOpenClawNotifications(symbol, actionData, settings, indicator
     strategyLabel = 'SIT OUT / NO TRADE';
   }
 
-  const messageContent = `🚨 *OpenClaw AI Trade Alert* 🚨\n\n` +
+  const isSMC = settings['smc_sniper_mode'] === 'true';
+  const alertHeader = isSMC 
+    ? `🎯 *OpenClaw SMC Sniper Trade Alert* 🎯` 
+    : `🚨 *OpenClaw AI Trade Alert* 🚨`;
+
+  const messageContent = `${alertHeader}\n\n` +
     `*Trade ID*: \`${tradeIdStr}\`\n` +
     `*Symbol*: ${symbol}\n` +
     `*Action*: ${actionLabel}\n` +
@@ -4830,7 +4840,12 @@ async function sendEarlyExitNotifications(symbol, activeSignal, exitPrice, setti
   const pnlSign = pnl >= 0 ? '+' : '';
   const escapedReason = escapeTgMd(reason || 'Trend reversal detected by AI');
 
-  const message = `⚠️ *[Early Exit Alert] OpenClaw AI Trade Exited Early* ⚠️\n\n` +
+  const isSMC = settings['smc_sniper_mode'] === 'true';
+  const alertHeader = isSMC
+    ? `⚠️ *[SMC Sniper] OpenClaw AI Trade Exited Early* ⚠️`
+    : `⚠️ *[Early Exit Alert] OpenClaw AI Trade Exited Early* ⚠️`;
+
+  const message = `${alertHeader}\n\n` +
     `*Trade ID*: \`${tradeIdStr}\`\n` +
     `*Symbol*: ${symbol}\n` +
     `*Action*: ${activeSignal.type === 'CALL' ? 'BUY CALL / BULLISH' : 'BUY PUT / BEARISH'}\n` +
@@ -4891,7 +4906,12 @@ async function sendTrailingSlNotifications(symbol, activeSignal, newStoploss, se
   const tradeIdStr = `CLAW-${symbol}-${activeSignal.id}`;
   const oldStoploss = activeSignal.stoploss_price;
 
-  const message = `📈 *[Trailing Stoploss Alert] Stoploss Trailed* 📈\n\n` +
+  const isSMC = settings['smc_sniper_mode'] === 'true';
+  const alertHeader = isSMC
+    ? `📈 *[SMC Sniper] Stoploss Trailed* 📈`
+    : `📈 *[Trailing Stoploss Alert] Stoploss Trailed* 📈`;
+
+  const message = `${alertHeader}\n\n` +
     `*Trade ID*: \`${tradeIdStr}\`\n` +
     `*Symbol*: ${symbol}\n` +
     `*Action*: ${activeSignal.type === 'CALL' ? 'BUY CALL / BULLISH' : 'BUY PUT / BEARISH'}\n\n` +

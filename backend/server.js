@@ -1778,6 +1778,166 @@ function detectSwingHighLow(candles, lookback = 15) {
   };
 }
 
+// Smart Money Concepts (SMC) calculations
+function calculateSMC(candles) {
+  if (!candles || candles.length < 20) {
+    return {
+      bosDetected: false,
+      chochDetected: false,
+      marketStructure: 'NEUTRAL',
+      structureBreakPrice: 0,
+      bullishOrderBlock: null,
+      bearishOrderBlock: null,
+      fvgZones: []
+    };
+  }
+
+  // 1. Detect Swing Highs and Swing Lows with a fractal window (left=3, right=3)
+  const swingHighs = [];
+  const swingLows = [];
+
+  for (let i = 3; i < candles.length - 3; i++) {
+    const currentHigh = candles[i].high;
+    const currentLow = candles[i].low;
+
+    let isSwingHigh = true;
+    let isSwingLow = true;
+
+    for (let j = 1; j <= 3; j++) {
+      if (candles[i - j].high >= currentHigh || candles[i + j].high > currentHigh) {
+        isSwingHigh = false;
+      }
+      if (candles[i - j].low <= currentLow || candles[i + j].low < currentLow) {
+        isSwingLow = false;
+      }
+    }
+
+    if (isSwingHigh) swingHighs.push({ index: i, price: currentHigh, candle: candles[i] });
+    if (isSwingLow) swingLows.push({ index: i, price: currentLow, candle: candles[i] });
+  }
+
+  // 2. Detect BOS and CHoCH
+  let bosDetected = false;
+  let chochDetected = false;
+  let marketStructure = 'NEUTRAL';
+  let structureBreakPrice = 0;
+
+  const lastClose = candles[candles.length - 1].close;
+  const prevClose = candles[candles.length - 2].close;
+
+  const lastSwingHigh = swingHighs.length > 0 ? swingHighs[swingHighs.length - 1] : null;
+  const lastSwingLow = swingLows.length > 0 ? swingLows[swingLows.length - 1] : null;
+
+  const secondLastSwingHigh = swingHighs.length > 1 ? swingHighs[swingHighs.length - 2] : null;
+  const secondLastSwingLow = swingLows.length > 1 ? swingLows[swingLows.length - 2] : null;
+
+  if (lastSwingHigh && lastSwingLow) {
+    if (lastClose > lastSwingHigh.price && prevClose <= lastSwingHigh.price) {
+      structureBreakPrice = lastSwingHigh.price;
+      if (secondLastSwingHigh && lastSwingHigh.price > secondLastSwingHigh.price) {
+        bosDetected = true;
+        marketStructure = 'BULLISH_BOS';
+      } else {
+        chochDetected = true;
+        marketStructure = 'BULLISH_CHOCH';
+      }
+    } else if (lastClose < lastSwingLow.price && prevClose >= lastSwingLow.price) {
+      structureBreakPrice = lastSwingLow.price;
+      if (secondLastSwingLow && lastSwingLow.price < secondLastSwingLow.price) {
+        bosDetected = true;
+        marketStructure = 'BEARISH_BOS';
+      } else {
+        chochDetected = true;
+        marketStructure = 'BEARISH_CHOCH';
+      }
+    } else {
+      if (lastSwingHigh.price > (secondLastSwingHigh?.price || 0) && lastSwingLow.price > (secondLastSwingLow?.price || 0)) {
+        marketStructure = 'BULLISH_TREND';
+      } else if (lastSwingHigh.price < (secondLastSwingHigh?.price || Infinity) && lastSwingLow.price < (secondLastSwingLow?.price || Infinity)) {
+        marketStructure = 'BEARISH_TREND';
+      } else {
+        marketStructure = 'RANGE_BOUND';
+      }
+    }
+  }
+
+  // 3. Find Order Blocks (OB)
+  let bullishOrderBlock = null;
+  let bearishOrderBlock = null;
+
+  for (let i = candles.length - 2; i > 5; i--) {
+    const bodySize = Math.abs(candles[i].close - candles[i].open);
+    const prevBodySize = Math.abs(candles[i - 1].close - candles[i - 1].open);
+    const isImpulse = bodySize > 1.5 * prevBodySize && (candles[i].volume > 1.2 * (candles[i - 1].volume || 1));
+
+    if (isImpulse) {
+      if (candles[i].close > candles[i].open && !bullishOrderBlock) {
+        let j = i - 1;
+        while (j > 0 && candles[j].close >= candles[j].open) {
+          j--;
+        }
+        if (j >= 0) {
+          bullishOrderBlock = {
+            high: parseFloat(candles[j].high.toFixed(2)),
+            low: parseFloat(candles[j].low.toFixed(2)),
+            price: parseFloat(candles[j].close.toFixed(2)),
+            time: candles[j].time,
+            volume: candles[j].volume
+          };
+        }
+      } else if (candles[i].close < candles[i].open && !bearishOrderBlock) {
+        let j = i - 1;
+        while (j > 0 && candles[j].close <= candles[j].open) {
+          j--;
+        }
+        if (j >= 0) {
+          bearishOrderBlock = {
+            high: parseFloat(candles[j].high.toFixed(2)),
+            low: parseFloat(candles[j].low.toFixed(2)),
+            price: parseFloat(candles[j].close.toFixed(2)),
+            time: candles[j].time,
+            volume: candles[j].volume
+          };
+        }
+      }
+    }
+    if (bullishOrderBlock && bearishOrderBlock) break;
+  }
+
+  // 4. Find Fair Value Gaps (FVG) in the last 15 candles
+  const fvgZones = [];
+  const startIdx = Math.max(1, candles.length - 15);
+  for (let i = startIdx; i < candles.length - 1; i++) {
+    if (candles[i + 1].low > candles[i - 1].high && candles[i].close > candles[i].open) {
+      fvgZones.push({
+        type: 'BULLISH',
+        top: parseFloat(candles[i + 1].low.toFixed(2)),
+        bottom: parseFloat(candles[i - 1].high.toFixed(2)),
+        gap: parseFloat((candles[i + 1].low - candles[i - 1].high).toFixed(2)),
+        time: candles[i].time
+      });
+    } else if (candles[i + 1].high < candles[i - 1].low && candles[i].close < candles[i].open) {
+      fvgZones.push({
+        type: 'BEARISH',
+        top: parseFloat(candles[i - 1].low.toFixed(2)),
+        bottom: parseFloat(candles[i + 1].high.toFixed(2)),
+        gap: parseFloat((candles[i - 1].low - candles[i + 1].high).toFixed(2)),
+        time: candles[i].time
+      });
+    }
+  }
+
+  return {
+    bosDetected,
+    chochDetected,
+    marketStructure,
+    structureBreakPrice: parseFloat(structureBreakPrice.toFixed(2)),
+    bullishOrderBlock,
+    bearishOrderBlock,
+    fvgZones: fvgZones.slice(-3)
+  };
+}
+
 function calculateDailyVWAP(candles, spotPrice) {
   if (!candles || candles.length === 0) return spotPrice;
   const todayDateStr = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata' });
@@ -2346,6 +2506,8 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   const lastEma21 = ema21.length > 0 ? parseFloat(ema21[ema21.length - 1].toFixed(2)) : lastClose;
   const lastRsi = rsi.length > 0 ? parseFloat(rsi[rsi.length - 1].toFixed(2)) : 50;
   const dailyVwap = calculateDailyVWAP(chartCandles, spotPrice);
+  const isSmcSniperMode = settings['smc_sniper_mode'] === 'true';
+  const smcData = calculateSMC(chartCandles);
 
   // Calculate Volume Surge (Latest volume vs 10-candle average volume)
   let isVolumeSpiked = false;
@@ -2883,6 +3045,27 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
 `;
   }
 
+  let smcPromptSection = "";
+  if (isSmcSniperMode) {
+    smcPromptSection = `
+*CRITICAL - SMC INSTITUTIONAL SNIPER MODE IS ACTIVE:*
+- You must operate as a High Confluence Institutional Sniper Agent aiming for a 90%+ win rate.
+- You MUST recommend "WAIT" and SIT OUT unless there is extreme confirmation:
+  1. The market must NOT be choppy (Choppiness Score must be <= 50).
+  2. Price is actively reacting to or testing the identified Bullish Order Block (for CALL entries) or Bearish Order Block (for PUT entries).
+  3. A Break of Structure (BOS) or Change of Character (CHoCH) must support the direction.
+  4. Institutional Volume Surge ("YES") is active.
+- If these criteria are not met, you MUST return "action": "WAIT". It is better to have zero trades for days than a low probability entry.
+
+*SMC ALGORITHMIC CALCULATIONS:*
+- Market Structure State: ${smcData.marketStructure}
+  * Structure Break Active: ${smcData.bosDetected ? 'BOS (Break of Structure) DETECTED' : smcData.chochDetected ? 'CHoCH (Change of Character) DETECTED' : 'None'} (Break Price: ${smcData.structureBreakPrice})
+- Bullish Order Block (Demand): ${smcData.bullishOrderBlock ? `High: ${smcData.bullishOrderBlock.high}, Low: ${smcData.bullishOrderBlock.low}, Price: ${smcData.bullishOrderBlock.price}` : 'None'}
+- Bearish Order Block (Supply): ${smcData.bearishOrderBlock ? `High: ${smcData.bearishOrderBlock.high}, Low: ${smcData.bearishOrderBlock.low}, Price: ${smcData.bearishOrderBlock.price}` : 'None'}
+- Fair Value Gaps (FVG Imbalances): ${smcData.fvgZones.length > 0 ? smcData.fvgZones.map(f => `${f.type} FVG: Top ${f.top}, Bottom ${f.bottom} (Gap ${f.gap})`).join(' | ') : 'None'}
+`;
+  }
+
   const prompt = `You are the 'OpenClaw AI Agent Hub Orchestrator'. You manage three sub-agents to analyze the NIFTY/BANKNIFTY market and issue high-accuracy trading alerts:
 1. **Option Chain Agent**: Analyzes PCR, PCR change velocity, and Call/Put Open Interest blocks (resistance and support). You MUST thoroughly inspect the "Full 20-Strike Change in OI Activity (ATM ±10 strikes)" data to detect where the heavy call writing (bearish ceiling) or heavy put writing (bullish floor) is concentrating, and check if call unwinding (short covering) or put unwinding (long liquidation) is occurring near the ATM strike. Furthermore, inspect the "15-Minute Institutional Smart Money OI Activity" to see what the big players (FII/DII option writers) have been doing in the last 15 minutes. Focus heavily on "Smart Money Unwinding Panic Alerts" — if Call writers are in panic at a strike, it is a strong bullish breakout sign; if Put writers are in panic, it is a strong bearish breakdown sign. Ensure your signal aligns with the direction of the big players' panic or fresh build-ups.
 2. **Chart Pattern Agent**: Analyzes trend direction (using EMA 9/21 crossover), momentum (using RSI), and price action patterns (support/resistance breakout, double tops/bottoms, candlestick structures like engulfing/pin-bars) from the "Last 15 Candles" list provided in the data.
@@ -2892,6 +3075,8 @@ You must weight their importance according to the weights assigned by the user:
 - Option Chain Agent weight: ${weights.pcrWeight}%
 - Chart Pattern Agent weight: ${weights.chartWeight}%
 - News Sentiment Agent weight: ${weights.newsWeight}%
+
+${smcPromptSection}
 
 *CRITICAL RULES FOR NEWS SENTIMENT & SAFEGUARDS:*
 - If News Sentiment Agent weight is greater than 0, and you detect a major risk/panic headline (e.g. GDP contraction, war escalation, high interest rate warnings, massive index crashes, inflation surge), you MUST trigger the safety protocol: force "action" to "WAIT" and set "confidence" lower, prioritizing safety over indicators.
@@ -3271,6 +3456,36 @@ INSTRUCTIONS FOR WRITING:
       parsedResult.optionStoploss = null;
       parsedResult.trailingStoploss = null;
       parsedResult.summary = `[SAFEGUARD OVERRIDE] PUT signal blocked because a BEAR TRAP was detected (Price falling but smart money writing Puts aggressively: Divergence positive).`;
+    }
+  }
+
+  // Extra layer check for Sniper Mode to enforce "One Quality Trade Per Day"
+  if (isSmcSniperMode && (parsedResult.action === 'CALL' || parsedResult.action === 'PUT')) {
+    const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const hasTradeToday = await new Promise((resolve) => {
+      db.get(
+        `SELECT id FROM ai_signals 
+         WHERE symbol = ? AND source = 'OPENCLAW' 
+           AND date(created_at, '+5.5 hours') = ?`,
+        [symbolStr, todayIst],
+        (err, row) => {
+          if (err || !row) resolve(false);
+          else resolve(true);
+        }
+      );
+    });
+
+    if (hasTradeToday) {
+      console.log(`[OpenClaw Sniper] Blocking ${parsedResult.action} signal for ${symbolStr} because one trade was already generated today.`);
+      parsedResult.action = 'WAIT';
+      parsedResult.strategyUsed = 'SIT_OUT';
+      parsedResult.suggestedOptionContract = null;
+      parsedResult.optionPremiumLtp = null;
+      parsedResult.optionTarget1 = null;
+      parsedResult.optionTarget2 = null;
+      parsedResult.optionStoploss = null;
+      parsedResult.trailingStoploss = null;
+      parsedResult.summary = `[SNIPER LIMIT] Alert blocked. "One Trade Per Day" limit is active and a signal was already generated today.`;
     }
   }
 
@@ -4137,7 +4352,8 @@ app.get('/api/openclaw/settings', (req, res) => {
       newsWeight: 20,
       tradingProfile: 'intraday_scalper',
       stoplossAtrMultiplier: 1.5,
-      strictTrendFilter: true
+      strictTrendFilter: true,
+      smcSniperMode: false
     };
     if (rows) {
       rows.forEach(r => {
@@ -4155,6 +4371,7 @@ app.get('/api/openclaw/settings', (req, res) => {
         if (r.key === 'trading_profile') settings.tradingProfile = r.value;
         if (r.key === 'stoploss_atr_multiplier') settings.stoplossAtrMultiplier = parseFloat(r.value) || 1.5;
         if (r.key === 'strict_trend_filter') settings.strictTrendFilter = r.value !== 'false';
+        if (r.key === 'smc_sniper_mode') settings.smcSniperMode = r.value === 'true';
       });
     }
     res.json({ success: true, settings });
@@ -4177,7 +4394,8 @@ app.post('/api/openclaw/settings', (req, res) => {
     newsWeight,
     tradingProfile,
     stoplossAtrMultiplier,
-    strictTrendFilter
+    strictTrendFilter,
+    smcSniperMode
   } = req.body;
 
   const params = [
@@ -4194,7 +4412,8 @@ app.post('/api/openclaw/settings', (req, res) => {
     { key: 'news_weight', val: String(newsWeight !== undefined ? newsWeight : 20) },
     { key: 'trading_profile', val: tradingProfile || 'intraday_scalper' },
     { key: 'stoploss_atr_multiplier', val: String(stoplossAtrMultiplier || 1.5) },
-    { key: 'strict_trend_filter', val: strictTrendFilter === false ? 'false' : 'true' }
+    { key: 'strict_trend_filter', val: strictTrendFilter === false ? 'false' : 'true' },
+    { key: 'smc_sniper_mode', val: smcSniperMode ? 'true' : 'false' }
   ];
 
   db.serialize(() => {

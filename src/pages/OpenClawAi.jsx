@@ -39,6 +39,7 @@ const OpenClawAi = () => {
   const [autoAlertsInterval, setAutoAlertsInterval] = useState(5);
   const [autoAlertsMinConfidence, setAutoAlertsMinConfidence] = useState(75);
   const [strictTrendFilter, setStrictTrendFilter] = useState(true);
+  const [smcSniperMode, setSmcSniperMode] = useState(false);
   const [notificationStatus, setNotificationStatus] = useState({ type: '', message: '' });
   const [schedulerLogs, setSchedulerLogs] = useState([]);
   const [logTab, setLogTab] = useState('background');
@@ -184,6 +185,9 @@ const OpenClawAi = () => {
           if (result.settings.strictTrendFilter !== undefined) {
             setStrictTrendFilter(result.settings.strictTrendFilter);
           }
+          if (result.settings.smcSniperMode !== undefined) {
+            setSmcSniperMode(result.settings.smcSniperMode);
+          }
 
           // Check if DB is empty but localStorage has legacy settings
           const localTgToken = localStorage.getItem('openclaw_tg_token') || '';
@@ -228,10 +232,13 @@ const OpenClawAi = () => {
             setAutoAlertsInterval(result.settings.autoAlertsInterval || 5);
             setAutoAlertsMinConfidence(result.settings.autoAlertsMinConfidence || 75);
             if (result.settings.stoplossAtrMultiplier !== undefined) {
-              setAtrMultiplierSl(result.settings.stoplossAtrMultiplier);
+               setAtrMultiplierSl(result.settings.stoplossAtrMultiplier);
             }
             if (result.settings.strictTrendFilter !== undefined) {
               setStrictTrendFilter(result.settings.strictTrendFilter);
+            }
+            if (result.settings.smcSniperMode !== undefined) {
+              setSmcSniperMode(result.settings.smcSniperMode);
             }
           }
         }
@@ -261,7 +268,8 @@ const OpenClawAi = () => {
       newsWeight: updated.newsWeight !== undefined ? updated.newsWeight : newsWeight,
       tradingProfile: updated.tradingProfile !== undefined ? updated.tradingProfile : tradingProfile,
       stoplossAtrMultiplier: updated.stoplossAtrMultiplier !== undefined ? updated.stoplossAtrMultiplier : atrMultiplierSl,
-      strictTrendFilter: updated.strictTrendFilter !== undefined ? updated.strictTrendFilter : strictTrendFilter
+      strictTrendFilter: updated.strictTrendFilter !== undefined ? updated.strictTrendFilter : strictTrendFilter,
+      smcSniperMode: updated.smcSniperMode !== undefined ? updated.smcSniperMode : smcSniperMode
     };
 
     // Also update localStorage as a backup
@@ -387,6 +395,11 @@ const OpenClawAi = () => {
   const handleStrictTrendFilterChange = (val) => {
     setStrictTrendFilter(val);
     saveSettings({ strictTrendFilter: val });
+  };
+
+  const handleSmcSniperModeChange = (val) => {
+    setSmcSniperMode(val);
+    saveSettings({ smcSniperMode: val });
   };
 
   const sendTestNotification = async () => {
@@ -857,6 +870,37 @@ const OpenClawAi = () => {
                       position: 'absolute', content: '""', height: '14px', width: '14px', left: '3px', bottom: '3px',
                       backgroundColor: 'white', transition: '.4s', borderRadius: '50%',
                       transform: strictTrendFilter ? 'translateX(18px)' : 'translateX(0px)'
+                    }}></span>
+                  </span>
+                </label>
+              </div>
+            </div>
+            <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', color: smcSniperMode ? '#a855f7' : 'var(--text-secondary)' }}>
+                    {smcSniperMode ? '🎯 SMC Sniper Mode: ON' : '⚙️ SMC Sniper Mode: OFF'}
+                  </span>
+                  <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.1rem' }}>
+                    SMC Institutional Sniper Mode (90%+ Win Rate Focus)
+                  </span>
+                </div>
+                <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '38px', height: '20px' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={smcSniperMode}
+                    onChange={(e) => handleSmcSniperModeChange(e.target.checked)}
+                    style={{ opacity: 0, width: 0, height: 0 }}
+                  />
+                  <span style={{
+                    position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundColor: smcSniperMode ? '#a855f7' : '#30363d',
+                    transition: '.4s', borderRadius: '20px'
+                  }}>
+                    <span style={{
+                      position: 'absolute', content: '""', height: '14px', width: '14px', left: '3px', bottom: '3px',
+                      backgroundColor: 'white', transition: '.4s', borderRadius: '50%',
+                      transform: smcSniperMode ? 'translateX(18px)' : 'translateX(0px)'
                     }}></span>
                   </span>
                 </label>

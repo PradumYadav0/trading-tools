@@ -1788,7 +1788,9 @@ function calculateSMC(candles) {
       structureBreakPrice: 0,
       bullishOrderBlock: null,
       bearishOrderBlock: null,
-      fvgZones: []
+      fvgZones: [],
+      isVolumeSurge: false,
+      liquiditySweep: null
     };
   }
 
@@ -1861,7 +1863,8 @@ function calculateSMC(candles) {
     }
   }
 
-  // 3. Find Order Blocks (OB)
+  // 3. Find Order Blocks (OB) with Invalidation Check
+  // An OB is INVALID if price has fully penetrated through it after formation
   let bullishOrderBlock = null;
   let bearishOrderBlock = null;
 
@@ -1877,13 +1880,25 @@ function calculateSMC(candles) {
           j--;
         }
         if (j >= 0) {
-          bullishOrderBlock = {
-            high: parseFloat(candles[j].high.toFixed(2)),
-            low: parseFloat(candles[j].low.toFixed(2)),
-            price: parseFloat(candles[j].close.toFixed(2)),
-            time: candles[j].time,
-            volume: candles[j].volume
-          };
+          const obLow = candles[j].low;
+          // OB Invalidation check: if any subsequent candle closed BELOW the OB low, OB is invalid
+          let isValid = true;
+          for (let k = j + 1; k < candles.length; k++) {
+            if (candles[k].close < obLow) {
+              isValid = false;
+              break;
+            }
+          }
+          if (isValid) {
+            bullishOrderBlock = {
+              high: parseFloat(candles[j].high.toFixed(2)),
+              low: parseFloat(obLow.toFixed(2)),
+              price: parseFloat(candles[j].close.toFixed(2)),
+              time: candles[j].time,
+              volume: candles[j].volume,
+              isValid: true
+            };
+          }
         }
       } else if (candles[i].close < candles[i].open && !bearishOrderBlock) {
         let j = i - 1;
@@ -1891,13 +1906,25 @@ function calculateSMC(candles) {
           j--;
         }
         if (j >= 0) {
-          bearishOrderBlock = {
-            high: parseFloat(candles[j].high.toFixed(2)),
-            low: parseFloat(candles[j].low.toFixed(2)),
-            price: parseFloat(candles[j].close.toFixed(2)),
-            time: candles[j].time,
-            volume: candles[j].volume
-          };
+          const obHigh = candles[j].high;
+          // OB Invalidation check: if any subsequent candle closed ABOVE the OB high, OB is invalid
+          let isValid = true;
+          for (let k = j + 1; k < candles.length; k++) {
+            if (candles[k].close > obHigh) {
+              isValid = false;
+              break;
+            }
+          }
+          if (isValid) {
+            bearishOrderBlock = {
+              high: parseFloat(obHigh.toFixed(2)),
+              low: parseFloat(candles[j].low.toFixed(2)),
+              price: parseFloat(candles[j].close.toFixed(2)),
+              time: candles[j].time,
+              volume: candles[j].volume,
+              isValid: true
+            };
+          }
         }
       }
     }
@@ -1927,6 +1954,32 @@ function calculateSMC(candles) {
     }
   }
 
+  // 5. Volume Surge Detection (latest candle vs 10-candle average)
+  const last10Vols = candles.slice(-11, -1).map(c => c.volume || 0);
+  const avgVol10 = last10Vols.length > 0 ? last10Vols.reduce((a, b) => a + b, 0) / last10Vols.length : 0;
+  const latestVol = candles[candles.length - 1].volume || 0;
+  const isVolumeSurge = avgVol10 > 0 && latestVol > 1.5 * avgVol10;
+
+  // 6. Liquidity Sweep Detection (last 5 candles)
+  // A sweep is when price briefly exceeds a recent swing high/low and reverses (wick beyond, body back)
+  let liquiditySweep = null;
+  const recentCandles = candles.slice(-5);
+  for (let i = 0; i < recentCandles.length; i++) {
+    const c = recentCandles[i];
+    const bodyTop = Math.max(c.open, c.close);
+    const bodyBot = Math.min(c.open, c.close);
+    const upperWick = c.high - bodyTop;
+    const lowerWick = bodyBot - c.low;
+    // Bullish liquidity sweep: long lower wick (wick >= 1.5x body) = swept sell-side liquidity
+    if (lowerWick > 0 && (bodyTop - bodyBot) > 0 && lowerWick >= 1.5 * (bodyTop - bodyBot) && c.close > c.open) {
+      liquiditySweep = { type: 'BULLISH_SWEEP', price: parseFloat(c.low.toFixed(2)), time: c.time };
+    }
+    // Bearish liquidity sweep: long upper wick = swept buy-side liquidity
+    else if (upperWick > 0 && (bodyTop - bodyBot) > 0 && upperWick >= 1.5 * (bodyTop - bodyBot) && c.close < c.open) {
+      liquiditySweep = { type: 'BEARISH_SWEEP', price: parseFloat(c.high.toFixed(2)), time: c.time };
+    }
+  }
+
   return {
     bosDetected,
     chochDetected,
@@ -1934,9 +1987,12 @@ function calculateSMC(candles) {
     structureBreakPrice: parseFloat(structureBreakPrice.toFixed(2)),
     bullishOrderBlock,
     bearishOrderBlock,
-    fvgZones: fvgZones.slice(-3)
+    fvgZones: fvgZones.slice(-3),
+    isVolumeSurge,
+    liquiditySweep
   };
 }
+
 
 function calculateDailyVWAP(candles, spotPrice) {
   if (!candles || candles.length === 0) return spotPrice;
@@ -3056,13 +3112,16 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
   3. A Break of Structure (BOS) or Change of Character (CHoCH) must support the direction.
   4. Institutional Volume Surge ("YES") is active.
 - If these criteria are not met, you MUST return "action": "WAIT". It is better to have zero trades for days than a low probability entry.
+- Your confidence score MUST be >= 90 for any CALL or PUT signal in this mode. If below 90, return WAIT.
 
 *SMC ALGORITHMIC CALCULATIONS:*
 - Market Structure State: ${smcData.marketStructure}
   * Structure Break Active: ${smcData.bosDetected ? 'BOS (Break of Structure) DETECTED' : smcData.chochDetected ? 'CHoCH (Change of Character) DETECTED' : 'None'} (Break Price: ${smcData.structureBreakPrice})
-- Bullish Order Block (Demand): ${smcData.bullishOrderBlock ? `High: ${smcData.bullishOrderBlock.high}, Low: ${smcData.bullishOrderBlock.low}, Price: ${smcData.bullishOrderBlock.price}` : 'None'}
-- Bearish Order Block (Supply): ${smcData.bearishOrderBlock ? `High: ${smcData.bearishOrderBlock.high}, Low: ${smcData.bearishOrderBlock.low}, Price: ${smcData.bearishOrderBlock.price}` : 'None'}
+- Bullish Order Block (Demand Zone): ${smcData.bullishOrderBlock ? `High: ${smcData.bullishOrderBlock.high}, Low: ${smcData.bullishOrderBlock.low}, Status: VALID` : 'None (or Invalidated)'}
+- Bearish Order Block (Supply Zone): ${smcData.bearishOrderBlock ? `High: ${smcData.bearishOrderBlock.high}, Low: ${smcData.bearishOrderBlock.low}, Status: VALID` : 'None (or Invalidated)'}
 - Fair Value Gaps (FVG Imbalances): ${smcData.fvgZones.length > 0 ? smcData.fvgZones.map(f => `${f.type} FVG: Top ${f.top}, Bottom ${f.bottom} (Gap ${f.gap})`).join(' | ') : 'None'}
+- Volume Surge (Institutional Activity): ${smcData.isVolumeSurge ? 'YES - Institutional volume detected on last candle' : 'NO - Low volume, no institutional confirmation'}
+- Liquidity Sweep: ${smcData.liquiditySweep ? `${smcData.liquiditySweep.type} detected at ${smcData.liquiditySweep.price} — strong reversal signal` : 'None detected'}
 `;
   }
 
@@ -3460,12 +3519,14 @@ INSTRUCTIONS FOR WRITING:
   }
 
   // Extra layer check for Sniper Mode to enforce "One Quality Trade Per Day"
+  // NOTE: EXPIRED signals do NOT count — only real trades (PENDING/SUCCESS/FAILED/CLOSED) block re-entry
   if (isSmcSniperMode && (parsedResult.action === 'CALL' || parsedResult.action === 'PUT')) {
     const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
     const hasTradeToday = await new Promise((resolve) => {
       db.get(
-        `SELECT id FROM ai_signals 
+        `SELECT id, status FROM ai_signals 
          WHERE symbol = ? AND source = 'OPENCLAW' 
+           AND status IN ('PENDING', 'SUCCESS', 'FAILED', 'CLOSED')
            AND date(created_at, '+5.5 hours') = ?`,
         [symbolStr, todayIst],
         (err, row) => {
@@ -3537,7 +3598,8 @@ INSTRUCTIONS FOR WRITING:
       vPcrDirection,
       swingHigh,
       swingLow,
-      activeSignal
+      activeSignal,
+      smcData  // SMC calculations included for alert message enrichment
     }
   };
 }
@@ -3856,7 +3918,12 @@ const updatePendingSignals = () => {
                       db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [rideStoploss, row.id], (updErr) => {
                         if (!updErr) {
                           console.log(`[Profit-Ride] Trailed stoploss to ${rideStoploss.toFixed(2)} beyond Target 2 for CLAW-${row.symbol}-${row.id} CALL.`);
-                          sendTrailingSlNotifications(row.symbol, row, rideStoploss, settings);
+                          // Only notify if signal is at least 2 minutes old (BUY alert already sent)
+                          if (signalAgeMin >= 2) {
+                            sendTrailingSlNotifications(row.symbol, row, rideStoploss, settings);
+                          } else {
+                            console.log(`[Profit-Ride] Trail SL notification skipped for CLAW-${row.symbol}-${row.id} — signal too new (${signalAgeMin.toFixed(1)} min < 2 min).`);
+                          }
                         }
                       });
                     }
@@ -3865,26 +3932,35 @@ const updatePendingSignals = () => {
                       newStatus = 'SUCCESS';
                     }
                   } else {
-                    // 2. Trailing Stoploss logic before reaching Target 2
+                    // 2. Trailing Stoploss logic before reaching Target 2 (only for OPENCLAW signals)
                     // Target 1 Trail to Entry
-                    if (targetDiff > 0 && currentSpot >= target1 && currentStoploss < row.entry_price) {
+                    if (row.source === 'OPENCLAW' && targetDiff > 0 && currentSpot >= target1 && currentStoploss < row.entry_price) {
                       currentStoploss = row.entry_price;
                       row.stoploss_price = row.entry_price; // update memory row
                       db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [row.entry_price, row.id], (updErr) => {
                         if (!updErr) {
                           console.log(`[Auto-Trail] Trailed stoploss to break-even (${row.entry_price.toFixed(2)}) for CLAW-${row.symbol}-${row.id} CALL.`);
-                          sendTrailingSlNotifications(row.symbol, row, row.entry_price, settings);
+                          // Only notify if signal is at least 2 minutes old (ensures BUY alert was already sent)
+                          if (signalAgeMin >= 2) {
+                            sendTrailingSlNotifications(row.symbol, row, row.entry_price, settings);
+                          } else {
+                            console.log(`[Auto-Trail] Trail SL notification skipped for CLAW-${row.symbol}-${row.id} — signal too new (${signalAgeMin.toFixed(1)} min < 2 min).`);
+                          }
                         }
                       });
                     }
                     // Target 1.5 Trail to Target 1 (50% profit lock)
-                    else if (targetDiff > 0 && currentSpot >= target1_5 && currentStoploss < target1) {
+                    else if (row.source === 'OPENCLAW' && targetDiff > 0 && currentSpot >= target1_5 && currentStoploss < target1) {
                       currentStoploss = target1;
                       row.stoploss_price = target1; // update memory row
                       db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [target1, row.id], (updErr) => {
                         if (!updErr) {
                           console.log(`[Auto-Trail-1.5] Locked 50% profit: Trailed stoploss to Target 1 (${target1.toFixed(2)}) for CLAW-${row.symbol}-${row.id} CALL.`);
-                          sendTrailingSlNotifications(row.symbol, row, target1, settings);
+                          if (signalAgeMin >= 2) {
+                            sendTrailingSlNotifications(row.symbol, row, target1, settings);
+                          } else {
+                            console.log(`[Auto-Trail-1.5] Trail SL notification skipped for CLAW-${row.symbol}-${row.id} — signal too new (${signalAgeMin.toFixed(1)} min < 2 min).`);
+                          }
                         }
                       });
                     }
@@ -3920,7 +3996,11 @@ const updatePendingSignals = () => {
                       db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [rideStoploss, row.id], (updErr) => {
                         if (!updErr) {
                           console.log(`[Profit-Ride] Trailed stoploss to ${rideStoploss.toFixed(2)} beyond Target 2 for CLAW-${row.symbol}-${row.id} PUT.`);
-                          sendTrailingSlNotifications(row.symbol, row, rideStoploss, settings);
+                          if (signalAgeMin >= 2) {
+                            sendTrailingSlNotifications(row.symbol, row, rideStoploss, settings);
+                          } else {
+                            console.log(`[Profit-Ride] Trail SL notification skipped for CLAW-${row.symbol}-${row.id} — signal too new (${signalAgeMin.toFixed(1)} min < 2 min).`);
+                          }
                         }
                       });
                     }
@@ -3929,26 +4009,34 @@ const updatePendingSignals = () => {
                       newStatus = 'SUCCESS';
                     }
                   } else {
-                    // 2. Trailing Stoploss logic before reaching Target 2
+                    // 2. Trailing Stoploss logic before reaching Target 2 (only for OPENCLAW signals)
                     // Target 1 Trail to Entry
-                    if (targetDiff > 0 && currentSpot <= target1 && currentStoploss > row.entry_price) {
+                    if (row.source === 'OPENCLAW' && targetDiff > 0 && currentSpot <= target1 && currentStoploss > row.entry_price) {
                       currentStoploss = row.entry_price;
                       row.stoploss_price = row.entry_price; // update memory row
                       db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [row.entry_price, row.id], (updErr) => {
                         if (!updErr) {
                           console.log(`[Auto-Trail] Trailed stoploss to break-even (${row.entry_price.toFixed(2)}) for CLAW-${row.symbol}-${row.id} PUT.`);
-                          sendTrailingSlNotifications(row.symbol, row, row.entry_price, settings);
+                          if (signalAgeMin >= 2) {
+                            sendTrailingSlNotifications(row.symbol, row, row.entry_price, settings);
+                          } else {
+                            console.log(`[Auto-Trail] Trail SL notification skipped for CLAW-${row.symbol}-${row.id} — signal too new (${signalAgeMin.toFixed(1)} min < 2 min).`);
+                          }
                         }
                       });
                     }
                     // Target 1.5 Trail to Target 1 (50% profit lock)
-                    else if (targetDiff > 0 && currentSpot <= target1_5 && currentStoploss > target1) {
+                    else if (row.source === 'OPENCLAW' && targetDiff > 0 && currentSpot <= target1_5 && currentStoploss > target1) {
                       currentStoploss = target1;
                       row.stoploss_price = target1; // update memory row
                       db.run(`UPDATE ai_signals SET stoploss_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [target1, row.id], (updErr) => {
                         if (!updErr) {
                           console.log(`[Auto-Trail-1.5] Locked 50% profit: Trailed stoploss to Target 1 (${target1.toFixed(2)}) for CLAW-${row.symbol}-${row.id} PUT.`);
-                          sendTrailingSlNotifications(row.symbol, row, target1, settings);
+                          if (signalAgeMin >= 2) {
+                            sendTrailingSlNotifications(row.symbol, row, target1, settings);
+                          } else {
+                            console.log(`[Auto-Trail-1.5] Trail SL notification skipped for CLAW-${row.symbol}-${row.id} — signal too new (${signalAgeMin.toFixed(1)} min < 2 min).`);
+                          }
                         }
                       });
                     }
@@ -4600,25 +4688,39 @@ async function triggerOpenClawBackgroundAlerts() {
 
         // Check if there is an active signal running and handle early exits / trailing stoplosses
         if (activeSignal && actionData.activeTradeAction) {
+          logToBackground(`[Active Trade] Signal ID ${activeSignal.id} (source=OPENCLAW) is PENDING. activeTradeAction=${actionData.activeTradeAction}, currentSL=${activeSignal.stoploss_price}, newSL=${actionData.newStoploss}`, 'info');
+
           if (actionData.activeTradeAction === 'EXIT_EARLY') {
             logToBackground(`[Active Trade] OpenClaw AI recommended EXIT_EARLY for ${symbol} (Signal ID: ${activeSignal.id}).`, 'warning');
             await closeActiveSignalEarly(activeSignal.id, indicators.spotPrice, 'FAILED');
             await sendEarlyExitNotifications(symbol, activeSignal, indicators.spotPrice, settings, actionData.reasoning?.[0] || 'Trend reversal detected by AI.');
           } else if (actionData.activeTradeAction === 'TRAIL_SL' && actionData.newStoploss) {
             const newSL = parseFloat(actionData.newStoploss);
-            if (newSL && newSL !== activeSignal.stoploss_price) {
-              logToBackground(`[Active Trade] OpenClaw AI trailed stoploss for ${symbol} from ${activeSignal.stoploss_price} to ${newSL}.`, 'success');
+            const oldSL = parseFloat(activeSignal.stoploss_price) || 0;
+            // Guard: newSL must be a valid number, and must have moved by at least 1 point from current stoploss
+            const slMovement = Math.abs(newSL - oldSL);
+            if (newSL && !isNaN(newSL) && slMovement >= 1) {
+              logToBackground(`[Active Trade] OpenClaw AI trailed stoploss for ${symbol} from ${oldSL} to ${newSL} (moved ${slMovement.toFixed(2)} pts). Sending alert.`, 'success');
               await updateActiveSignalStoploss(activeSignal.id, newSL);
               await sendTrailingSlNotifications(symbol, activeSignal, newSL, settings);
+            } else {
+              logToBackground(`[Active Trade] Trail SL skipped for ${symbol} — movement too small or invalid (oldSL=${oldSL}, newSL=${newSL}, moved=${slMovement.toFixed(2)} pts, min=1pt).`, 'info');
             }
           }
         }
 
-        if ((actionData.action === 'CALL' || actionData.action === 'PUT') && actionData.confidence >= minConfidence) {
-          logToBackground(`🚨 Strong signal detected for ${symbol}: ${actionData.action} (${actionData.confidence}%)`, 'success');
+        // SMC Sniper Mode: enforce minimum 90% confidence regardless of user setting
+        const effectiveMinConf = (settings['smc_sniper_mode'] === 'true')
+          ? Math.max(minConfidence, 90)
+          : minConfidence;
+
+        if ((actionData.action === 'CALL' || actionData.action === 'PUT') && actionData.confidence >= effectiveMinConf) {
+          logToBackground(`🚨 Strong signal detected for ${symbol}: ${actionData.action} (${actionData.confidence}%) [Min required: ${effectiveMinConf}%]`, 'success');
           // Save to DB FIRST to get the unique Trade ID, then send alert with that ID
           const signalId = await saveOpenClawSignalToDb(symbol, actionData, indicators.spotPrice);
           await sendOpenClawNotifications(symbol, actionData, settings, indicators, signalId);
+        } else if ((actionData.action === 'CALL' || actionData.action === 'PUT') && actionData.confidence < effectiveMinConf) {
+          logToBackground(`[Filtered] ${symbol} ${actionData.action} signal at ${actionData.confidence}% skipped — below ${effectiveMinConf}% threshold${settings['smc_sniper_mode'] === 'true' ? ' (SMC 90% mode)' : ''}.`, 'info');
         }
       } catch (err) {
         logToBackground(`Error scanning ${symbol}: ${err.message}`, 'error');
@@ -4687,6 +4789,27 @@ async function sendOpenClawNotifications(symbol, actionData, settings, indicator
     ? `🎯 *OpenClaw SMC Sniper Trade Alert* 🎯` 
     : `🚨 *OpenClaw AI Trade Alert* 🚨`;
 
+  // SMC-specific details for the message
+  let smcDetails = '';
+  if (isSMC && indicators.smcData) {
+    const smc = indicators.smcData;
+    const obZone = actionData.action === 'CALL'
+      ? (smc.bullishOrderBlock ? `${smc.bullishOrderBlock.low} - ${smc.bullishOrderBlock.high}` : 'N/A')
+      : (smc.bearishOrderBlock ? `${smc.bearishOrderBlock.low} - ${smc.bearishOrderBlock.high}` : 'N/A');
+    const fvgInfo = smc.fvgZones.length > 0
+      ? smc.fvgZones.map(f => `${f.type === 'BULLISH' ? '🟢' : '🔴'} ${f.bottom}-${f.top}`).join(', ')
+      : 'None';
+    const sweepInfo = smc.liquiditySweep
+      ? `${smc.liquiditySweep.type === 'BULLISH_SWEEP' ? '🟢 Bullish' : '🔴 Bearish'} sweep @ ${smc.liquiditySweep.price}`
+      : 'None';
+    smcDetails = `\n📐 *SMC Confluence Data*:\n` +
+      `  • Structure: ${escapeTgMd(smc.marketStructure)}\n` +
+      `  • ${actionData.action === 'CALL' ? 'Demand' : 'Supply'} OB Zone: ${escapeTgMd(obZone)}\n` +
+      `  • FVG Zones: ${escapeTgMd(fvgInfo)}\n` +
+      `  • Liquidity Sweep: ${escapeTgMd(sweepInfo)}\n` +
+      `  • Inst. Volume: ${smc.isVolumeSurge ? '✅ YES' : '❌ NO'}\n`;
+  }
+
   const messageContent = `${alertHeader}\n\n` +
     `*Trade ID*: \`${tradeIdStr}\`\n` +
     `*Symbol*: ${symbol}\n` +
@@ -4705,8 +4828,9 @@ async function sendOpenClawNotifications(symbol, actionData, settings, indicator
     `*Target 1*: ${target1}\n` +
     `*Target 2*: ${target2}\n` +
     `*Stoploss*: ${stoploss}\n` +
-    `*Time (IST)*: ${currentTime}\n\n` +
-    optionDetails +
+    `*Time (IST)*: ${currentTime}\n` +
+    smcDetails +
+    `\n` + optionDetails +
     `*AI Summary*: ${aiSummary}\n\n` +
     `🤖 Powered by OpenClaw AI Multi\-Agent Engine.`;
 

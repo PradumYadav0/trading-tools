@@ -1958,7 +1958,8 @@ function calculateSMC(candles) {
   const last10Vols = candles.slice(-11, -1).map(c => c.volume || 0);
   const avgVol10 = last10Vols.length > 0 ? last10Vols.reduce((a, b) => a + b, 0) / last10Vols.length : 0;
   const latestVol = candles[candles.length - 1].volume || 0;
-  const isVolumeSurge = avgVol10 > 0 && latestVol > 1.5 * avgVol10;
+  // If avgVol10 is 1 or less, actual volume data is not available (common for index charts). Default to true to prevent blocking.
+  const isVolumeSurge = avgVol10 <= 1 ? true : (avgVol10 > 0 && latestVol > 1.5 * avgVol10);
 
   // 6. Liquidity Sweep Detection (last 5 candles)
   // A sweep is when price briefly exceeds a recent swing high/low and reverses (wick beyond, body back)
@@ -2023,7 +2024,7 @@ function calculateDailyVWAP(candles, spotPrice) {
   return spotPrice;
 }
 
-function sanitizeOpenClawResult(parsed, spotPrice, atr, symbol, atrMultiplier, indicators) {
+function sanitizeOpenClawResult(parsed, spotPrice, atr, symbol, atrMultiplier, indicators, settings) {
   if (parsed.action !== 'CALL' && parsed.action !== 'PUT') {
     return parsed;
   }
@@ -2051,189 +2052,193 @@ function sanitizeOpenClawResult(parsed, spotPrice, atr, symbol, atrMultiplier, i
   } = indicators;
 
   const spotPriceNum = parseFloat(spotPrice);
-  const isTrendFollowing = parsed.strategyUsed === 'TREND_FOLLOWING';
+  const isStrictTrendFilterEnabled = !settings || settings['strict_trend_filter'] !== 'false';
 
-  // --- LAYER 1: Multi-Timeframe Trend & VWAP Alignment (Confluence Filters) ---
-  if (parsed.action === 'CALL') {
-    // 1. Enforce daily VWAP check
-    if (dailyVwap && spotPriceNum <= dailyVwap) {
-      console.log(`[OpenClaw Filter] Blocked CALL on ${symbol} because Spot (${spotPriceNum}) is below daily VWAP (${dailyVwap})`);
+  if (isStrictTrendFilterEnabled) {
+    const isTrendFollowing = parsed.strategyUsed === 'TREND_FOLLOWING';
+
+    // --- LAYER 1: Multi-Timeframe Trend & VWAP Alignment (Confluence Filters) ---
+    if (parsed.action === 'CALL') {
+      // 1. Enforce daily VWAP check
+      if (dailyVwap && spotPriceNum <= dailyVwap) {
+        console.log(`[OpenClaw Filter] Blocked CALL on ${symbol} because Spot (${spotPriceNum}) is below daily VWAP (${dailyVwap})`);
+        parsed.action = 'WAIT';
+        parsed.strategyUsed = 'SIT_OUT';
+        parsed.summary = `[VWAP FILTER BLOCK] CALL blocked. Price is trading below daily VWAP (${dailyVwap}). Bullish trades are low probability below VWAP.`;
+        clearOptionDetails(parsed);
+        return parsed;
+      }
+      // 2. Swing High Filter - Block CALL if price is trapped below fresh chart resistance
+      if (swingHigh && spotPriceNum < swingHigh && spotPriceNum >= swingHigh * (1 - 0.0012)) {
+        console.log(`[OpenClaw Filter] Blocked CALL on ${symbol} - Spot (${spotPriceNum}) is within 0.12% below Swing High resistance (${swingHigh}). Awaiting breakout.`);
+        parsed.action = 'WAIT';
+        parsed.strategyUsed = 'SIT_OUT';
+        parsed.summary = `[SWING HIGH FILTER] CALL blocked. Spot price (${spotPriceNum}) is too close to recent Swing High resistance (${swingHigh}). Buying into resistance is low probability. Wait for breakout above ${swingHigh}.`;
+        clearOptionDetails(parsed);
+        return parsed;
+      }
+      // 3. Enforce Multi-Timeframe Trend Confluence (1H, 15M, 5M)
+      if (isTrendFollowing && (hourlyTrend === 'BEARISH' || majorTrend === 'BEARISH' || !isShortTermBullish)) {
+        const stTrend = isShortTermBullish ? 'BULLISH' : 'BEARISH/NEUTRAL';
+        console.log(`[OpenClaw Filter] Blocked CALL on ${symbol} due to trend misalignment (1H: ${hourlyTrend}, 15M: ${majorTrend}, 5M: ${stTrend})`);
+        parsed.action = 'WAIT';
+        parsed.strategyUsed = 'SIT_OUT';
+        parsed.summary = `[TREND CONFLUENCE BLOCK] CALL blocked. Hourly (1H: ${hourlyTrend}), 15-Minute (15M: ${majorTrend}), and 5-Minute trends must all align bullishly.`;
+        clearOptionDetails(parsed);
+        return parsed;
+      }
+    } else if (parsed.action === 'PUT') {
+      // 1. Enforce daily VWAP check
+      if (dailyVwap && spotPriceNum >= dailyVwap) {
+        console.log(`[OpenClaw Filter] Blocked PUT on ${symbol} because Spot (${spotPriceNum}) is above daily VWAP (${dailyVwap})`);
+        parsed.action = 'WAIT';
+        parsed.strategyUsed = 'SIT_OUT';
+        parsed.summary = `[VWAP FILTER BLOCK] PUT blocked. Price is trading above daily VWAP (${dailyVwap}). Bearish trades are low probability above VWAP.`;
+        clearOptionDetails(parsed);
+        return parsed;
+      }
+      // 2. Swing Low Filter - Block PUT if price is sitting directly on fresh chart support
+      if (swingLow && spotPriceNum > swingLow && spotPriceNum <= swingLow * (1 + 0.0012)) {
+        console.log(`[OpenClaw Filter] Blocked PUT on ${symbol} - Spot (${spotPriceNum}) is within 0.12% above Swing Low support (${swingLow}). Awaiting breakdown.`);
+        parsed.action = 'WAIT';
+        parsed.strategyUsed = 'SIT_OUT';
+        parsed.summary = `[SWING LOW FILTER] PUT blocked. Spot price (${spotPriceNum}) is too close to recent Swing Low support (${swingLow}). Selling into support is low probability. Wait for breakdown below ${swingLow}.`;
+        clearOptionDetails(parsed);
+        return parsed;
+      }
+      // 3. Enforce Multi-Timeframe Trend Confluence (1H, 15M, 5M)
+      if (isTrendFollowing && (hourlyTrend === 'BULLISH' || majorTrend === 'BULLISH' || !isShortTermBearish)) {
+        const stTrend = isShortTermBearish ? 'BEARISH' : 'BULLISH/NEUTRAL';
+        console.log(`[OpenClaw Filter] Blocked PUT on ${symbol} due to trend misalignment (1H: ${hourlyTrend}, 15M: ${majorTrend}, 5M: ${stTrend})`);
+        parsed.action = 'WAIT';
+        parsed.strategyUsed = 'SIT_OUT';
+        parsed.summary = `[TREND CONFLUENCE BLOCK] PUT blocked. Hourly (1H: ${hourlyTrend}), 15-Minute (15M: ${majorTrend}), and 5-Minute trends must all align bearishly.`;
+        clearOptionDetails(parsed);
+        return parsed;
+      }
+    }
+
+    // --- LAYER 2: Support & Resistance Proximity Block ---
+    if (parsed.action === 'CALL' && resistanceStrike) {
+      const resStrikeNum = parseFloat(resistanceStrike);
+      const distPercent = (resStrikeNum - spotPriceNum) / spotPriceNum;
+      if (spotPriceNum <= resStrikeNum && distPercent <= 0.0015 && !shortCoveringDetected) {
+        console.log(`[OpenClaw Filter] Blocked CALL on ${symbol} due to Resistance Proximity (${resStrikeNum}, Spot: ${spotPriceNum})`);
+        parsed.action = 'WAIT';
+        parsed.strategyUsed = 'SIT_OUT';
+        parsed.summary = `[RESISTANCE BLOCK] CALL blocked. Price is too close to major resistance strike (${resStrikeNum}). Waiting for a confirmed breakout.`;
+        clearOptionDetails(parsed);
+        return parsed;
+      }
+    }
+    if (parsed.action === 'PUT' && supportStrike) {
+      const supStrikeNum = parseFloat(supportStrike);
+      const distPercent = (spotPriceNum - supStrikeNum) / spotPriceNum;
+      if (spotPriceNum >= supStrikeNum && distPercent <= 0.0015 && !longUnwindingDetected) {
+        console.log(`[OpenClaw Filter] Blocked PUT on ${symbol} due to Support Proximity (${supStrikeNum}, Spot: ${spotPriceNum})`);
+        parsed.action = 'WAIT';
+        parsed.strategyUsed = 'SIT_OUT';
+        parsed.summary = `[SUPPORT BLOCK] PUT blocked. Price is too close to major support strike (${supStrikeNum}). Waiting for a confirmed breakdown.`;
+        clearOptionDetails(parsed);
+        return parsed;
+      }
+    }
+
+    // --- LAYER 3: RSI Overbought/Oversold Filter ---
+    const rsiVal = parseFloat(lastRsi);
+    if (parsed.action === 'CALL' && rsiVal > 70) {
+      console.log(`[OpenClaw Filter] Blocked CALL on ${symbol} due to Overbought RSI (${rsiVal})`);
       parsed.action = 'WAIT';
       parsed.strategyUsed = 'SIT_OUT';
-      parsed.summary = `[VWAP FILTER BLOCK] CALL blocked. Price is trading below daily VWAP (${dailyVwap}). Bullish trades are low probability below VWAP.`;
+      parsed.summary = `[RSI OVERBOUGHT BLOCK] CALL blocked. RSI is extremely overbought (${rsiVal.toFixed(1)}). Buying here is very high risk.`;
       clearOptionDetails(parsed);
       return parsed;
     }
-    // 2. Swing High Filter - Block CALL if price is trapped below fresh chart resistance
-    if (swingHigh && spotPriceNum < swingHigh && spotPriceNum >= swingHigh * (1 - 0.0012)) {
-      console.log(`[OpenClaw Filter] Blocked CALL on ${symbol} - Spot (${spotPriceNum}) is within 0.12% below Swing High resistance (${swingHigh}). Awaiting breakout.`);
+    if (parsed.action === 'PUT' && rsiVal < 30) {
+      console.log(`[OpenClaw Filter] Blocked PUT on ${symbol} due to Oversold RSI (${rsiVal})`);
       parsed.action = 'WAIT';
       parsed.strategyUsed = 'SIT_OUT';
-      parsed.summary = `[SWING HIGH FILTER] CALL blocked. Spot price (${spotPriceNum}) is too close to recent Swing High resistance (${swingHigh}). Buying into resistance is low probability. Wait for breakout above ${swingHigh}.`;
+      parsed.summary = `[RSI OVERSOLD BLOCK] PUT blocked. RSI is extremely oversold (${rsiVal.toFixed(1)}). Selling here is very high risk.`;
       clearOptionDetails(parsed);
       return parsed;
     }
-    // 3. Enforce Multi-Timeframe Trend Confluence (1H, 15M, 5M)
-    if (isTrendFollowing && (hourlyTrend === 'BEARISH' || majorTrend === 'BEARISH' || !isShortTermBullish)) {
-      const stTrend = isShortTermBullish ? 'BULLISH' : 'BEARISH/NEUTRAL';
-      console.log(`[OpenClaw Filter] Blocked CALL on ${symbol} due to trend misalignment (1H: ${hourlyTrend}, 15M: ${majorTrend}, 5M: ${stTrend})`);
+
+    // --- LAYER 4: Volume Surge Validation (Breakout Confirm) ---
+    if (isTrendFollowing && !isVolumeSpiked) {
+      console.log(`[OpenClaw Filter] Blocked Trend breakout on ${symbol} due to Normal Volume (No Spike)`);
       parsed.action = 'WAIT';
       parsed.strategyUsed = 'SIT_OUT';
-      parsed.summary = `[TREND CONFLUENCE BLOCK] CALL blocked. Hourly (1H: ${hourlyTrend}), 15-Minute (15M: ${majorTrend}), and 5-Minute trends must all align bullishly.`;
+      parsed.summary = `[VOLUME FILTER BLOCK] Trend entry blocked because volume is dry. Waiting for institutional volume surge to confirm direction.`;
       clearOptionDetails(parsed);
       return parsed;
     }
-  } else if (parsed.action === 'PUT') {
-    // 1. Enforce daily VWAP check
-    if (dailyVwap && spotPriceNum >= dailyVwap) {
-      console.log(`[OpenClaw Filter] Blocked PUT on ${symbol} because Spot (${spotPriceNum}) is above daily VWAP (${dailyVwap})`);
-      parsed.action = 'WAIT';
-      parsed.strategyUsed = 'SIT_OUT';
-      parsed.summary = `[VWAP FILTER BLOCK] PUT blocked. Price is trading above daily VWAP (${dailyVwap}). Bearish trades are low probability above VWAP.`;
-      clearOptionDetails(parsed);
-      return parsed;
+
+    // --- LAYER 5: Multi-Agent Consensus Voting ---
+    let optionAgentVote = 'NEUTRAL';
+    if (pcr > 1.15 || (pcrVelocity && pcrVelocity.includes('RISING'))) {
+      optionAgentVote = 'BULLISH';
+    } else if (pcr < 0.85 || (pcrVelocity && pcrVelocity.includes('FALLING'))) {
+      optionAgentVote = 'BEARISH';
     }
-    // 2. Swing Low Filter - Block PUT if price is sitting directly on fresh chart support
-    if (swingLow && spotPriceNum > swingLow && spotPriceNum <= swingLow * (1 + 0.0012)) {
-      console.log(`[OpenClaw Filter] Blocked PUT on ${symbol} - Spot (${spotPriceNum}) is within 0.12% above Swing Low support (${swingLow}). Awaiting breakdown.`);
-      parsed.action = 'WAIT';
-      parsed.strategyUsed = 'SIT_OUT';
-      parsed.summary = `[SWING LOW FILTER] PUT blocked. Spot price (${spotPriceNum}) is too close to recent Swing Low support (${swingLow}). Selling into support is low probability. Wait for breakdown below ${swingLow}.`;
-      clearOptionDetails(parsed);
-      return parsed;
+
+    // Volume PCR Velocity confirm
+    if (isVPcrSpiked) {
+      if (vPcrDirection === 'UP') optionAgentVote = 'BULLISH';
+      else if (vPcrDirection === 'DOWN') optionAgentVote = 'BEARISH';
     }
-    // 3. Enforce Multi-Timeframe Trend Confluence (1H, 15M, 5M)
-    if (isTrendFollowing && (hourlyTrend === 'BULLISH' || majorTrend === 'BULLISH' || !isShortTermBearish)) {
-      const stTrend = isShortTermBearish ? 'BEARISH' : 'BULLISH/NEUTRAL';
-      console.log(`[OpenClaw Filter] Blocked PUT on ${symbol} due to trend misalignment (1H: ${hourlyTrend}, 15M: ${majorTrend}, 5M: ${stTrend})`);
-      parsed.action = 'WAIT';
-      parsed.strategyUsed = 'SIT_OUT';
-      parsed.summary = `[TREND CONFLUENCE BLOCK] PUT blocked. Hourly (1H: ${hourlyTrend}), 15-Minute (15M: ${majorTrend}), and 5-Minute trends must all align bearishly.`;
-      clearOptionDetails(parsed);
-      return parsed;
+
+    let chartAgentVote = 'NEUTRAL';
+    if (hourlyTrend === 'BULLISH' && rsiVal > 48) {
+      chartAgentVote = 'BULLISH';
+    } else if (hourlyTrend === 'BEARISH' && rsiVal < 52) {
+      chartAgentVote = 'BEARISH';
     }
-  }
 
-  // --- LAYER 2: Support & Resistance Proximity Block ---
-  if (parsed.action === 'CALL' && resistanceStrike) {
-    const resStrikeNum = parseFloat(resistanceStrike);
-    const distPercent = (resStrikeNum - spotPriceNum) / spotPriceNum;
-    if (spotPriceNum <= resStrikeNum && distPercent <= 0.0015 && !shortCoveringDetected) {
-      console.log(`[OpenClaw Filter] Blocked CALL on ${symbol} due to Resistance Proximity (${resStrikeNum}, Spot: ${spotPriceNum})`);
-      parsed.action = 'WAIT';
-      parsed.strategyUsed = 'SIT_OUT';
-      parsed.summary = `[RESISTANCE BLOCK] CALL blocked. Price is too close to major resistance strike (${resStrikeNum}). Waiting for a confirmed breakout.`;
-      clearOptionDetails(parsed);
-      return parsed;
+    let trendAgentVote = 'NEUTRAL';
+    if (majorTrend === 'BULLISH') {
+      trendAgentVote = 'BULLISH';
+    } else if (majorTrend === 'BEARISH') {
+      trendAgentVote = 'BEARISH';
     }
-  }
-  if (parsed.action === 'PUT' && supportStrike) {
-    const supStrikeNum = parseFloat(supportStrike);
-    const distPercent = (spotPriceNum - supStrikeNum) / spotPriceNum;
-    if (spotPriceNum >= supStrikeNum && distPercent <= 0.0015 && !longUnwindingDetected) {
-      console.log(`[OpenClaw Filter] Blocked PUT on ${symbol} due to Support Proximity (${supStrikeNum}, Spot: ${spotPriceNum})`);
-      parsed.action = 'WAIT';
-      parsed.strategyUsed = 'SIT_OUT';
-      parsed.summary = `[SUPPORT BLOCK] PUT blocked. Price is too close to major support strike (${supStrikeNum}). Waiting for a confirmed breakdown.`;
-      clearOptionDetails(parsed);
-      return parsed;
-    }
-  }
 
-  // --- LAYER 3: RSI Overbought/Oversold Filter ---
-  const rsiVal = parseFloat(lastRsi);
-  if (parsed.action === 'CALL' && rsiVal > 70) {
-    console.log(`[OpenClaw Filter] Blocked CALL on ${symbol} due to Overbought RSI (${rsiVal})`);
-    parsed.action = 'WAIT';
-    parsed.strategyUsed = 'SIT_OUT';
-    parsed.summary = `[RSI OVERBOUGHT BLOCK] CALL blocked. RSI is extremely overbought (${rsiVal.toFixed(1)}). Buying here is very high risk.`;
-    clearOptionDetails(parsed);
-    return parsed;
-  }
-  if (parsed.action === 'PUT' && rsiVal < 30) {
-    console.log(`[OpenClaw Filter] Blocked PUT on ${symbol} due to Oversold RSI (${rsiVal})`);
-    parsed.action = 'WAIT';
-    parsed.strategyUsed = 'SIT_OUT';
-    parsed.summary = `[RSI OVERSOLD BLOCK] PUT blocked. RSI is extremely oversold (${rsiVal.toFixed(1)}). Selling here is very high risk.`;
-    clearOptionDetails(parsed);
-    return parsed;
-  }
+    if (parsed.action === 'CALL') {
+      let bullishVotes = 0;
+      if (optionAgentVote === 'BULLISH') bullishVotes++;
+      if (chartAgentVote === 'BULLISH') bullishVotes++;
+      if (trendAgentVote === 'BULLISH') bullishVotes++;
 
-  // --- LAYER 4: Volume Surge Validation (Breakout Confirm) ---
-  if (parsed.strategyUsed === 'TREND_FOLLOWING' && !isVolumeSpiked) {
-    console.log(`[OpenClaw Filter] Blocked Trend breakout on ${symbol} due to Normal Volume (No Spike)`);
-    parsed.action = 'WAIT';
-    parsed.strategyUsed = 'SIT_OUT';
-    parsed.summary = `[VOLUME FILTER BLOCK] Trend entry blocked because volume is dry. Waiting for institutional volume surge to confirm direction.`;
-    clearOptionDetails(parsed);
-    return parsed;
-  }
+      let bearishVotes = 0;
+      if (optionAgentVote === 'BEARISH') bearishVotes++;
+      if (chartAgentVote === 'BEARISH') bearishVotes++;
+      if (trendAgentVote === 'BEARISH') bearishVotes++;
 
-  // --- LAYER 5: Multi-Agent Consensus Voting ---
-  let optionAgentVote = 'NEUTRAL';
-  if (pcr > 1.15 || (pcrVelocity && pcrVelocity.includes('RISING'))) {
-    optionAgentVote = 'BULLISH';
-  } else if (pcr < 0.85 || (pcrVelocity && pcrVelocity.includes('FALLING'))) {
-    optionAgentVote = 'BEARISH';
-  }
+      if (bullishVotes < 2 || bearishVotes > 0) {
+        console.log(`[OpenClaw Filter] Blocked CALL on ${symbol} due to voting disagreement (Option: ${optionAgentVote}, Chart: ${chartAgentVote}, Trend: ${trendAgentVote})`);
+        parsed.action = 'WAIT';
+        parsed.strategyUsed = 'SIT_OUT';
+        parsed.summary = `[CONSENSUS BLOCKED] CALL blocked. Disagreement between agents (Option: ${optionAgentVote}, Chart: ${chartAgentVote}, Trend: ${trendAgentVote}).`;
+        clearOptionDetails(parsed);
+        return parsed;
+      }
+    } else if (parsed.action === 'PUT') {
+      let bearishVotes = 0;
+      if (optionAgentVote === 'BEARISH') bearishVotes++;
+      if (chartAgentVote === 'BEARISH') bearishVotes++;
+      if (trendAgentVote === 'BEARISH') bearishVotes++;
 
-  // Volume PCR Velocity confirm
-  if (isVPcrSpiked) {
-    if (vPcrDirection === 'UP') optionAgentVote = 'BULLISH';
-    else if (vPcrDirection === 'DOWN') optionAgentVote = 'BEARISH';
-  }
+      let bullishVotes = 0;
+      if (optionAgentVote === 'BULLISH') bullishVotes++;
+      if (chartAgentVote === 'BULLISH') bullishVotes++;
+      if (trendAgentVote === 'BULLISH') bullishVotes++;
 
-  let chartAgentVote = 'NEUTRAL';
-  if (hourlyTrend === 'BULLISH' && rsiVal > 48) {
-    chartAgentVote = 'BULLISH';
-  } else if (hourlyTrend === 'BEARISH' && rsiVal < 52) {
-    chartAgentVote = 'BEARISH';
-  }
-
-  let trendAgentVote = 'NEUTRAL';
-  if (majorTrend === 'BULLISH') {
-    trendAgentVote = 'BULLISH';
-  } else if (majorTrend === 'BEARISH') {
-    trendAgentVote = 'BEARISH';
-  }
-
-  if (parsed.action === 'CALL') {
-    let bullishVotes = 0;
-    if (optionAgentVote === 'BULLISH') bullishVotes++;
-    if (chartAgentVote === 'BULLISH') bullishVotes++;
-    if (trendAgentVote === 'BULLISH') bullishVotes++;
-
-    let bearishVotes = 0;
-    if (optionAgentVote === 'BEARISH') bearishVotes++;
-    if (chartAgentVote === 'BEARISH') bearishVotes++;
-    if (trendAgentVote === 'BEARISH') bearishVotes++;
-
-    if (bullishVotes < 2 || bearishVotes > 0) {
-      console.log(`[OpenClaw Filter] Blocked CALL on ${symbol} due to voting disagreement (Option: ${optionAgentVote}, Chart: ${chartAgentVote}, Trend: ${trendAgentVote})`);
-      parsed.action = 'WAIT';
-      parsed.strategyUsed = 'SIT_OUT';
-      parsed.summary = `[CONSENSUS BLOCKED] CALL blocked. Disagreement between agents (Option: ${optionAgentVote}, Chart: ${chartAgentVote}, Trend: ${trendAgentVote}).`;
-      clearOptionDetails(parsed);
-      return parsed;
-    }
-  } else if (parsed.action === 'PUT') {
-    let bearishVotes = 0;
-    if (optionAgentVote === 'BEARISH') bearishVotes++;
-    if (chartAgentVote === 'BEARISH') bearishVotes++;
-    if (trendAgentVote === 'BEARISH') bearishVotes++;
-
-    let bullishVotes = 0;
-    if (optionAgentVote === 'BULLISH') bullishVotes++;
-    if (chartAgentVote === 'BULLISH') bullishVotes++;
-    if (trendAgentVote === 'BULLISH') bullishVotes++;
-
-    if (bearishVotes < 2 || bullishVotes > 0) {
-      console.log(`[OpenClaw Filter] Blocked PUT on ${symbol} due to voting disagreement (Option: ${optionAgentVote}, Chart: ${chartAgentVote}, Trend: ${trendAgentVote})`);
-      parsed.action = 'WAIT';
-      parsed.strategyUsed = 'SIT_OUT';
-      parsed.summary = `[CONSENSUS BLOCKED] PUT blocked. Disagreement between agents (Option: ${optionAgentVote}, Chart: ${chartAgentVote}, Trend: ${trendAgentVote}).`;
-      clearOptionDetails(parsed);
-      return parsed;
+      if (bearishVotes < 2 || bullishVotes > 0) {
+        console.log(`[OpenClaw Filter] Blocked PUT on ${symbol} due to voting disagreement (Option: ${optionAgentVote}, Chart: ${chartAgentVote}, Trend: ${trendAgentVote})`);
+        parsed.action = 'WAIT';
+        parsed.strategyUsed = 'SIT_OUT';
+        parsed.summary = `[CONSENSUS BLOCKED] PUT blocked. Disagreement between agents (Option: ${optionAgentVote}, Chart: ${chartAgentVote}, Trend: ${trendAgentVote}).`;
+        clearOptionDetails(parsed);
+        return parsed;
+      }
     }
   }
 
@@ -2385,7 +2390,7 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
     spotPrice = cachedOc.spotPrice;
     strikesArray = cachedOc.data;
     finalExpiry = cachedOc.expiry;
-  } else if (!isIndianMarketOpen()) {
+  } else {
     try {
       const row = await getLastSavedOptionChain(symbolStr, finalExpiry);
       if (row) {
@@ -2400,45 +2405,62 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
 
   // Fallback to Dhan API if cache/DB empty
   if (!spotPrice || strikesArray.length === 0) {
-    const expiryResponse = await queuedDhanRequest({
-      method: 'post',
-      url: 'https://api.dhan.co/v2/optionchain/expirylist',
-      data: { UnderlyingScrip: scripId, UnderlyingSeg: 'IDX_I' },
-      headers: getDhanHeaders()
-    });
-
-    if (expiryResponse.data.status === 'success' && expiryResponse.data.data.length > 0) {
-      const expiryList = expiryResponse.data.data;
-      finalExpiry = finalExpiry || expiryList[0];
-
-      const ocResponse = await queuedDhanRequest({
+    try {
+      const expiryResponse = await queuedDhanRequest({
         method: 'post',
-        url: 'https://api.dhan.co/v2/optionchain',
-        data: { UnderlyingScrip: scripId, UnderlyingSeg: 'IDX_I', Expiry: finalExpiry },
+        url: 'https://api.dhan.co/v2/optionchain/expirylist',
+        data: { UnderlyingScrip: scripId, UnderlyingSeg: 'IDX_I' },
         headers: getDhanHeaders()
       });
 
-      if (ocResponse.data.status === 'success') {
-        const rawData = ocResponse.data.data;
-        spotPrice = rawData.last_price;
-        const rawOc = rawData.oc;
-        strikesArray = Object.keys(rawOc).map(strikeStr => {
-          const strike = parseFloat(strikeStr);
-          const data = rawOc[strikeStr];
-          return {
-            strike,
-            callOi: data.ce?.oi || 0,
-            callChgOi: (data.ce?.oi || 0) - (data.ce?.previous_oi || 0),
-            callLtp: data.ce?.last_price || 0,
-            callVolume: data.ce?.volume || 0,
-            callIv: data.ce?.implied_volatility || data.ce?.iv || 0,
-            putVolume: data.pe?.volume || 0,
-            putLtp: data.pe?.last_price || 0,
-            putChgOi: (data.pe?.oi || 0) - (data.pe?.previous_oi || 0),
-            putOi: data.pe?.oi || 0,
-            putIv: data.pe?.implied_volatility || data.pe?.iv || 0
-          };
-        }).sort((a, b) => a.strike - b.strike);
+      if (expiryResponse.data.status === 'success' && expiryResponse.data.data.length > 0) {
+        const expiryList = expiryResponse.data.data;
+        finalExpiry = finalExpiry || expiryList[0];
+
+        const ocResponse = await queuedDhanRequest({
+          method: 'post',
+          url: 'https://api.dhan.co/v2/optionchain',
+          data: { UnderlyingScrip: scripId, UnderlyingSeg: 'IDX_I', Expiry: finalExpiry },
+          headers: getDhanHeaders()
+        });
+
+        if (ocResponse.data.status === 'success') {
+          const rawData = ocResponse.data.data;
+          spotPrice = rawData.last_price;
+          const rawOc = rawData.oc;
+          strikesArray = Object.keys(rawOc).map(strikeStr => {
+            const strike = parseFloat(strikeStr);
+            const data = rawOc[strikeStr];
+            return {
+              strike,
+              callOi: data.ce?.oi || 0,
+              callChgOi: (data.ce?.oi || 0) - (data.ce?.previous_oi || 0),
+              callLtp: data.ce?.last_price || 0,
+              callVolume: data.ce?.volume || 0,
+              callIv: data.ce?.implied_volatility || data.ce?.iv || 0,
+              putVolume: data.pe?.volume || 0,
+              putLtp: data.pe?.last_price || 0,
+              putChgOi: (data.pe?.oi || 0) - (data.pe?.previous_oi || 0),
+              putOi: data.pe?.oi || 0,
+              putIv: data.pe?.implied_volatility || data.pe?.iv || 0
+            };
+          }).sort((a, b) => a.strike - b.strike);
+        }
+      }
+    } catch (dhanErr) {
+      console.warn(`[OpenClaw API Fallback] Dhan API call failed: ${dhanErr.message}. Attempting database fallback...`);
+      if (!spotPrice || strikesArray.length === 0) {
+        try {
+          const row = await getLastSavedOptionChain(symbolStr, finalExpiry);
+          if (row) {
+            spotPrice = row.spot_price;
+            strikesArray = JSON.parse(row.data);
+            finalExpiry = row.expiry;
+            console.log(`[OpenClaw API Fallback] Successfully loaded fallback option chain from DB for ${symbolStr}`);
+          }
+        } catch (dbErr2) {
+          console.error('Error fetching fallback option chain from DB:', dbErr2.message);
+        }
       }
     }
   }
@@ -2574,7 +2596,10 @@ async function executeOpenClawAnalysis(symbol, expiry = null, weights = { pcrWei
     const sumVol = last10.reduce((acc, c) => acc + (c.volume || 0), 0);
     averageVolume = Math.round(sumVol / 10);
     latestVolume = chartCandles[chartCandles.length - 1].volume || 0;
-    if (averageVolume > 0 && latestVolume > 1.5 * averageVolume) {
+    // If averageVolume is 1 or less, actual volume data is not available (common for index charts). Default to true to prevent blocking.
+    if (averageVolume <= 1) {
+      isVolumeSpiked = true;
+    } else if (averageVolume > 0 && latestVolume > 1.5 * averageVolume) {
       isVolumeSpiked = true;
     }
   }
@@ -3369,7 +3394,7 @@ INSTRUCTIONS FOR WRITING:
     isShortTermBearish,
     swingHigh,
     swingLow
-  });
+  }, settings);
 
   // Apply Strict Trend Filter and Unwinding safeguards on the parsed result
   const isStrictTrendFilterEnabled = settings['strict_trend_filter'] !== 'false';

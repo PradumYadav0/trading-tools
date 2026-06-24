@@ -4651,7 +4651,7 @@ async function triggerOpenClawBackgroundAlerts() {
     lastOpenClawAlertMinute = minute;
     logToBackground(`Scheduler starting auto-scan. Interval: ${interval}m, Min Conf: ${minConfidence}%, Weights: PCR=${pcrWeight}%, Chart=${chartWeight}%, News=${newsWeight}%`, 'info');
 
-    const symbols = ['NIFTY', 'BANKNIFTY'];
+    const symbols = ['BANKNIFTY'];
 
     for (const symbol of symbols) {
       try {
@@ -5208,7 +5208,7 @@ const syncMarketData = async () => {
     isSyncing = false;
     return;
   }
-  const symbols = ['NIFTY', 'BANKNIFTY'];
+  const symbols = ['BANKNIFTY'];
   console.log(`[Sync Worker] Starting unified market data sync...`);
   
   for (const symbol of symbols) {
@@ -5426,7 +5426,7 @@ const syncMarketData = async () => {
 
 // Background Signal Generator: Unified High-Accuracy Decoder
 async function runAllDecoders() {
-  const symbols = ['NIFTY', 'BANKNIFTY'];
+  const symbols = ['BANKNIFTY'];
   
   for (const symbol of symbols) {
     try {
